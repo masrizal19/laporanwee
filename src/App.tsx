@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ViewType,
   Project,
@@ -33,7 +33,58 @@ import { CalendarView } from './views/CalendarView';
 import { ProfileView } from './views/ProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
 
+// Auth views
+import { LoginView } from './views/LoginView';
+import { RegisterView } from './views/RegisterView';
+
 export function App() {
+  // 1. Session & Routing state
+  const [user, setUser] = useState<{ email: string; name: string } | null>(() => {
+    const saved = localStorage.getItem('laporanwee_user');
+    return saved ? JSON.parse(saved) : null;
+  });
+
+  const getPathFromLocation = (): string => {
+    const hashPath = window.location.hash.replace('#', '');
+    if (hashPath === '/login' || hashPath === '/register' || hashPath === '/dashboard') {
+      return hashPath;
+    }
+    const path = window.location.pathname;
+    if (path.endsWith('/login')) return '/login';
+    if (path.endsWith('/register')) return '/register';
+    if (path.endsWith('/dashboard')) return '/dashboard';
+    return '/dashboard';
+  };
+
+  const [currentPath, setCurrentPath] = useState<string>(getPathFromLocation);
+
+  const navigateToPath = (path: string) => {
+    window.history.pushState({}, '', path);
+    setCurrentPath(path);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(getPathFromLocation());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Sync protected routes
+  useEffect(() => {
+    if (!user) {
+      if (currentPath !== '/register') {
+        navigateToPath('/login');
+      }
+    } else {
+      if (currentPath === '/login' || currentPath === '/register') {
+        navigateToPath('/dashboard');
+      }
+    }
+  }, [user, currentPath]);
+
   const [currentView, setCurrentView] = useState<ViewType>('dashboard');
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
@@ -177,10 +228,51 @@ export function App() {
     setEvents((prev) => [...prev, newEvent]);
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('laporanwee_user');
+    setUser(null);
+    addToast('Berhasil keluar dari sesi.');
+    navigateToPath('/login');
+  };
+
   const currentProject =
     projects.find((p) => p.id === selectedProjectId) || projects[0];
   const currentReport =
     reports.find((r) => r.id === selectedReportId) || reports[0];
+
+  // Conditional Rendering for Auth Flows
+  if (!user && currentPath === '/register') {
+    return (
+      <>
+        <RegisterView
+          onRegisterSuccess={() => {
+            addToast('Akun berhasil dibuat! Silakan masuk.');
+            navigateToPath('/login');
+          }}
+          onNavigateToLogin={() => navigateToPath('/login')}
+        />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
+
+  if (!user || currentPath === '/login') {
+    return (
+      <>
+        <LoginView
+          onLoginSuccess={(email, name) => {
+            const loggedInUser = { email, name };
+            localStorage.setItem('laporanwee_user', JSON.stringify(loggedInUser));
+            setUser(loggedInUser);
+            addToast(`Selamat datang kembali, ${name}!`);
+            navigateToPath('/dashboard');
+          }}
+          onNavigateToRegister={() => navigateToPath('/register')}
+        />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
 
   return (
     <div id="app-shell">
@@ -189,6 +281,9 @@ export function App() {
         currentView={currentView}
         onNavigate={handleNavigate}
         onAddToast={addToast}
+        onLogout={handleLogout}
+        userEmail={user.email}
+        userName={user.name}
       />
 
       {/* Main Container */}

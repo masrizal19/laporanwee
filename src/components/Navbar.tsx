@@ -6,9 +6,19 @@ interface NavbarProps {
   currentView: ViewType;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
+  onLogout?: () => void;
+  userEmail?: string;
+  userName?: string;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onAddToast }) => {
+export const Navbar: React.FC<NavbarProps> = ({
+  currentView,
+  onNavigate,
+  onAddToast,
+  onLogout,
+  userEmail,
+  userName,
+}) => {
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [unreadCount, setUnreadCount] = useState(3);
@@ -163,12 +173,12 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onAddTo
             >
               <img
                 src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                alt="Rangga Arya"
+                alt={userName || "Rangga Arya"}
                 className="avatar"
               />
               <div className="meta">
-                <div className="hi">Rangga Arya</div>
-                <div className="mail">rangga@wee.agency</div>
+                <div className="hi">{userName || "Rangga Arya"}</div>
+                <div className="mail">{userEmail || "rangga@wee.agency"}</div>
               </div>
               <span className="chev">
                 <Icon name="chevdown" />
@@ -211,7 +221,11 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, onNavigate, onAddTo
                 style={{ color: 'var(--danger)', borderTop: '1px solid var(--line-soft)', marginTop: '4px', paddingTop: '10px' }}
                 onClick={() => {
                   setShowProfile(false);
-                  onAddToast('Berhasil keluar dari sesi.');
+                  if (onLogout) {
+                    onLogout();
+                  } else {
+                    onAddToast('Berhasil keluar dari sesi.');
+                  }
                 }}
               >
                 <Icon name="x" />
