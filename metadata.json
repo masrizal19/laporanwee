@@ -1,0 +1,6 @@
+{
+  "name": "LaporanWee",
+  "description": "Creative team workflow, project tracking, daily reporting, and collaborative task management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
