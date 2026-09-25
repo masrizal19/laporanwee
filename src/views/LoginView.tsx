@@ -15,6 +15,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
     return localStorage.getItem('laporanwee_registered_email') || '';
   });
   const [password, setPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -190,7 +191,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
               <label htmlFor="passInput">Password</label>
               <div className={`input-wrap ${isFocusPass ? 'focus' : ''}`} id="passWrap">
                 <input
-                  type="password"
+                  type={showLoginPassword ? 'text' : 'password'}
                   id="passInput"
                   ref={passInputRef}
                   value={password}
@@ -203,6 +204,25 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   <rect x="5" y="11" width="14" height="9" rx="2" />
                   <path d="M8 11V8a4 4 0 018 0v3" />
                 </svg>
+                <button
+                  type="button"
+                  className="toggle-password-btn"
+                  onClick={() => setShowLoginPassword((prev) => !prev)}
+                  aria-label={showLoginPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  title={showLoginPassword ? 'Sembunyikan password' : 'Lihat password'}
+                >
+                  {showLoginPassword ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  )}
+                </button>
               </div>
             </div>
 
