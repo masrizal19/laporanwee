@@ -1,4 +1,8 @@
-export const API_BASE_URL = (import.meta.env.VITE_API_URL || 'https://api-laporanwe.mkverse.my.id/api').replace(/\/$/, '');
+let rawUrl = import.meta.env.VITE_API_URL || 'https://api-laporanwe.mkverse.my.id/api';
+if (rawUrl && !rawUrl.endsWith('/api') && !rawUrl.endsWith('/api/')) {
+  rawUrl = `${rawUrl.replace(/\/$/, '')}/api`;
+}
+export const API_BASE_URL = rawUrl.replace(/\/$/, '');
 
 // Helper to get authorization headers with stored token
 export const getHeaders = () => {

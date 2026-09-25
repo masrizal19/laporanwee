@@ -66,13 +66,29 @@ export function App() {
 
   const getPathFromLocation = (): string => {
     const hashPath = window.location.hash.replace('#', '');
-    if (hashPath === '/login' || hashPath === '/register' || hashPath === '/dashboard') {
+    const validPaths = [
+      '/login',
+      '/register',
+      '/dashboard',
+      '/proyek',
+      '/laporan',
+      '/tugas',
+      '/tim',
+      '/kalender',
+      '/analitik'
+    ];
+    if (validPaths.includes(hashPath)) {
       return hashPath;
     }
     const path = window.location.pathname;
-    if (path.endsWith('/login')) return '/login';
-    if (path.endsWith('/register')) return '/register';
-    if (path.endsWith('/dashboard')) return '/dashboard';
+    for (const validPath of validPaths) {
+      if (path.endsWith(validPath)) {
+        return validPath;
+      }
+    }
+    if (path === '/' || path.endsWith('/')) {
+      return '/dashboard';
+    }
     return '/dashboard';
   };
 
@@ -105,7 +121,47 @@ export function App() {
     }
   }, [user, currentPath]);
 
-  const [currentView, setCurrentView] = useState<ViewType>('dashboard');
+  // Route & View Maps for clean SPA routing on custom domain
+  const pathToViewMap: Record<string, ViewType> = {
+    '/dashboard': 'dashboard',
+    '/proyek': 'projects',
+    '/laporan': 'reports',
+    '/tugas': 'tasks',
+    '/tim': 'team',
+    '/kalender': 'calendar',
+    '/analitik': 'analytics',
+  };
+
+  const viewToPathMap: Record<ViewType, string> = {
+    'dashboard': '/dashboard',
+    'projects': '/proyek',
+    'project-detail': '/proyek',
+    'tasks': '/tugas',
+    'team': '/tim',
+    'calendar': '/kalender',
+    'reports': '/laporan',
+    'report-detail': '/laporan',
+    'create-report': '/laporan',
+    'profile': '/dashboard',
+    'analytics': '/analitik',
+  };
+
+  const [currentView, setCurrentView] = useState<ViewType>(() => {
+    const initialPath = getPathFromLocation();
+    if (initialPath === '/login' || initialPath === '/register') return 'dashboard';
+    return pathToViewMap[initialPath] || 'dashboard';
+  });
+
+  // Sync currentView with currentPath when browser path changes (like on forward/back navigation)
+  useEffect(() => {
+    if (user) {
+      const targetView = pathToViewMap[currentPath];
+      if (targetView && targetView !== currentView) {
+        setCurrentView(targetView);
+      }
+    }
+  }, [currentPath, user]);
+
   const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
   const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
   const [reports, setReports] = useState<Report[]>(INITIAL_REPORTS);
@@ -126,8 +182,9 @@ export function App() {
   };
 
   const handleNavigate = (view: ViewType) => {
+    const targetPath = viewToPathMap[view] || '/dashboard';
+    navigateToPath(targetPath);
     setCurrentView(view);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Projects CRUD
