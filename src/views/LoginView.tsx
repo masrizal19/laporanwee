@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
+import { api } from '../utils/api';
 
 interface LoginViewProps {
   onLoginSuccess: (email: string, name: string) => void;
@@ -18,74 +19,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [isFocusEmail, setIsFocusEmail] = useState(false);
   const [isFocusPass, setIsFocusPass] = useState(false);
 
-  const [emailCaret, setEmailCaret] = useState(true);
-  const [passCaret, setPassCaret] = useState(true);
-
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passInputRef = useRef<HTMLInputElement>(null);
-
-  // Trigger auto-typing simulation similar to the master design
-  const runTypingSimulation = () => {
-    setEmail('');
-    setPassword('');
-    setErrorMsg('');
-    setIsSuccess(false);
-    setIsLoading(false);
-
-    const DEMO_EMAIL = 'admin@laporanwee.agency';
-    const DEMO_PASS = 'admin123';
-
-    // 1. Focus email field
-    setTimeout(() => {
-      setIsFocusEmail(true);
-      setEmailCaret(false);
-      let emailIdx = 0;
-      let currentEmail = '';
-      const emailInterval = setInterval(() => {
-        currentEmail += DEMO_EMAIL[emailIdx];
-        setEmail(currentEmail);
-        emailIdx++;
-        if (emailIdx >= DEMO_EMAIL.length) {
-          clearInterval(emailInterval);
-          setEmailCaret(true);
-          setIsFocusEmail(false);
-
-          // 2. Focus password field after 350ms
-          setTimeout(() => {
-            setIsFocusPass(true);
-            setPassCaret(false);
-            let passIdx = 0;
-            let currentPass = '';
-            const passInterval = setInterval(() => {
-              currentPass += DEMO_PASS[passIdx];
-              setPassword(currentPass);
-              passIdx++;
-              if (passIdx >= DEMO_PASS.length) {
-                clearInterval(passInterval);
-                setPassCaret(true);
-                setIsFocusPass(false);
-
-                // 3. Trigger button loading after 500ms
-                setTimeout(() => {
-                  setIsLoading(true);
-                  // 4. Show success screen after 900ms
-                  setTimeout(() => {
-                    setIsLoading(false);
-                    setIsSuccess(true);
-                  }, 900);
-                }, 500);
-              }
-            }, 70);
-          }, 350);
-        }
-      }, 55);
-    }, 500);
-  };
-
-  // Run the typing simulation on mount automatically so they get the awesome video-like onboarding!
-  useEffect(() => {
-    runTypingSimulation();
-  }, []);
 
   const handleSignIn = (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,40 +34,52 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setIsLoading(true);
     setErrorMsg('');
 
-    // Verification against registered accounts in localStorage
-    setTimeout(() => {
-      const storedUsersRaw = localStorage.getItem('laporanwee_registered_users');
-      const users = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
+    // Send authentication request to the real PHP backend
+    api.post('/login.php', { email, password })
+      .then((res) => {
+        setIsLoading(false);
+        
+        const token = res.token || res.data?.token || res.session_id || 'session-active-token';
+        localStorage.setItem('laporanwee_token', token);
 
-      // Include default admin credentials
-      const defaultUsers = [
-        { email: 'admin@laporanwee.agency', password: 'admin123', name: 'Rangga Arya' },
-        { email: 'youremail@gmail.com', password: 'password123', name: 'Rangga Arya' }
-      ];
+        // Get user details from response or fallback
+        const emailVal = res.user?.email || res.data?.user?.email || res.email || email;
+        const nameVal = res.user?.full_name || res.user?.name || res.data?.user?.full_name || res.data?.user?.name || res.full_name || res.name || res.data?.name || 'Rangga Arya';
 
-      const allUsers = [...defaultUsers, ...users];
-      const match = allUsers.find(
-        (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-      );
-
-      setIsLoading(false);
-
-      if (match) {
+        const userObj = { email: emailVal, name: nameVal };
+        localStorage.setItem('laporanwee_user', JSON.stringify(userObj));
         setIsSuccess(true);
-      } else {
-        setErrorMsg('Email atau password tidak sesuai.');
-      }
-    }, 1000);
+      })
+      .catch((err: any) => {
+        // Fallback ONLY if there is a network / CORS failure and user tries default demo account
+        const isNetworkError = !err.status || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+        const defaultUsers = [
+          { email: 'admin@laporanwee.agency', password: 'admin123', name: 'Rangga Arya' },
+          { email: 'youremail@gmail.com', password: 'password123', name: 'Rangga Arya' }
+        ];
+        const match = defaultUsers.find(
+          (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
+        );
+
+        setIsLoading(false);
+        if (isNetworkError && match) {
+          localStorage.setItem('laporanwee_token', 'demo-fallback-token');
+          localStorage.setItem('laporanwee_user', JSON.stringify({ email: match.email, name: match.name }));
+          setIsSuccess(true);
+        } else {
+          setErrorMsg(err.message || 'Email atau password tidak sesuai.');
+        }
+      });
   };
 
   const handleProceed = () => {
-    // Find matching user or fallback to default name
-    const storedUsersRaw = localStorage.getItem('laporanwee_registered_users');
-    const users = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
-    const matched = users.find((u: any) => u.email.toLowerCase() === email.toLowerCase());
-    const finalName = matched ? matched.name : 'Rangga Arya';
-
-    onLoginSuccess(email || 'admin@laporanwee.agency', finalName);
+    const storedUser = localStorage.getItem('laporanwee_user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      onLoginSuccess(parsed.email, parsed.name);
+    } else {
+      onLoginSuccess(email || 'admin@laporanwee.agency', 'Rangga Arya');
+    }
   };
 
   return (
@@ -207,7 +154,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   onBlur={() => setIsFocusEmail(false)}
                   placeholder="admin@laporanwee.agency"
                 />
-                <span className={`caret ${emailCaret ? 'hidden' : ''}`} id="emailCaret"></span>
                 <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
                   <rect x="3" y="5" width="18" height="14" rx="2" />
                   <path d="M3 7l9 6 9-6" />
@@ -228,7 +174,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
                   onBlur={() => setIsFocusPass(false)}
                   placeholder="••••••••••••"
                 />
-                <span className={`caret ${passCaret ? 'hidden' : ''}`} id="passCaret"></span>
                 <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
                   <rect x="5" y="11" width="14" height="9" rx="2" />
                   <path d="M8 11V8a4 4 0 018 0v3" />
@@ -263,13 +208,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
             Proceed
           </button>
         </div>
-      </div>
-
-      {/* Demo helper options */}
-      <div className="demo-control-bar">
-        <button className="demo-btn" type="button" onClick={runTypingSimulation}>
-          Run Auto-Type Simulation
-        </button>
       </div>
     </div>
   );

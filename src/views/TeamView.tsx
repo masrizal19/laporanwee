@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
 import { Icon, Illustration } from '../components/icons';
+import { Modal } from '../components/Modal';
+import { api } from '../utils/api';
 
 interface TeamViewProps {
   activities: Activity[];
@@ -16,6 +18,37 @@ export const TeamView: React.FC<TeamViewProps> = ({
   onAddToast,
 }) => {
   const [filter, setFilter] = useState<'All' | 'Reports' | 'Tasks' | 'Files' | 'Comments'>('All');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const handleCreateUserSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim() || !email.trim() || !password.trim()) {
+      setErrorMsg('Harap lengkapi semua bidang.');
+      return;
+    }
+    setIsCreating(true);
+    setErrorMsg('');
+
+    api.post('/create-user.php', { full_name: fullName, email, password })
+      .then((res) => {
+        setIsCreating(false);
+        setIsModalOpen(false);
+        onAddToast(`Akun anggota tim "${fullName}" berhasil dibuat!`);
+        // Reset form
+        setFullName('');
+        setEmail('');
+        setPassword('');
+      })
+      .catch((err: any) => {
+        setIsCreating(false);
+        setErrorMsg(err.message || 'Gagal membuat akun anggota tim.');
+      });
+  };
 
   const filteredActivities = activities.filter((a) => {
     if (filter === 'All') return true;
@@ -40,9 +73,9 @@ export const TeamView: React.FC<TeamViewProps> = ({
             Pantau update real-time pengerjaan, file yang diunggah, dan ketersediaan rekan tim.
           </p>
         </div>
-        <button className="btn btn-dark" onClick={handleCopyInvite}>
+        <button className="btn btn-dark" onClick={() => setIsModalOpen(true)}>
           <Icon name="users" />
-          <span>Undang Anggota Baru</span>
+          <span>Tambah Anggota Baru</span>
         </button>
       </div>
 
@@ -247,6 +280,72 @@ export const TeamView: React.FC<TeamViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal Tambah Anggota Baru */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setErrorMsg('');
+        }}
+        title="Tambah Anggota Tim Baru"
+      >
+        <form onSubmit={handleCreateUserSubmit}>
+          <div className="field">
+            <label htmlFor="team-fullname-input">Nama Lengkap</label>
+            <input
+              id="team-fullname-input"
+              type="text"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Contoh: Rangga Arya"
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="team-email-input">Alamat Email</label>
+            <input
+              id="team-email-input"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Contoh: admin@laporanwee.agency"
+              required
+            />
+          </div>
+
+          <div className="field">
+            <label htmlFor="team-password-input">Password Akun</label>
+            <input
+              id="team-password-input"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Minimal 6 karakter"
+              required
+            />
+          </div>
+
+          {errorMsg && <div className="auth-error" style={{ marginBottom: '15px' }}>{errorMsg}</div>}
+
+          <div className="modal-foot">
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => {
+                setIsModalOpen(false);
+                setErrorMsg('');
+              }}
+            >
+              Batal
+            </button>
+            <button type="submit" className="btn btn-dark" disabled={isCreating}>
+              {isCreating ? 'Membuat...' : 'Buat Anggota Tim'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

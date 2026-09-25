@@ -10,6 +10,8 @@ interface ProfileViewProps {
   onSelectProject: (projectId: string) => void;
   onSelectReport: (reportId: string) => void;
   onAddToast: (text: string) => void;
+  userEmail: string;
+  userName: string;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -19,10 +21,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onSelectProject,
   onSelectReport,
   onAddToast,
+  userEmail,
+  userName,
 }) => {
-  const [name, setName] = useState('Rangga Arya');
+  const [name, setName] = useState(userName || 'Rangga Arya');
   const [role, setRole] = useState('Lead Product Designer & UI Specialist');
-  const [email, setEmail] = useState('rangga@wee.agency');
+  const [email, setEmail] = useState(userEmail || 'rangga@wee.agency');
   const [isEditOpen, setIsEditOpen] = useState(false);
 
   const myReports = reports.filter((r) => r.person.includes('Rangga'));

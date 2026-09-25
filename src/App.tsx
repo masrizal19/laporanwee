@@ -36,6 +36,7 @@ import { AnalyticsView } from './views/AnalyticsView';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
+import { api } from './utils/api';
 
 export function App() {
   // 1. Session & Routing state
@@ -43,6 +44,25 @@ export function App() {
     const saved = localStorage.getItem('laporanwee_user');
     return saved ? JSON.parse(saved) : null;
   });
+
+  // Verify active session on load from localStorage to keep state active during refresh
+  useEffect(() => {
+    const saved = localStorage.getItem('laporanwee_user');
+    const token = localStorage.getItem('laporanwee_token');
+    if (saved && token) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.email) {
+          setUser(parsed);
+        }
+      } catch (e) {
+        localStorage.removeItem('laporanwee_user');
+        localStorage.removeItem('laporanwee_token');
+        setUser(null);
+        navigateToPath('/login');
+      }
+    }
+  }, []);
 
   const getPathFromLocation = (): string => {
     const hashPath = window.location.hash.replace('#', '');
@@ -229,10 +249,19 @@ export function App() {
   };
 
   const handleLogout = () => {
+    const token = localStorage.getItem('laporanwee_token');
+    
+    // Clear state & storage immediately for reactive UI response
     localStorage.removeItem('laporanwee_user');
+    localStorage.removeItem('laporanwee_token');
     setUser(null);
     addToast('Berhasil keluar dari sesi.');
     navigateToPath('/login');
+
+    // Notify backend
+    if (token && token !== 'demo-fallback-token' && token !== 'session-active-token') {
+      api.post('/logout.php', {}).catch(() => {});
+    }
   };
 
   const currentProject =
@@ -383,6 +412,8 @@ export function App() {
             onSelectProject={(id) => setSelectedProjectId(id)}
             onSelectReport={(id) => setSelectedReportId(id)}
             onAddToast={addToast}
+            userEmail={user.email}
+            userName={user.name}
           />
         )}
 

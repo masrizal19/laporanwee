@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import '../auth.css';
+import { api } from '../utils/api';
 
 interface RegisterViewProps {
   onRegisterSuccess: () => void;
@@ -40,24 +41,34 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
     setIsLoading(true);
     setErrorMsg('');
 
-    setTimeout(() => {
-      // Fetch currently registered users
-      const storedUsersRaw = localStorage.getItem('laporanwee_registered_users');
-      const users = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
-
-      // Check if user already exists
-      const alreadyExists = users.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
-      setIsLoading(false);
-
-      if (alreadyExists) {
-        setErrorMsg('Alamat E-mail sudah terdaftar.');
-      } else {
-        // Save the new user to localStorage
-        const updatedUsers = [...users, { name, email, password }];
-        localStorage.setItem('laporanwee_registered_users', JSON.stringify(updatedUsers));
+    // Send register request to real PHP backend
+    api.post('/register.php', { full_name: name, email, password })
+      .then((res) => {
+        setIsLoading(false);
         setIsSuccess(true);
-      }
-    }, 1000);
+      })
+      .catch((err: any) => {
+        // Fallback ONLY for preview/testing environment in case there's a network/CORS error
+        const isNetworkError = !err.status || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+        
+        if (isNetworkError) {
+          const storedUsersRaw = localStorage.getItem('laporanwee_registered_users');
+          const users = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
+          const alreadyExists = users.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
+
+          setIsLoading(false);
+          if (alreadyExists) {
+            setErrorMsg('Alamat E-mail sudah terdaftar.');
+          } else {
+            const updatedUsers = [...users, { name, email, password }];
+            localStorage.setItem('laporanwee_registered_users', JSON.stringify(updatedUsers));
+            setIsSuccess(true);
+          }
+        } else {
+          setIsLoading(false);
+          setErrorMsg(err.message || 'Gagal mendaftarkan akun. Silakan coba lagi.');
+        }
+      });
   };
 
   const handleProceed = () => {
