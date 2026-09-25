@@ -316,7 +316,7 @@ export function App() {
     navigateToPath('/login');
 
     // Notify backend
-    if (token && token !== 'demo-fallback-token' && token !== 'session-active-token') {
+    if (token) {
       api.post('/logout.php', {}).catch(() => {});
     }
   };

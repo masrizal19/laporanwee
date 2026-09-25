@@ -34,7 +34,12 @@ export const TeamView: React.FC<TeamViewProps> = ({
     setIsCreating(true);
     setErrorMsg('');
 
-    api.post('/create-user.php', { full_name: fullName, email, password })
+    api.post('/create-user.php', {
+      name: fullName.trim(),
+      full_name: fullName.trim(),
+      email: email.trim().toLowerCase(),
+      password,
+    })
       .then((res) => {
         setIsCreating(false);
         setIsModalOpen(false);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
-import { api } from '../utils/api';
+import { API_BASE_URL } from '../utils/api';
 
 interface LoginViewProps {
   onLoginSuccess: (email: string, name: string) => void;
@@ -11,7 +11,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
   onLoginSuccess,
   onNavigateToRegister,
 }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    return localStorage.getItem('laporanwee_registered_email') || '';
+  });
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -22,11 +24,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSignIn = (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
-    if (!email.trim() || !password.trim()) {
+    const trimmedEmail = email.trim().toLowerCase();
+
+    if (!trimmedEmail || !password) {
       setErrorMsg('Harap isi E-Mail dan Password.');
       return;
     }
@@ -34,52 +38,73 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setIsLoading(true);
     setErrorMsg('');
 
-    // Send authentication request to the real PHP backend
-    api.post('/login.php', { email, password })
-      .then((res) => {
-        setIsLoading(false);
-        
-        const token = res.token || res.data?.token || res.session_id || 'session-active-token';
-        localStorage.setItem('laporanwee_token', token);
+    // Safe debugging log (never log plain password)
+    console.log('[Login] Mengirim permintaan login ke server:', {
+      url: `${API_BASE_URL}/login.php`,
+      payload: {
+        email: trimmedEmail,
+        password: '***',
+      },
+    });
 
-        // Get user details from response or fallback
-        const emailVal = res.user?.email || res.data?.user?.email || res.email || email;
-        const nameVal = res.user?.full_name || res.user?.name || res.data?.user?.full_name || res.data?.user?.name || res.full_name || res.name || res.data?.name || 'Rangga Arya';
-
-        const userObj = { email: emailVal, name: nameVal };
-        localStorage.setItem('laporanwee_user', JSON.stringify(userObj));
-        setIsSuccess(true);
-      })
-      .catch((err: any) => {
-        // Fallback ONLY if there is a network / CORS failure and user tries default demo account
-        const isNetworkError = !err.status || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
-        const defaultUsers = [
-          { email: 'admin@laporanwee.agency', password: 'admin123', name: 'Rangga Arya' },
-          { email: 'youremail@gmail.com', password: 'password123', name: 'Rangga Arya' }
-        ];
-        const match = defaultUsers.find(
-          (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-        );
-
-        setIsLoading(false);
-        if (isNetworkError && match) {
-          localStorage.setItem('laporanwee_token', 'demo-fallback-token');
-          localStorage.setItem('laporanwee_user', JSON.stringify({ email: match.email, name: match.name }));
-          setIsSuccess(true);
-        } else {
-          setErrorMsg(err.message || 'Email atau password tidak sesuai.');
-        }
+    try {
+      // Direct POST request to PHP MySQL backend
+      const response = await fetch(`${API_BASE_URL}/login.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          email: trimmedEmail,
+          password: password,
+        }),
       });
+
+      // Safe text-then-parse response pattern
+      const text = await response.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server mengembalikan response tidak valid (${response.status})`);
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || data.error || 'Email atau password tidak sesuai.');
+      }
+
+      setIsLoading(false);
+
+      const token = data.token || data.data?.token || 'session-active-token';
+      localStorage.setItem('laporanwee_token', token);
+
+      const emailVal = data.user?.email || data.data?.user?.email || trimmedEmail;
+      const nameVal = data.user?.full_name || data.user?.name || data.data?.user?.full_name || data.data?.user?.name || trimmedEmail.split('@')[0];
+
+      const userObj = {
+        email: emailVal,
+        name: nameVal,
+      };
+      localStorage.setItem('laporanwee_user', JSON.stringify(userObj));
+      setIsSuccess(true);
+    } catch (err: any) {
+      setIsLoading(false);
+      setErrorMsg(err.message || 'Email atau password tidak sesuai.');
+    }
   };
 
   const handleProceed = () => {
     const storedUser = localStorage.getItem('laporanwee_user');
     if (storedUser) {
-      const parsed = JSON.parse(storedUser);
-      onLoginSuccess(parsed.email, parsed.name);
-    } else {
-      onLoginSuccess(email || 'admin@laporanwee.agency', 'Rangga Arya');
+      try {
+        const parsed = JSON.parse(storedUser);
+        onLoginSuccess(parsed.email, parsed.name);
+        return;
+      } catch (_) {}
     }
+    const trimmedEmail = email.trim();
+    onLoginSuccess(trimmedEmail, trimmedEmail.split('@')[0] || 'User');
   };
 
   return (
@@ -202,7 +227,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
           </svg>
           <p>
             Welcome to LaporanWee! Click proceed to enter your creative dashboard.
-            <strong id="emailEcho">{email || 'admin@laporanwee.agency'}</strong>
+            <strong id="emailEcho">{email}</strong>
           </p>
           <button className="proceed" type="button" onClick={handleProceed}>
             Proceed

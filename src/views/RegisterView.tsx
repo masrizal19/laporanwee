@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import '../auth.css';
-import { api } from '../utils/api';
+import { API_BASE_URL } from '../utils/api';
 
 interface RegisterViewProps {
   onRegisterSuccess: () => void;
@@ -24,12 +24,37 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
   const [isFocusPass, setIsFocusPass] = useState(false);
   const [isFocusConfirm, setIsFocusConfirm] = useState(false);
 
-  const handleSignUp = (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLoading) return;
 
-    if (!name.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
-      setErrorMsg('Harap melengkapi seluruh kolom formulir.');
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // 1. Strict frontend validations
+    if (!trimmedName) {
+      setErrorMsg('Nama lengkap tidak boleh kosong.');
+      return;
+    }
+
+    if (!trimmedEmail) {
+      setErrorMsg('Alamat email tidak boleh kosong.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setErrorMsg('Format email tidak valid. Harap periksa kembali.');
+      return;
+    }
+
+    if (!password) {
+      setErrorMsg('Password tidak boleh kosong.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setErrorMsg('Password minimal 6 karakter.');
       return;
     }
 
@@ -41,38 +66,62 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
     setIsLoading(true);
     setErrorMsg('');
 
-    // Send register request to real PHP backend
-    api.post('/register.php', { full_name: name, email, password })
-      .then((res) => {
-        setIsLoading(false);
-        setIsSuccess(true);
-      })
-      .catch((err: any) => {
-        // Fallback ONLY for preview/testing environment in case there's a network/CORS error
-        const isNetworkError = !err.status || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
-        
-        if (isNetworkError) {
-          const storedUsersRaw = localStorage.getItem('laporanwee_registered_users');
-          const users = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
-          const alreadyExists = users.some((u: any) => u.email.toLowerCase() === email.toLowerCase());
+    // 2. Safe debugging log (never log plain password)
+    console.log('[Register] Mengirim data pendaftaran ke server:', {
+      url: `${API_BASE_URL}/register.php`,
+      payload: {
+        name: trimmedName,
+        email: trimmedEmail,
+        password: '***',
+      },
+    });
 
-          setIsLoading(false);
-          if (alreadyExists) {
-            setErrorMsg('Alamat E-mail sudah terdaftar.');
-          } else {
-            const updatedUsers = [...users, { name, email, password }];
-            localStorage.setItem('laporanwee_registered_users', JSON.stringify(updatedUsers));
-            setIsSuccess(true);
-          }
-        } else {
-          setIsLoading(false);
-          setErrorMsg(err.message || 'Gagal mendaftarkan akun. Silakan coba lagi.');
-        }
+    try {
+      // 3. Absolute POST request to PHP MySQL backend
+      const response = await fetch(`${API_BASE_URL}/register.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+          email: trimmedEmail,
+          password: password,
+        }),
       });
+
+      // 4. Safe text-then-parse response pattern
+      const text = await response.text();
+      let data: any = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error(`Server mengembalikan response tidak valid (${response.status})`);
+      }
+
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || data.error || 'Registrasi gagal. Silakan coba lagi.');
+      }
+
+      // 5. On success: clear passwords, retain email, trigger success UI
+      setIsLoading(false);
+      setPassword('');
+      setConfirmPassword('');
+      try {
+        localStorage.setItem('laporanwee_registered_email', trimmedEmail);
+      } catch (_) {
+        // Ignore storage exceptions if in private mode
+      }
+      setIsSuccess(true);
+    } catch (err: any) {
+      setIsLoading(false);
+      setErrorMsg(err.message || 'Gagal mendaftarkan akun. Silakan coba lagi.');
+    }
   };
 
   const handleProceed = () => {
-    onNavigateToLogin();
+    onRegisterSuccess();
   };
 
   return (

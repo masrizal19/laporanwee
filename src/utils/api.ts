@@ -1,16 +1,13 @@
-let rawUrl = import.meta.env.VITE_API_URL || 'https://api-laporanwe.mkverse.my.id/api';
-if (rawUrl && !rawUrl.endsWith('/api') && !rawUrl.endsWith('/api/')) {
-  rawUrl = `${rawUrl.replace(/\/$/, '')}/api`;
-}
-export const API_BASE_URL = rawUrl.replace(/\/$/, '');
+export const API_BASE_URL = 'https://api-laporanwe.mkverse.my.id/api';
 
 // Helper to get authorization headers with stored token
 export const getHeaders = () => {
   const token = localStorage.getItem('laporanwee_token');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   };
-  if (token) {
+  if (token && token !== 'undefined' && token !== 'null') {
     headers['Authorization'] = `Bearer ${token}`;
   }
   return headers;
@@ -24,24 +21,21 @@ export interface ApiError {
 }
 
 export const handleResponse = async (response: Response) => {
-  const contentType = response.headers.get('content-type');
-  let data: any = null;
+  const text = await response.text();
+  let data: any = {};
 
-  if (contentType && contentType.includes('application/json')) {
-    data = await response.json();
-  } else {
-    const text = await response.text();
-    // Try to parse if it looks like JSON
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { message: text || 'Sistem mengalami kegagalan teknis.' };
-    }
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    throw {
+      message: `Server mengembalikan response tidak valid (${response.status})`,
+      status: response.status,
+    } as ApiError;
   }
 
-  if (!response.ok) {
+  if (!response.ok || data.success === false) {
     throw {
-      message: data?.message || data?.error || 'Terjadi kesalahan sistem.',
+      message: data.message || data.error || `Terjadi kesalahan sistem (${response.status})`,
       status: response.status,
     } as ApiError;
   }
