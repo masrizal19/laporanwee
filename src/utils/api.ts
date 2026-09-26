@@ -10,6 +10,18 @@ export const getHeaders = () => {
   if (token && token !== 'undefined' && token !== 'null') {
     headers['Authorization'] = `Bearer ${token}`;
   }
+
+  // Include X-Admin-Email if user is logged in
+  try {
+    const storedUser = localStorage.getItem('laporanwee_user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      if (parsed?.email) {
+        headers['X-Admin-Email'] = parsed.email.trim();
+      }
+    }
+  } catch (_) {}
+
   return headers;
 };
 

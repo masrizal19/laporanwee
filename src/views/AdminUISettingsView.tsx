@@ -66,7 +66,7 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
     setIsLoading(true);
     setFetchError(null);
     try {
-      const data = await fetchUISettings();
+      const data = await fetchUISettings(userEmail);
       setSettings(data);
       setInitialLoadedSettings(data);
       applyUISettingsToDocument(data);
@@ -112,16 +112,37 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
 
   // Submit POST to API
   const handleSave = async (settingsToSave = settings) => {
+    const adminEmail =
+      userEmail ||
+      localStorage.getItem('userEmail') ||
+      localStorage.getItem('email');
+
+    // Frontend validation before POST
+    if (!adminEmail) {
+      const err = 'Admin belum terautentikasi. Silakan login kembali.';
+      setSaveError(err);
+      onAddToast(err);
+      return;
+    }
+
+    if (adminEmail.trim().toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+      const err = 'Akses admin ditolak.';
+      setSaveError(err);
+      onAddToast(err);
+      return;
+    }
+
     setIsSaving(true);
     setSaveError(null);
     setSaveSuccessMsg(null);
 
     try {
-      await saveUISettings(settingsToSave);
+      const res = await saveUISettings(settingsToSave, adminEmail);
       setInitialLoadedSettings(settingsToSave);
       applyUISettingsToDocument(settingsToSave);
-      setSaveSuccessMsg('✓ UI berhasil diperbarui');
-      onAddToast('✓ UI berhasil diperbarui');
+      const successText = res?.message || '✓ UI berhasil diperbarui';
+      setSaveSuccessMsg(successText);
+      onAddToast(successText);
     } catch (err: any) {
       setSaveError(err.message || 'Gagal menyimpan pengaturan UI.');
       onAddToast(err.message || 'Gagal menyimpan pengaturan UI.');

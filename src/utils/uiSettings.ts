@@ -74,11 +74,56 @@ export const applyUISettingsToDocument = (settings: Partial<UISettings>) => {
 };
 
 /**
+ * Resolves the admin email from parameter or local storage
+ */
+export const getAdminEmail = (explicitEmail?: string): string => {
+  if (explicitEmail && explicitEmail.trim()) {
+    return explicitEmail.trim();
+  }
+  try {
+    const storedUser = localStorage.getItem('laporanwee_user');
+    if (storedUser) {
+      const parsed = JSON.parse(storedUser);
+      if (parsed?.email) return parsed.email.trim();
+    }
+  } catch (_) {}
+
+  const fallback =
+    localStorage.getItem('userEmail') ||
+    localStorage.getItem('email') ||
+    localStorage.getItem('laporanwee_registered_email');
+  return fallback ? fallback.trim() : '';
+};
+
+/**
  * Fetches UI Settings from Backend API
  */
-export const fetchUISettings = async (): Promise<UISettings> => {
+export const fetchUISettings = async (adminEmailParam?: string): Promise<UISettings> => {
+  const adminEmail = getAdminEmail(adminEmailParam);
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+  };
+  if (adminEmail) {
+    headers['X-Admin-Email'] = adminEmail;
+  }
+  const token = localStorage.getItem('laporanwee_token');
+  if (token && token !== 'undefined' && token !== 'null') {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   try {
-    const res = await api.get(UI_SETTINGS_API);
+    const response = await fetch(UI_SETTINGS_API, {
+      method: 'GET',
+      headers,
+    });
+    const text = await response.text();
+    let res: any = {};
+    try {
+      res = text ? JSON.parse(text) : {};
+    } catch {
+      res = {};
+    }
+
     if (res && res.data) {
       return {
         ...DEFAULT_UI_SETTINGS,
@@ -98,7 +143,19 @@ export const fetchUISettings = async (): Promise<UISettings> => {
 /**
  * Saves UI Settings to Backend API
  */
-export const saveUISettings = async (settings: Partial<UISettings>): Promise<any> => {
+export const saveUISettings = async (
+  settings: Partial<UISettings>,
+  adminEmailParam?: string
+): Promise<any> => {
+  const adminEmail = getAdminEmail(adminEmailParam);
+
+  if (!adminEmail) {
+    throw {
+      message: 'Admin belum terautentikasi. Silakan login kembali.',
+      status: 401,
+    };
+  }
+
   const payload = {
     primary_color: settings.primary_color || DEFAULT_UI_SETTINGS.primary_color,
     secondary_color: settings.secondary_color || DEFAULT_UI_SETTINGS.secondary_color,
@@ -111,9 +168,24 @@ export const saveUISettings = async (settings: Partial<UISettings>): Promise<any
     signout_icon_size: Number(settings.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
   };
 
+  // Safe debugging logs requested by prompt
+  console.log('[UI SETTINGS] Admin email:', adminEmail);
+  console.log('[UI SETTINGS] Sending POST:', payload);
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'X-Admin-Email': adminEmail,
+  };
+
+  const token = localStorage.getItem('laporanwee_token');
+  if (token && token !== 'undefined' && token !== 'null') {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const response = await fetch(UI_SETTINGS_API, {
     method: 'POST',
-    headers: getHeaders(),
+    headers,
     body: JSON.stringify(payload),
   });
 
@@ -130,13 +202,13 @@ export const saveUISettings = async (settings: Partial<UISettings>): Promise<any
 
   if (!response.ok || data.success === false) {
     if (response.status === 401) {
-      throw { message: 'Admin belum terautentikasi.', status: 401 };
+      throw { message: 'Admin belum terautentikasi. Silakan login kembali.', status: 401 };
     }
     if (response.status === 403) {
-      throw { message: 'Anda tidak memiliki akses admin.', status: 403 };
+      throw { message: 'Akses admin ditolak.', status: 403 };
     }
     if (response.status >= 500) {
-      throw { message: 'Terjadi masalah pada server.', status: response.status };
+      throw { message: 'Gagal menyimpan pengaturan UI karena masalah server.', status: response.status };
     }
     throw {
       message: data.message || 'Gagal menyimpan pengaturan UI.',
