@@ -32,11 +32,17 @@ import { TeamView } from './views/TeamView';
 import { CalendarView } from './views/CalendarView';
 import { ProfileView } from './views/ProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
+import { AdminUISettingsView } from './views/AdminUISettingsView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
 import { api } from './utils/api';
+import {
+  fetchUISettings,
+  applyUISettingsToDocument,
+  DEFAULT_UI_SETTINGS,
+} from './utils/uiSettings';
 
 export function App() {
   // 1. Session & Routing state
@@ -75,7 +81,9 @@ export function App() {
       '/tugas',
       '/tim',
       '/kalender',
-      '/analitik'
+      '/analitik',
+      '/admin/ui-settings',
+      '/ui-settings'
     ];
     if (validPaths.includes(hashPath)) {
       return hashPath;
@@ -93,6 +101,19 @@ export function App() {
   };
 
   const [currentPath, setCurrentPath] = useState<string>(getPathFromLocation);
+
+  // Apply UI Settings from server on initial load
+  useEffect(() => {
+    fetchUISettings()
+      .then((data) => {
+        if (data) {
+          applyUISettingsToDocument(data);
+        }
+      })
+      .catch(() => {
+        applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
+      });
+  }, []);
 
   const navigateToPath = (path: string) => {
     window.history.pushState({}, '', path);
@@ -130,6 +151,8 @@ export function App() {
     '/tim': 'team',
     '/kalender': 'calendar',
     '/analitik': 'analytics',
+    '/admin/ui-settings': 'ui-settings',
+    '/ui-settings': 'ui-settings',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -144,6 +167,7 @@ export function App() {
     'create-report': '/laporan',
     'profile': '/dashboard',
     'analytics': '/analitik',
+    'ui-settings': '/admin/ui-settings',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -478,6 +502,15 @@ export function App() {
           <AnalyticsView
             onNavigate={handleNavigate}
             onAddToast={addToast}
+          />
+        )}
+
+        {currentView === 'ui-settings' && (
+          <AdminUISettingsView
+            onNavigate={handleNavigate}
+            onAddToast={addToast}
+            userEmail={user.email}
+            userName={user.name}
           />
         )}
 

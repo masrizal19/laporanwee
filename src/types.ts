@@ -9,7 +9,25 @@ export type ViewType =
   | 'report-detail'
   | 'create-report'
   | 'profile'
-  | 'analytics';
+  | 'analytics'
+  | 'ui-settings';
+
+export interface UISettings {
+  id?: number;
+  primary_color: string;
+  secondary_color: string;
+  text_color: string;
+  background_color: string;
+  font_family: string;
+  heading_font: string;
+  menu_icon_size: number;
+  menu_icon_stroke: number;
+  signout_icon_size: number;
+  logo_url?: string | null;
+  menu_icon_url?: string | null;
+  signout_icon_url?: string | null;
+  updated_at?: string;
+}
 
 export type TaskStatus = 'todo' | 'inprogress' | 'review' | 'done';
 export type PriorityLevel = 'High' | 'Medium' | 'Low';

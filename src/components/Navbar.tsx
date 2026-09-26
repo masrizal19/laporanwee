@@ -26,6 +26,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
 
+  const isAdmin = userEmail?.trim().toLowerCase() === 'rizalsaragih498@gmail.com';
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
@@ -193,7 +195,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onNavigate('profile');
                 }}
               >
-                <Icon name="palette" />
+                <div className="icon-wrapper">
+                  <Icon name="palette" className="profile-menu-icon" />
+                </div>
                 <span>Lihat Profil Saya</span>
               </div>
               <div
@@ -203,7 +207,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onNavigate('analytics');
                 }}
               >
-                <Icon name="chart" />
+                <div className="icon-wrapper">
+                  <Icon name="chart" className="profile-menu-icon" />
+                </div>
                 <span>Statistik & Analitik</span>
               </div>
               <div
@@ -213,9 +219,26 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onAddToast('Tautan workspace disalin!');
                 }}
               >
-                <Icon name="laptop" />
+                <div className="icon-wrapper">
+                  <Icon name="laptop" className="profile-menu-icon" />
+                </div>
                 <span>Salin Tautan Tim</span>
               </div>
+              {isAdmin && (
+                <div
+                  className="dropdown-item admin-ui-btn"
+                  style={{ color: 'var(--primary-color, #4A55FF)' }}
+                  onClick={() => {
+                    setShowProfile(false);
+                    onNavigate('ui-settings');
+                  }}
+                >
+                  <div className="icon-wrapper">
+                    <Icon name="sliders" className="profile-menu-icon" />
+                  </div>
+                  <span>UI Settings (Admin)</span>
+                </div>
+              )}
               <div
                 className="dropdown-item"
                 style={{ color: 'var(--danger)', borderTop: '1px solid var(--line-soft)', marginTop: '4px', paddingTop: '10px' }}
@@ -228,7 +251,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }
                 }}
               >
-                <Icon name="x" />
+                <div className="icon-wrapper">
+                  <Icon name="x" className="signout-icon" />
+                </div>
                 <span>Keluar (Sign Out)</span>
               </div>
             </div>
