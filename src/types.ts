@@ -55,6 +55,21 @@ export interface Project {
   evidence_urls?: string[];
 }
 
+export interface TaskDocument {
+  id: string;
+  task_id: string;
+  user_id?: string;
+  uploader_name?: string;
+  file_name: string;
+  file_url: string;
+  file_type: 'image' | 'video';
+  mime_type: string;
+  file_size?: number;
+  file_size_formatted?: string;
+  thumbnail_url?: string;
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   proj: string;
@@ -64,6 +79,7 @@ export interface Task {
   due: string;
   progress: number;
   col: TaskStatus;
+  documents?: TaskDocument[];
 }
 
 export interface Report {

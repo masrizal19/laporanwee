@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { Task, TaskStatus, PriorityLevel, Project } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { Task, TaskStatus, PriorityLevel, Project, TaskDocument } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
+import { taskDocumentsService, validateTaskDocumentFile } from '../utils/taskDocuments';
+import { MediaViewerModal } from '../components/MediaViewerModal';
 
 interface TasksViewProps {
   tasks: Task[];
@@ -34,6 +36,117 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Modal State for Editing Task
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  // Task Documentation State
+  const [taskDocs, setTaskDocs] = useState<TaskDocument[]>([]);
+  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isDragOverDropzone, setIsDragOverDropzone] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Media Viewer / Lightbox State
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+
+  // Delete Confirmation State
+  const [docToDelete, setDocToDelete] = useState<TaskDocument | null>(null);
+
+  // Load documents when editing task opens
+  useEffect(() => {
+    if (editingTask) {
+      taskDocumentsService
+        .getDocuments(editingTask.id, editingTask.documents || [])
+        .then((docs) => {
+          setTaskDocs(docs);
+        });
+    } else {
+      setTaskDocs([]);
+      setIsUploadingDoc(false);
+      setUploadProgress(0);
+      setDocToDelete(null);
+    }
+  }, [editingTask?.id]);
+
+  // Upload Documentation Handler
+  const handleUploadFile = async (files: FileList | File[]) => {
+    if (!editingTask) return;
+    const fileList = Array.from(files);
+    if (fileList.length === 0) return;
+
+    const file = fileList[0];
+    const validation = validateTaskDocumentFile(file);
+    if (!validation.valid) {
+      onAddToast(validation.error || 'Gagal mengunggah dokumentasi.');
+      return;
+    }
+
+    setIsUploadingDoc(true);
+    setUploadProgress(10);
+
+    try {
+      // Get current logged in user name if available
+      let uploaderName = 'Rangga Arya';
+      try {
+        const storedUser = localStorage.getItem('laporanwee_user');
+        if (storedUser) {
+          const parsed = JSON.parse(storedUser);
+          if (parsed?.full_name) uploaderName = parsed.full_name;
+        }
+      } catch (_) {}
+
+      const newDoc = await taskDocumentsService.uploadDocument(
+        editingTask.id,
+        file,
+        uploaderName,
+        (pct) => setUploadProgress(pct)
+      );
+
+      const updatedDocs = [newDoc, ...taskDocs];
+      setTaskDocs(updatedDocs);
+      taskDocumentsService.saveDocuments(editingTask.id, updatedDocs);
+
+      // Update parent task state immediately so upload is independent of "Simpan Perubahan"
+      const updatedTask: Task = {
+        ...editingTask,
+        documents: updatedDocs,
+      };
+      setEditingTask(updatedTask);
+      onUpdateTask(updatedTask);
+
+      onAddToast('Dokumentasi berhasil ditambahkan.');
+    } catch (err: any) {
+      onAddToast(err?.message || 'Gagal mengunggah dokumentasi.');
+    } finally {
+      setIsUploadingDoc(false);
+      setUploadProgress(0);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // Confirm and Delete Documentation Handler
+  const handleConfirmDeleteDoc = async () => {
+    if (!editingTask || !docToDelete) return;
+
+    try {
+      await taskDocumentsService.deleteDocument(editingTask.id, docToDelete.id);
+      const updatedDocs = taskDocs.filter((d) => d.id !== docToDelete.id);
+      setTaskDocs(updatedDocs);
+      taskDocumentsService.saveDocuments(editingTask.id, updatedDocs);
+
+      const updatedTask: Task = {
+        ...editingTask,
+        documents: updatedDocs,
+      };
+      setEditingTask(updatedTask);
+      onUpdateTask(updatedTask);
+
+      onAddToast('Dokumentasi berhasil dihapus.');
+    } catch (_) {
+      onAddToast('Gagal menghapus dokumentasi.');
+    } finally {
+      setDocToDelete(null);
+    }
+  };
 
   const columns: { col: TaskStatus; label: string; dotColor: string }[] = [
     { col: 'todo', label: 'To Do', dotColor: 'var(--muted)' },
@@ -251,6 +364,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       <Icon name="clock" />
                       <span>{t.due}</span>
                     </span>
+                    {t.documents && t.documents.length > 0 && (
+                      <span className="kcard-docs-chip" title={`${t.documents.length} Dokumentasi Pekerjaan`}>
+                        <Icon name="image" style={{ width: 12, height: 12 }} />
+                        <span>{t.documents.length}</span>
+                      </span>
+                    )}
                   </div>
 
                   <div className="kmini-track">
@@ -445,6 +564,180 @@ export const TasksView: React.FC<TasksViewProps> = ({
               </div>
             </div>
 
+            {/* SECTION DOKUMENTASI PEKERJAAN */}
+            <div className="task-docs-section">
+              <div className="task-docs-head">
+                <div className="task-docs-head-info">
+                  <div className="task-docs-title">
+                    <Icon name="camera" style={{ width: 16, height: 16 }} />
+                    <span>Dokumentasi Pekerjaan</span>
+                    {taskDocs.length > 0 && (
+                      <span className="task-docs-count-badge">{taskDocs.length}</span>
+                    )}
+                  </div>
+                  <span className="task-docs-sub">
+                    Tambahkan gambar atau video sebagai bukti progress, revisi, atau hasil pekerjaan.
+                  </span>
+                </div>
+              </div>
+
+              {/* Hidden native file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,.mp4,.mov,.webm,image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleUploadFile(e.target.files);
+                  }
+                }}
+              />
+
+              {/* Compact Upload Dropzone / Button */}
+              <div
+                className={`task-docs-upload-compact ${isDragOverDropzone ? 'dragging' : ''}`}
+                onClick={() => {
+                  if (!isUploadingDoc) {
+                    fileInputRef.current?.click();
+                  }
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragOverDropzone(true);
+                }}
+                onDragLeave={() => setIsDragOverDropzone(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragOverDropzone(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    handleUploadFile(e.dataTransfer.files);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="upload-compact-content">
+                  <div className="upload-compact-ic">
+                    <Icon name="upload" style={{ width: 18, height: 18 }} />
+                  </div>
+                  <div className="upload-compact-text">
+                    <b>+ Tambahkan Dokumentasi</b>
+                    <span>JPG, PNG, WEBP, MP4, MOV, WEBM (Maks 25 MB)</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="btn btn-outline btn-upload-trigger"
+                  disabled={isUploadingDoc}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    fileInputRef.current?.click();
+                  }}
+                >
+                  <Icon name="plus" style={{ width: 13, height: 13 }} />
+                  <span>Pilih File</span>
+                </button>
+              </div>
+
+              {/* Upload Progress Indicator */}
+              {isUploadingDoc && (
+                <div className="task-docs-upload-progress">
+                  <div className="progress-status-row">
+                    <span>
+                      <span className="upload-spinner-dot" />
+                      Uploading...
+                    </span>
+                    <span>{uploadProgress}%</span>
+                  </div>
+                  <div className="task-docs-track">
+                    <div
+                      className="task-docs-fill"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Documentation Thumbnails Grid */}
+              {taskDocs.length > 0 ? (
+                <div className="task-docs-grid">
+                  {taskDocs.map((doc, idx) => (
+                    <div
+                      key={doc.id}
+                      className="task-doc-item"
+                      onClick={() => {
+                        setViewerIndex(idx);
+                        setViewerOpen(true);
+                      }}
+                      title={`${doc.file_name} (Klik untuk pratinjau)`}
+                    >
+                      {/* Media Thumbnail */}
+                      <img
+                        src={doc.thumbnail_url || doc.file_url}
+                        alt={doc.file_name}
+                        className="task-doc-thumb-img"
+                        loading="lazy"
+                        onError={(e) => {
+                          // Fallback for broken video thumbnail
+                          if (doc.file_type === 'video') {
+                            (e.currentTarget as HTMLImageElement).src =
+                              'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=400&auto=format&fit=crop&q=80';
+                          }
+                        }}
+                      />
+
+                      {/* Video Play Indicator */}
+                      {doc.file_type === 'video' && (
+                        <div className="task-doc-video-badge">
+                          <Icon name="play" style={{ width: 14, height: 14 }} />
+                        </div>
+                      )}
+
+                      {/* Type Badge */}
+                      <span className="task-doc-type-pill">
+                        <Icon
+                          name={doc.file_type === 'video' ? 'video' : 'image'}
+                          style={{ width: 11, height: 11 }}
+                        />
+                        <span>{doc.file_type === 'video' ? 'VIDEO' : 'IMG'}</span>
+                      </span>
+
+                      {/* Small Delete Button */}
+                      <button
+                        type="button"
+                        className="task-doc-delete-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDocToDelete(doc);
+                        }}
+                        title="Hapus dokumentasi ini"
+                        aria-label="Hapus dokumentasi"
+                      >
+                        <Icon name="trash" style={{ width: 14, height: 14 }} />
+                      </button>
+
+                      {/* Bottom Info Bar */}
+                      <div className="task-doc-meta-overlay">
+                        <span className="task-doc-name-cut">{doc.file_name}</span>
+                        {doc.file_size_formatted && (
+                          <span className="task-doc-size">{doc.file_size_formatted}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !isUploadingDoc && (
+                  <div className="task-docs-empty">
+                    <b>Belum ada dokumentasi</b>
+                    <span>Unggah bukti progress, mockup, atau video hasil kerja.</span>
+                  </div>
+                )
+              )}
+            </div>
+
             <div className="modal-foot" style={{ justifyContent: 'space-between' }}>
               <button
                 type="button"
@@ -475,6 +768,51 @@ export const TasksView: React.FC<TasksViewProps> = ({
           </form>
         </Modal>
       )}
+
+      {/* Confirmation Dialog: Delete Task Document */}
+      {docToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => setDocToDelete(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="doc-delete-confirm-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4>Hapus dokumentasi ini?</h4>
+            <p>
+              Dokumentasi yang dihapus tidak dapat dipulihkan.
+            </p>
+            <div className="doc-delete-confirm-actions">
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setDocToDelete(null)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn-confirm-delete"
+                onClick={handleConfirmDeleteDoc}
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Media Viewer (Image & HTML5 Video) */}
+      <MediaViewerModal
+        isOpen={viewerOpen}
+        documents={taskDocs}
+        currentIndex={viewerIndex}
+        onClose={() => setViewerOpen(false)}
+        onNavigate={(newIdx) => setViewerIndex(newIdx)}
+      />
     </div>
   );
 };
