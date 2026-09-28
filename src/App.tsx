@@ -8,6 +8,7 @@ import {
   CalendarEvent,
   TeamMember,
   ToastMessage,
+  UISettings,
 } from './types';
 import {
   INITIAL_PROJECTS,
@@ -102,18 +103,21 @@ export function App() {
 
   const [currentPath, setCurrentPath] = useState<string>(getPathFromLocation);
 
+  const [uiSettings, setUiSettings] = useState<UISettings | null>(null);
+
   // Apply UI Settings from server on initial load
   useEffect(() => {
-    fetchUISettings()
+    fetchUISettings(user?.email)
       .then((data) => {
         if (data) {
+          setUiSettings(data);
           applyUISettingsToDocument(data);
         }
       })
       .catch(() => {
         applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
       });
-  }, []);
+  }, [user]);
 
   const navigateToPath = (path: string) => {
     window.history.pushState({}, '', path);
@@ -394,6 +398,9 @@ export function App() {
         onLogout={handleLogout}
         userEmail={user.email}
         userName={user.name}
+        logoUrl={uiSettings?.logo_url}
+        menuIconUrl={uiSettings?.menu_icon_url}
+        signoutIconUrl={uiSettings?.signout_icon_url}
       />
 
       {/* Main Container */}
@@ -511,6 +518,9 @@ export function App() {
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}
+            onSettingsUpdated={(newSettings) => {
+              setUiSettings(newSettings);
+            }}
           />
         )}
 

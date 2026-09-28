@@ -2,6 +2,7 @@ import { UISettings } from '../types';
 import { api, getHeaders } from './api';
 
 export const UI_SETTINGS_API = 'https://api-laporanwe.mkverse.my.id/api/ui/ui-settings.php';
+export const UI_UPLOAD_API = 'https://api-laporanwe.mkverse.my.id/api/ui/upload.php';
 export const ADMIN_EMAIL = 'rizalsaragih498@gmail.com';
 
 export const DEFAULT_UI_SETTINGS: UISettings = {
@@ -96,6 +97,69 @@ export const getAdminEmail = (explicitEmail?: string): string => {
 };
 
 /**
+ * Uploads an asset (logo, menu_icon, signout_icon) to the upload endpoint
+ */
+export const uploadUIAsset = async (
+  file: File,
+  assetType: 'logo' | 'menu_icon' | 'signout_icon',
+  adminEmailParam?: string
+): Promise<{ success: boolean; message: string; data: { asset: string; original_name: string; file_name: string; mime_type: string; size: number; url: string; }; admin_email: string; }> => {
+  const adminEmail = getAdminEmail(adminEmailParam);
+
+  if (!adminEmail) {
+    throw {
+      message: 'Admin belum terautentikasi. Silakan login kembali.',
+      status: 401,
+    };
+  }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('asset', assetType);
+
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'X-Admin-Email': adminEmail,
+  };
+
+  const token = localStorage.getItem('laporanwee_token');
+  if (token && token !== 'undefined' && token !== 'null') {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(UI_UPLOAD_API, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+
+  const text = await response.text();
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    console.error('[UI UPLOAD] Failed to parse JSON response. Status:', response.status, 'Body:', text);
+    throw {
+      message: `Server upload mengembalikan response tidak valid (${response.status})`,
+      status: response.status,
+    };
+  }
+
+  console.log('[UI UPLOAD] Upload response:', data);
+
+  if (!response.ok || data.success === false) {
+    console.error('[UI UPLOAD] Upload failed. Status:', response.status, 'Response body:', text);
+    throw {
+      message: data.message || `Gagal mengupload ${assetType}.`,
+      status: response.status,
+    };
+  }
+
+  console.log('[UI UPLOAD] Asset URL:', data.data?.url);
+  return data;
+};
+
+/**
  * Fetches UI Settings from Backend API
  */
 export const fetchUISettings = async (adminEmailParam?: string): Promise<UISettings> => {
@@ -131,6 +195,9 @@ export const fetchUISettings = async (adminEmailParam?: string): Promise<UISetti
         menu_icon_size: Number(res.data.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
         menu_icon_stroke: Number(res.data.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
         signout_icon_size: Number(res.data.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
+        logo_url: res.data.logo_url ?? null,
+        menu_icon_url: res.data.menu_icon_url ?? null,
+        signout_icon_url: res.data.signout_icon_url ?? null,
       };
     }
     return DEFAULT_UI_SETTINGS;
@@ -166,11 +233,14 @@ export const saveUISettings = async (
     menu_icon_size: Number(settings.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
     menu_icon_stroke: Number(settings.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
     signout_icon_size: Number(settings.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
+    logo_url: settings.logo_url !== undefined ? settings.logo_url : null,
+    menu_icon_url: settings.menu_icon_url !== undefined ? settings.menu_icon_url : null,
+    signout_icon_url: settings.signout_icon_url !== undefined ? settings.signout_icon_url : null,
   };
 
-  // Safe debugging logs requested by prompt
+  // Logging required by user specifications
   console.log('[UI SETTINGS] Admin email:', adminEmail);
-  console.log('[UI SETTINGS] Sending POST:', payload);
+  console.log('[UI SETTINGS] Saving payload:', payload);
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -194,6 +264,7 @@ export const saveUISettings = async (
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
+    console.error('[UI SETTINGS] Save failed. Status:', response.status, 'Response body:', text);
     throw {
       message: `Server mengembalikan response tidak valid (${response.status})`,
       status: response.status,
@@ -201,6 +272,7 @@ export const saveUISettings = async (
   }
 
   if (!response.ok || data.success === false) {
+    console.error('[UI SETTINGS] Save failed. Status:', response.status, 'Response body:', text);
     if (response.status === 401) {
       throw { message: 'Admin belum terautentikasi. Silakan login kembali.', status: 401 };
     }
@@ -216,5 +288,6 @@ export const saveUISettings = async (
     };
   }
 
+  console.log('[UI SETTINGS] Save response:', data);
   return data;
 };

@@ -6,6 +6,7 @@ import {
   ADMIN_EMAIL,
   fetchUISettings,
   saveUISettings,
+  uploadUIAsset,
   applyUISettingsToDocument,
 } from '../utils/uiSettings';
 
@@ -14,6 +15,7 @@ interface AdminUISettingsViewProps {
   onAddToast: (text: string) => void;
   userEmail?: string;
   userName?: string;
+  onSettingsUpdated?: (newSettings: UISettings) => void;
 }
 
 const FONT_PRESETS = [
@@ -32,6 +34,7 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
   onAddToast,
   userEmail,
   userName,
+  onSettingsUpdated,
 }) => {
   const isAdmin = userEmail?.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
@@ -50,12 +53,42 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
   // Local file previews for branding uploads
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [logoFileName, setLogoFileName] = useState<string | null>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState<boolean>(false);
 
   const [menuIconPreview, setMenuIconPreview] = useState<string | null>(null);
   const [menuIconFileName, setMenuIconFileName] = useState<string | null>(null);
+  const [isUploadingMenuIcon, setIsUploadingMenuIcon] = useState<boolean>(false);
 
   const [signoutIconPreview, setSignoutIconPreview] = useState<string | null>(null);
   const [signoutIconFileName, setSignoutIconFileName] = useState<string | null>(null);
+  const [isUploadingSignoutIcon, setIsUploadingSignoutIcon] = useState<boolean>(false);
+
+  // Sync previews with settings data
+  const syncPreviewsWithData = (data: UISettings) => {
+    if (data.logo_url) {
+      setLogoPreview(data.logo_url);
+      setLogoFileName(data.logo_url.split('/').pop() || 'logo.png');
+    } else {
+      setLogoPreview(null);
+      setLogoFileName(null);
+    }
+
+    if (data.menu_icon_url) {
+      setMenuIconPreview(data.menu_icon_url);
+      setMenuIconFileName(data.menu_icon_url.split('/').pop() || 'menu_icon.png');
+    } else {
+      setMenuIconPreview(null);
+      setMenuIconFileName(null);
+    }
+
+    if (data.signout_icon_url) {
+      setSignoutIconPreview(data.signout_icon_url);
+      setSignoutIconFileName(data.signout_icon_url.split('/').pop() || 'signout_icon.png');
+    } else {
+      setSignoutIconPreview(null);
+      setSignoutIconFileName(null);
+    }
+  };
 
   // Fetch UI settings from API on mount
   const loadSettings = async () => {
@@ -70,6 +103,10 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
       setSettings(data);
       setInitialLoadedSettings(data);
       applyUISettingsToDocument(data);
+      syncPreviewsWithData(data);
+      if (onSettingsUpdated) {
+        onSettingsUpdated(data);
+      }
     } catch (err: any) {
       setFetchError('Gagal mengambil pengaturan UI.');
     } finally {
@@ -92,21 +129,84 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
     setSaveSuccessMsg(null);
   };
 
-  // File upload handlers (Local File Preview)
-  const handleFileChange = (
+  // Upload asset to upload.php and update settings state with permanent URL
+  const handleAssetUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
-    setPreview: (url: string | null) => void,
-    setFileName: (name: string | null) => void
+    assetType: 'logo' | 'menu_icon' | 'signout_icon'
   ) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        onAddToast('Ukuran file maksimal 5MB.');
-        return;
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      onAddToast('Ukuran file maksimal 5MB.');
+      return;
+    }
+
+    const adminEmail =
+      userEmail ||
+      localStorage.getItem('userEmail') ||
+      localStorage.getItem('email');
+
+    if (!adminEmail) {
+      onAddToast('Admin belum terautentikasi.');
+      return;
+    }
+
+    if (assetType === 'logo') setIsUploadingLogo(true);
+    if (assetType === 'menu_icon') setIsUploadingMenuIcon(true);
+    if (assetType === 'signout_icon') setIsUploadingSignoutIcon(true);
+
+    try {
+      const res = await uploadUIAsset(file, assetType, adminEmail);
+      const uploadedUrl = res.data?.url;
+
+      if (!uploadedUrl) {
+        throw new Error('URL aset tidak ditemukan pada response server.');
       }
-      const objectUrl = URL.createObjectURL(file);
-      setPreview(objectUrl);
-      setFileName(file.name);
+
+      if (assetType === 'logo') {
+        setLogoPreview(uploadedUrl);
+        setLogoFileName(res.data?.original_name || file.name);
+        handleFieldChange('logo_url', uploadedUrl);
+        onAddToast('Logo berhasil diunggah ke server.');
+      } else if (assetType === 'menu_icon') {
+        setMenuIconPreview(uploadedUrl);
+        setMenuIconFileName(res.data?.original_name || file.name);
+        handleFieldChange('menu_icon_url', uploadedUrl);
+        onAddToast('Menu Icon berhasil diunggah ke server.');
+      } else if (assetType === 'signout_icon') {
+        setSignoutIconPreview(uploadedUrl);
+        setSignoutIconFileName(res.data?.original_name || file.name);
+        handleFieldChange('signout_icon_url', uploadedUrl);
+        onAddToast('Sign Out Icon berhasil diunggah ke server.');
+      }
+    } catch (err: any) {
+      onAddToast(err.message || `Gagal mengunggah ${assetType}.`);
+    } finally {
+      if (assetType === 'logo') setIsUploadingLogo(false);
+      if (assetType === 'menu_icon') setIsUploadingMenuIcon(false);
+      if (assetType === 'signout_icon') setIsUploadingSignoutIcon(false);
+      e.target.value = '';
+    }
+  };
+
+  // Remove asset URL
+  const handleRemoveAsset = (assetType: 'logo' | 'menu_icon' | 'signout_icon') => {
+    if (assetType === 'logo') {
+      setLogoPreview(null);
+      setLogoFileName(null);
+      handleFieldChange('logo_url', null);
+      onAddToast('Logo dihapus dari konfigurasi.');
+    } else if (assetType === 'menu_icon') {
+      setMenuIconPreview(null);
+      setMenuIconFileName(null);
+      handleFieldChange('menu_icon_url', null);
+      onAddToast('Menu Icon dihapus dari konfigurasi.');
+    } else if (assetType === 'signout_icon') {
+      setSignoutIconPreview(null);
+      setSignoutIconFileName(null);
+      handleFieldChange('signout_icon_url', null);
+      onAddToast('Sign Out Icon dihapus dari konfigurasi.');
     }
   };
 
@@ -138,8 +238,19 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
 
     try {
       const res = await saveUISettings(settingsToSave, adminEmail);
-      setInitialLoadedSettings(settingsToSave);
-      applyUISettingsToDocument(settingsToSave);
+
+      // Reload fresh settings from server as required by user specifications
+      const reloaded = await fetchUISettings(adminEmail);
+      console.log('[UI SETTINGS] Reloaded settings:', reloaded);
+
+      setSettings(reloaded);
+      setInitialLoadedSettings(reloaded);
+      applyUISettingsToDocument(reloaded);
+      syncPreviewsWithData(reloaded);
+      if (onSettingsUpdated) {
+        onSettingsUpdated(reloaded);
+      }
+
       const successText = res?.message || '✓ UI berhasil diperbarui';
       setSaveSuccessMsg(successText);
       onAddToast(successText);
@@ -154,15 +265,21 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
   // Reset to default flow
   const handleResetConfirm = async () => {
     setShowResetModal(false);
-    setSettings(DEFAULT_UI_SETTINGS);
+    const resetState: UISettings = {
+      ...DEFAULT_UI_SETTINGS,
+      logo_url: null,
+      menu_icon_url: null,
+      signout_icon_url: null,
+    };
+    setSettings(resetState);
     setLogoPreview(null);
     setLogoFileName(null);
     setMenuIconPreview(null);
     setMenuIconFileName(null);
     setSignoutIconPreview(null);
     setSignoutIconFileName(null);
-    applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
-    await handleSave(DEFAULT_UI_SETTINGS);
+    applyUISettingsToDocument(resetState);
+    await handleSave(resetState);
   };
 
   // If user is not admin, deny access immediately
@@ -590,20 +707,22 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
               <div className="upload-box">
                 <label>Logo Aplikasi</label>
                 <div className="upload-dropzone">
-                  {logoPreview ? (
+                  {isUploadingLogo ? (
+                    <div className="file-uploading-indicator">
+                      <span className="spinner-auth" style={{ width: 22, height: 22, borderTopColor: 'var(--primary-color, #4A55FF)' }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginTop: 8 }}>Mengunggah Logo...</span>
+                    </div>
+                  ) : (logoPreview || settings.logo_url) ? (
                     <div className="file-preview-content">
-                      <img src={logoPreview} alt="Logo Preview" className="uploaded-thumb" />
+                      <img src={logoPreview || settings.logo_url!} alt="Logo Preview" className="uploaded-thumb" />
                       <div className="file-meta">
-                        <span className="file-name">{logoFileName}</span>
-                        <span className="file-status">Preview Lokal</span>
+                        <span className="file-name">{logoFileName || 'logo.png'}</span>
+                        <span className="file-status">Tersimpan di Server</span>
                       </div>
                       <button
                         type="button"
                         className="btn-remove-file"
-                        onClick={() => {
-                          setLogoPreview(null);
-                          setLogoFileName(null);
-                        }}
+                        onClick={() => handleRemoveAsset('logo')}
                       >
                         Hapus
                       </button>
@@ -616,7 +735,7 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                        onChange={(e) => handleFileChange(e, setLogoPreview, setLogoFileName)}
+                        onChange={(e) => handleAssetUpload(e, 'logo')}
                         hidden
                       />
                     </label>
@@ -628,20 +747,22 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
               <div className="upload-box">
                 <label>Menu Icon</label>
                 <div className="upload-dropzone">
-                  {menuIconPreview ? (
+                  {isUploadingMenuIcon ? (
+                    <div className="file-uploading-indicator">
+                      <span className="spinner-auth" style={{ width: 22, height: 22, borderTopColor: 'var(--primary-color, #4A55FF)' }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginTop: 8 }}>Mengunggah Menu Icon...</span>
+                    </div>
+                  ) : (menuIconPreview || settings.menu_icon_url) ? (
                     <div className="file-preview-content">
-                      <img src={menuIconPreview} alt="Menu Icon Preview" className="uploaded-thumb" />
+                      <img src={menuIconPreview || settings.menu_icon_url!} alt="Menu Icon Preview" className="uploaded-thumb" />
                       <div className="file-meta">
-                        <span className="file-name">{menuIconFileName}</span>
-                        <span className="file-status">Preview Lokal</span>
+                        <span className="file-name">{menuIconFileName || 'menu_icon.png'}</span>
+                        <span className="file-status">Tersimpan di Server</span>
                       </div>
                       <button
                         type="button"
                         className="btn-remove-file"
-                        onClick={() => {
-                          setMenuIconPreview(null);
-                          setMenuIconFileName(null);
-                        }}
+                        onClick={() => handleRemoveAsset('menu_icon')}
                       >
                         Hapus
                       </button>
@@ -654,7 +775,7 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                        onChange={(e) => handleFileChange(e, setMenuIconPreview, setMenuIconFileName)}
+                        onChange={(e) => handleAssetUpload(e, 'menu_icon')}
                         hidden
                       />
                     </label>
@@ -666,20 +787,22 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
               <div className="upload-box">
                 <label>Sign Out Icon</label>
                 <div className="upload-dropzone">
-                  {signoutIconPreview ? (
+                  {isUploadingSignoutIcon ? (
+                    <div className="file-uploading-indicator">
+                      <span className="spinner-auth" style={{ width: 22, height: 22, borderTopColor: 'var(--primary-color, #4A55FF)' }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', marginTop: 8 }}>Mengunggah Sign Out Icon...</span>
+                    </div>
+                  ) : (signoutIconPreview || settings.signout_icon_url) ? (
                     <div className="file-preview-content">
-                      <img src={signoutIconPreview} alt="Signout Icon Preview" className="uploaded-thumb" />
+                      <img src={signoutIconPreview || settings.signout_icon_url!} alt="Signout Icon Preview" className="uploaded-thumb" />
                       <div className="file-meta">
-                        <span className="file-name">{signoutIconFileName}</span>
-                        <span className="file-status">Preview Lokal</span>
+                        <span className="file-name">{signoutIconFileName || 'signout_icon.png'}</span>
+                        <span className="file-status">Tersimpan di Server</span>
                       </div>
                       <button
                         type="button"
                         className="btn-remove-file"
-                        onClick={() => {
-                          setSignoutIconPreview(null);
-                          setSignoutIconFileName(null);
-                        }}
+                        onClick={() => handleRemoveAsset('signout_icon')}
                       >
                         Hapus
                       </button>
@@ -692,7 +815,7 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                       <input
                         type="file"
                         accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                        onChange={(e) => handleFileChange(e, setSignoutIconPreview, setSignoutIconFileName)}
+                        onChange={(e) => handleAssetUpload(e, 'signout_icon')}
                         hidden
                       />
                     </label>
@@ -704,8 +827,7 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
             <div className="upload-server-note">
               <span className="note-badge">Pemberitahuan Sistem</span>
               <p>
-                Bagian <strong>Preview File</strong> aktif secara lokal. Struktur frontend siap dihubungkan
-                ke storage backend saat endpoint upload aset disediakan oleh server.
+                Asset yang dipilih otomatis diunggah ke server dan URL permanen dari server akan disimpan ke database saat Anda menekan tombol <strong>Simpan Perubahan</strong>.
               </p>
             </div>
           </div>
@@ -766,8 +888,8 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
               {/* Mockup Header */}
               <div className="mockup-header" style={{ backgroundColor: settings.secondary_color }}>
                 <div className="mockup-brand">
-                  {logoPreview ? (
-                    <img src={logoPreview} alt="Logo" className="mockup-logo-img" />
+                  {(logoPreview || settings.logo_url) ? (
+                    <img src={logoPreview || settings.logo_url!} alt="Logo" className="mockup-logo-img" />
                   ) : (
                     <>
                       <span>Laporan</span>
@@ -803,8 +925,8 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                         height: `${settings.menu_icon_size}px`,
                       }}
                     >
-                      {menuIconPreview ? (
-                        <img src={menuIconPreview} alt="Menu Icon" className="custom-icon-img" />
+                      {(menuIconPreview || settings.menu_icon_url) ? (
+                        <img src={menuIconPreview || settings.menu_icon_url!} alt="Menu Icon" className="custom-icon-img" />
                       ) : (
                         <svg
                           viewBox="0 0 24 24"
@@ -834,8 +956,8 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                         height: `${settings.menu_icon_size}px`,
                       }}
                     >
-                      {menuIconPreview ? (
-                        <img src={menuIconPreview} alt="Menu Icon" className="custom-icon-img" />
+                      {(menuIconPreview || settings.menu_icon_url) ? (
+                        <img src={menuIconPreview || settings.menu_icon_url!} alt="Menu Icon" className="custom-icon-img" />
                       ) : (
                         <svg
                           viewBox="0 0 24 24"
@@ -862,8 +984,8 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                         height: `${settings.menu_icon_size}px`,
                       }}
                     >
-                      {menuIconPreview ? (
-                        <img src={menuIconPreview} alt="Menu Icon" className="custom-icon-img" />
+                      {(menuIconPreview || settings.menu_icon_url) ? (
+                        <img src={menuIconPreview || settings.menu_icon_url!} alt="Menu Icon" className="custom-icon-img" />
                       ) : (
                         <svg
                           viewBox="0 0 24 24"
@@ -894,8 +1016,8 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
                         height: `${settings.signout_icon_size}px`,
                       }}
                     >
-                      {signoutIconPreview ? (
-                        <img src={signoutIconPreview} alt="Signout Icon" className="custom-icon-img" />
+                      {(signoutIconPreview || settings.signout_icon_url) ? (
+                        <img src={signoutIconPreview || settings.signout_icon_url!} alt="Signout Icon" className="custom-icon-img" />
                       ) : (
                         <svg
                           viewBox="0 0 24 24"

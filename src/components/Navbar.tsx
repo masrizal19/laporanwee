@@ -9,6 +9,9 @@ interface NavbarProps {
   onLogout?: () => void;
   userEmail?: string;
   userName?: string;
+  logoUrl?: string | null;
+  menuIconUrl?: string | null;
+  signoutIconUrl?: string | null;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -18,6 +21,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   userEmail,
   userName,
+  logoUrl,
+  menuIconUrl,
+  signoutIconUrl,
 }) => {
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -59,24 +65,30 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={() => onNavigate('dashboard')}
           title="Kembali ke Dashboard"
         >
-          <span>Laporan</span>
-          <span className="wee">
-            Wee
-            <svg
-              width="28"
-              height="8"
-              viewBox="0 0 28 8"
-              fill="none"
-              style={{ position: 'absolute', bottom: '-4px', left: '0' }}
-            >
-              <path
-                d="M1 5.5C8 1.5 20 1.5 27 6.5"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-              />
-            </svg>
-          </span>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" style={{ maxHeight: '32px', objectFit: 'contain' }} />
+          ) : (
+            <>
+              <span>Laporan</span>
+              <span className="wee">
+                Wee
+                <svg
+                  width="28"
+                  height="8"
+                  viewBox="0 0 28 8"
+                  fill="none"
+                  style={{ position: 'absolute', bottom: '-4px', left: '0' }}
+                >
+                  <path
+                    d="M1 5.5C8 1.5 20 1.5 27 6.5"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </>
+          )}
         </button>
 
         <nav className="nav-links" aria-label="Navigasi Utama">
@@ -196,7 +208,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
               >
                 <div className="icon-wrapper">
-                  <Icon name="palette" className="profile-menu-icon" />
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="palette" className="profile-menu-icon" />
+                  )}
                 </div>
                 <span>Lihat Profil Saya</span>
               </div>
@@ -208,7 +224,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
               >
                 <div className="icon-wrapper">
-                  <Icon name="chart" className="profile-menu-icon" />
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="chart" className="profile-menu-icon" />
+                  )}
                 </div>
                 <span>Statistik & Analitik</span>
               </div>
@@ -220,7 +240,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
               >
                 <div className="icon-wrapper">
-                  <Icon name="laptop" className="profile-menu-icon" />
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="laptop" className="profile-menu-icon" />
+                  )}
                 </div>
                 <span>Salin Tautan Tim</span>
               </div>
@@ -234,7 +258,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   }}
                 >
                   <div className="icon-wrapper">
-                    <Icon name="sliders" className="profile-menu-icon" />
+                    {menuIconUrl ? (
+                      <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                    ) : (
+                      <Icon name="sliders" className="profile-menu-icon" />
+                    )}
                   </div>
                   <span>UI Settings (Admin)</span>
                 </div>
@@ -252,7 +280,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
               >
                 <div className="icon-wrapper">
-                  <Icon name="x" className="signout-icon" />
+                  {signoutIconUrl ? (
+                    <img src={signoutIconUrl} alt="Sign Out" className="signout-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="x" className="signout-icon" />
+                  )}
                 </div>
                 <span>Keluar (Sign Out)</span>
               </div>
