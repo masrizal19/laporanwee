@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Report, ViewType } from '../types';
-import { Icon, Illustration } from '../components/icons';
+import { Icon } from '../components/icons';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -206,8 +206,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <h3>Review Cepat Tanpa Ribet</h3>
               <p>Project lead dapat langsung menyetujui atau meminta revisi laporan sekali klik.</p>
             </div>
-            <div className="promo-illus">
-              <Illustration kind="clipboard" />
+            <div className="promo-badge-tag">
+              <Icon name="checksq" style={{ width: 22, height: 22 }} />
             </div>
           </div>
         </div>

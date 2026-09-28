@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
+import { ImageLightbox } from '../components/ImageLightbox';
 
 interface ReportDetailViewProps {
   report: Report;
@@ -58,6 +59,16 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     setNewComment('');
     onAddToast('Komentar berhasil ditambahkan!');
   };
+
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const evidenceList =
+    report.evidence_urls && report.evidence_urls.length > 0
+      ? report.evidence_urls
+      : report.evidence_url
+      ? [report.evidence_url]
+      : [];
 
   const handleApprove = () => {
     onUpdateStatus(report.id, 'Completed');
@@ -198,6 +209,50 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
             </div>
           </div>
 
+          {/* Bukti Pekerjaan Nyata (Foto & Screenshot) */}
+          {evidenceList.length > 0 && (
+            <div style={{ marginTop: '28px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Icon name="camera" style={{ width: 18, height: 18 }} />
+                  <span>Bukti Pekerjaan Nyata ({evidenceList.length})</span>
+                </h3>
+                <span className="field-hint-tag">Klik gambar untuk memperbesar</span>
+              </div>
+              <p className="section-sub" style={{ margin: '0 0 14px' }}>
+                Dokumentasi visual hasil pengerjaan deliverable yang diunggah pelapor.
+              </p>
+
+              <div className="report-evidence-gallery-grid">
+                {evidenceList.map((imgUrl, idx) => (
+                  <div
+                    key={idx}
+                    className="report-evidence-thumb-card"
+                    onClick={() => {
+                      setLightboxIndex(idx);
+                      setLightboxOpen(true);
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <img
+                      src={imgUrl}
+                      alt={`Bukti pekerjaan ${idx + 1}`}
+                      className="thumb-img"
+                      loading="lazy"
+                    />
+                    <div className="thumb-zoom-overlay">
+                      <span className="zoom-ic">
+                        <Icon name="search" style={{ width: 14, height: 14 }} />
+                      </span>
+                      <span className="zoom-txt">Foto #{idx + 1}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Attachments Section */}
           <div style={{ marginTop: '28px' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px' }}>
@@ -328,6 +383,16 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Image Lightbox Modal for Evidence Photos */}
+      <ImageLightbox
+        isOpen={lightboxOpen}
+        images={evidenceList}
+        currentIndex={lightboxIndex}
+        title={report.task}
+        onClose={() => setLightboxOpen(false)}
+        onNavigate={(newIdx) => setLightboxIndex(newIdx)}
+      />
     </div>
   );
 };

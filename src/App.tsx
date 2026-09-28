@@ -296,18 +296,35 @@ export function App() {
       ...prev,
     ]);
 
-    // Also bump project progress if project matches
+    // Also bump project progress and update thumbnail/evidence if project matches
     setProjects((prev) =>
       prev.map((p) => {
-        if (
+        const matchesProject =
           p.name.toLowerCase() === reportData.project.toLowerCase() ||
-          reportData.project.toLowerCase().includes(p.name.toLowerCase())
-        ) {
+          reportData.project.toLowerCase().includes(p.name.toLowerCase()) ||
+          p.name.toLowerCase().includes(reportData.project.toLowerCase());
+
+        if (matchesProject) {
           const newProg = Math.min(100, Math.max(p.progress, reportData.progress));
+          const reportEvidence =
+            reportData.evidence_urls && reportData.evidence_urls.length > 0
+              ? reportData.evidence_urls
+              : reportData.evidence_url
+              ? [reportData.evidence_url]
+              : [];
+
+          const existingEvidence = p.evidence_urls || [];
+          const combinedEvidence =
+            reportEvidence.length > 0
+              ? Array.from(new Set([...reportEvidence, ...existingEvidence]))
+              : existingEvidence;
+
           return {
             ...p,
             progress: newProg,
             status: newProg === 100 ? 'Completed' : p.status,
+            thumbnail_url: reportEvidence[0] || p.thumbnail_url,
+            evidence_urls: combinedEvidence,
           };
         }
         return p;

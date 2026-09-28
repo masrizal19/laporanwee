@@ -1,6 +1,6 @@
 import React from 'react';
 import { Project, Task, Report, ViewType } from '../types';
-import { Icon, Illustration } from '../components/icons';
+import { Icon } from '../components/icons';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -87,20 +87,41 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 {project.desc}
               </p>
             </div>
-            <div
-              style={{
-                width: '74px',
-                height: '74px',
-                borderRadius: '16px',
-                background: 'var(--lavender)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flex: 'none',
-              }}
-            >
-              <Illustration kind={project.illus} />
-            </div>
+            {project.thumbnail_url ? (
+              <div
+                style={{
+                  width: '90px',
+                  height: '74px',
+                  borderRadius: '14px',
+                  overflow: 'hidden',
+                  flex: 'none',
+                  border: '1.5px solid var(--line-soft)',
+                }}
+              >
+                <img
+                  src={project.thumbnail_url}
+                  alt={project.name}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+            ) : (
+              <div
+                style={{
+                  width: '54px',
+                  height: '54px',
+                  borderRadius: '14px',
+                  background: 'var(--paper)',
+                  border: '1px solid var(--line-soft)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flex: 'none',
+                  color: 'var(--violet)',
+                }}
+              >
+                <Icon name={project.cat} style={{ width: 22, height: 22 }} />
+              </div>
+            )}
           </div>
 
           {/* Progress Section */}
@@ -283,8 +304,8 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
               <h3>Sinkronisasi Tim Otomatis</h3>
               <p>Setiap progress laporan harian langsung mengupdate persentase deliverable proyek.</p>
             </div>
-            <div className="promo-illus">
-              <Illustration kind="chart" />
+            <div className="promo-badge-tag">
+              <Icon name="sparkles" style={{ width: 22, height: 22 }} />
             </div>
           </div>
         </div>

@@ -21,6 +21,12 @@ export const INITIAL_PROJECTS: Project[] = [
     due: '18 Okt 2026',
     status: 'Active',
     illus: 'laptop',
+    thumbnail_url: 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'p2',
@@ -33,6 +39,11 @@ export const INITIAL_PROJECTS: Project[] = [
     due: '22 Okt 2026',
     status: 'Active',
     illus: 'video',
+    thumbnail_url: 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1536240478700-b869070f9279?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'p3',
@@ -45,6 +56,11 @@ export const INITIAL_PROJECTS: Project[] = [
     due: '14 Okt 2026',
     status: 'In Review',
     illus: 'camera',
+    thumbnail_url: 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'p4',
@@ -57,6 +73,10 @@ export const INITIAL_PROJECTS: Project[] = [
     due: '10 Okt 2026',
     status: 'Completed',
     illus: 'megaphone',
+    thumbnail_url: 'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&auto=format&fit=crop&q=80',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1611162617474-5b21e879e113?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'p5',
@@ -69,6 +89,10 @@ export const INITIAL_PROJECTS: Project[] = [
     due: '30 Okt 2026',
     status: 'Active',
     illus: 'phone',
+    thumbnail_url: 'https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?w=800&auto=format&fit=crop&q=80',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1586717791821-3f44a563fa4c?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'p6',
@@ -81,6 +105,10 @@ export const INITIAL_PROJECTS: Project[] = [
     due: '16 Okt 2026',
     status: 'In Review',
     illus: 'palette',
+    thumbnail_url: 'https://images.unsplash.com/photo-1626785774573-4b799315345d?w=800&auto=format&fit=crop&q=80',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1626785774573-4b799315345d?w=800&auto=format&fit=crop&q=80',
+    ],
   },
 ];
 
@@ -181,6 +209,11 @@ export const INITIAL_REPORTS: Report[] = [
     status: 'In Review',
     challenges: 'Penyesuaian ukuran font pada resolusi tablet (768px - 1024px)',
     next: 'Export asset SVG dan serahkan handoff ke frontend developer',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1581291518857-4e27b48ff24e?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'r2',
@@ -195,6 +228,10 @@ export const INITIAL_REPORTS: Report[] = [
     status: 'In Progress',
     challenges: 'Audio clip interview agak bergema di ruangan lantai 2',
     next: 'Noise reduction dengan Adobe Podcast / Audition & sound effect risers',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1536240478700-b869070f9279?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'r3',
@@ -209,6 +246,10 @@ export const INITIAL_REPORTS: Report[] = [
     status: 'Completed',
     challenges: 'Tidak ada kendala berarti',
     next: 'Mulai pengerjaan lookbook 16 - 32 besok pagi',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80',
+      'https://images.unsplash.com/photo-1469334031218-e382a71b716b?w=800&auto=format&fit=crop&q=80',
+    ],
   },
   {
     id: 'r4',
@@ -223,6 +264,9 @@ export const INITIAL_REPORTS: Report[] = [
     status: 'In Progress',
     challenges: 'Handling date parsing timezone di mobile browser safari',
     next: 'Testing flow create report dan export ringkasan PDF',
+    evidence_urls: [
+      'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
+    ],
   },
 ];
 

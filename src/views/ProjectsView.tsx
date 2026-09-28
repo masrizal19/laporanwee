@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Project, ViewType } from '../types';
-import { Icon, Illustration } from '../components/icons';
+import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
+import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 
 interface ProjectsViewProps {
   projects: Project[];
@@ -231,71 +232,70 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           {filteredProjects.map((p) => (
             <div
               key={p.id}
-              className="proj-card"
+              className="proj-card proj-evidence-card"
               onClick={() => {
                 onSelectProject(p.id);
                 onNavigate('project-detail');
               }}
             >
-              <div className="proj-top">
-                <div className="proj-cat">
-                  <Icon name={p.cat} />
-                  <span>{p.catLabel}</span>
-                </div>
-                <button
-                  className="more-dots"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (window.confirm(`Hapus proyek "${p.name}"?`)) {
-                      onDeleteProject(p.id);
-                      onAddToast(`Proyek "${p.name}" telah dihapus.`);
-                    }
-                  }}
-                  title="Hapus proyek"
-                  aria-label="Hapus proyek"
-                >
-                  <Icon name="dots" />
-                </button>
-              </div>
-
-              <div
-                className="proj-illus"
-                style={{
-                  background:
-                    p.status === 'Completed'
-                      ? 'var(--mint)'
-                      : p.status === 'In Review'
-                      ? 'var(--peach)'
-                      : 'var(--lavender)',
-                }}
-              >
-                <Illustration kind={p.illus} />
-              </div>
-
-              <h4>{p.name}</h4>
-              <p>{p.desc}</p>
-
-              <div className="proj-pct">{p.progress}% Selesai</div>
-              <div className="progress-track" style={{ maxWidth: '100%' }}>
-                <div
-                  className="progress-fill"
-                  style={{
-                    width: `${p.progress}%`,
-                    background: p.status === 'Completed' ? '#1e6e56' : 'var(--violet)',
-                  }}
+              {/* Visual Utama: Bukti Pekerjaan Nyata */}
+              <div className="proj-evidence-media">
+                <WorkEvidenceThumbnail
+                  evidenceUrls={p.evidence_urls}
+                  thumbnailUrl={p.thumbnail_url}
+                  projectTitle={p.name}
+                  height={165}
+                  onCreateReport={() => onNavigate('create-report')}
                 />
               </div>
 
-              <div className="proj-foot">
-                <div className="avatar-stack">
-                  {p.team.map((img, i) => (
-                    <img key={i} src={img} alt="Team" />
-                  ))}
+              <div className="proj-card-body">
+                <div className="proj-top">
+                  <div className="proj-cat">
+                    <Icon name={p.cat} style={{ width: 14, height: 14 }} />
+                    <span>{p.catLabel}</span>
+                  </div>
+                  <button
+                    className="more-dots"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm(`Hapus proyek "${p.name}"?`)) {
+                        onDeleteProject(p.id);
+                        onAddToast(`Proyek "${p.name}" telah dihapus.`);
+                      }
+                    }}
+                    title="Hapus proyek"
+                    aria-label="Hapus proyek"
+                  >
+                    <Icon name="dots" style={{ width: 16, height: 16 }} />
+                  </button>
                 </div>
 
-                <div className="proj-due">
-                  <Icon name="clock" />
-                  <span>{p.due}</span>
+                <h4>{p.name}</h4>
+                <p>{p.desc}</p>
+
+                <div className="proj-pct">{p.progress}% Selesai</div>
+                <div className="progress-track" style={{ maxWidth: '100%' }}>
+                  <div
+                    className="progress-fill"
+                    style={{
+                      width: `${p.progress}%`,
+                      background: p.status === 'Completed' ? '#1e6e56' : 'var(--violet)',
+                    }}
+                  />
+                </div>
+
+                <div className="proj-foot">
+                  <div className="avatar-stack">
+                    {p.team.map((img, i) => (
+                      <img key={i} src={img} alt="Team" />
+                    ))}
+                  </div>
+
+                  <div className="proj-due">
+                    <Icon name="clock" style={{ width: 14, height: 14 }} />
+                    <span>{p.due}</span>
+                  </div>
                 </div>
               </div>
             </div>

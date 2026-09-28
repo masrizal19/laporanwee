@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
-import { Icon, Illustration } from '../components/icons';
+import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { api } from '../utils/api';
 
@@ -279,8 +279,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
                 <Icon name="arrowR" />
               </button>
             </div>
-            <div className="promo-illus">
-              <Illustration kind="people" />
+            <div className="promo-badge-tag">
+              <Icon name="users" style={{ width: 22, height: 22 }} />
             </div>
           </div>
         </div>

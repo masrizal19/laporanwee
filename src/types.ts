@@ -50,7 +50,9 @@ export interface Project {
   team: string[];
   due: string;
   status: 'Active' | 'In Review' | 'Completed';
-  illus: string;
+  illus?: string;
+  thumbnail_url?: string;
+  evidence_urls?: string[];
 }
 
 export interface Task {
@@ -77,6 +79,8 @@ export interface Report {
   status: 'Completed' | 'In Review' | 'In Progress' | 'To Do';
   challenges?: string;
   next?: string;
+  evidence_urls?: string[];
+  evidence_url?: string;
 }
 
 export interface Activity {

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
+import { ImageLightbox } from '../components/ImageLightbox';
 
 interface CreateReportViewProps {
   projects: Project[];
@@ -17,7 +18,9 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
   onSelectReport,
   onAddToast,
 }) => {
-  const [selectedProject, setSelectedProject] = useState(projects[0]?.name || 'Website Redesign Wee Agency');
+  const [selectedProject, setSelectedProject] = useState(
+    projects[0]?.name || 'Website Redesign Wee Agency'
+  );
   const [category, setCategory] = useState('Desain & UI/UX');
   const [task, setTask] = useState('');
   const [desc, setDesc] = useState('');
@@ -28,12 +31,100 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
   const [next, setNext] = useState('');
   const [taskErr, setTaskErr] = useState('');
 
+  // Evidence photos state (from gallery)
+  const [evidencePreviews, setEvidencePreviews] = useState<string[]>([]);
+  const [activePreviewIndex, setActivePreviewIndex] = useState<number>(0);
+  const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // File handler for work evidence photos using FileReader data URLs (persistent & never shows raw URLs)
+  const processImageFiles = (files: FileList | File[]) => {
+    const fileList = Array.from(files);
+    const validFiles = fileList.filter((f) => f.type.startsWith('image/'));
+
+    if (validFiles.length === 0) {
+      onAddToast('Mohon pilih file gambar yang valid (JPG, PNG, atau WEBP).');
+      return;
+    }
+
+    let loadedCount = 0;
+    const loadedDataUrls: string[] = [];
+
+    validFiles.forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (dataUrl) {
+          loadedDataUrls.push(dataUrl);
+          loadedCount++;
+          if (loadedCount === validFiles.length) {
+            setEvidencePreviews((prev) => [...prev, ...loadedDataUrls]);
+            onAddToast(`✓ ${validFiles.length} foto bukti pekerjaan berhasil dipilih dari galeri.`);
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    processImageFiles(files);
+    e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      processImageFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleRemovePhoto = (indexToRemove: number) => {
+    setEvidencePreviews((prev) => {
+      const updated = prev.filter((_, idx) => idx !== indexToRemove);
+      if (activePreviewIndex >= updated.length) {
+        setActivePreviewIndex(Math.max(0, updated.length - 1));
+      }
+      return updated;
+    });
+    onAddToast('Bukti foto dihapus.');
+  };
+
+  const handleClearEvidence = () => {
+    setEvidencePreviews([]);
+    setActivePreviewIndex(0);
+    onAddToast('Semua bukti foto telah dihapus.');
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!task.trim()) {
       setTaskErr('Judul tugas atau deliverable wajib diisi.');
       return;
     }
+
+    // Default category photo if user didn't upload any
+    const finalEvidence: string[] =
+      evidencePreviews.length > 0
+        ? evidencePreviews
+        : [
+            category.includes('Desain')
+              ? 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80'
+              : category.includes('Video')
+              ? 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80'
+              : category.includes('Foto')
+              ? 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80'
+              : 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
+          ];
 
     const newId = onAddReport({
       person: 'Rangga Arya',
@@ -47,6 +138,8 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
       status,
       challenges: challenges.trim() || 'Tidak ada kendala berarti.',
       next: next.trim() || 'Melanjutkan modul sprint berikutnya.',
+      evidence_urls: finalEvidence,
+      evidence_url: finalEvidence[0],
     });
 
     onAddToast('Laporan kerja harian berhasil disubmit!');
@@ -64,7 +157,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
           </p>
         </div>
         <button className="btn btn-outline" onClick={() => onNavigate('reports')}>
-          <Icon name="chevL" />
+          <Icon name="chevL" style={{ width: 16, height: 16 }} />
           <span>Kembali ke Laporan</span>
         </button>
       </div>
@@ -75,7 +168,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
           {/* Date Card */}
           <div className="date-card">
             <div className="ic">
-              <Icon name="calendar" />
+              <Icon name="calendar" style={{ width: 18, height: 18 }} />
             </div>
             <div>
               <b>Rabu, 14 Oktober 2026</b>
@@ -142,6 +235,76 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
                 value={desc}
                 onChange={(e) => setDesc(e.target.value)}
               />
+            </div>
+
+            {/* BUKTI PEKERJAAN UPLOAD SECTION (GALLERY PICKER) */}
+            <div className="field">
+              <div className="field-label-row">
+                <label htmlFor="evidence-file-input">
+                  Bukti Pekerjaan (Foto/Screenshot dari Galeri)
+                </label>
+                <span className="field-hint-tag">JPG, PNG, WEBP</span>
+              </div>
+
+              <div
+                className="evidence-form-picker-box"
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+              >
+                <input
+                  ref={fileInputRef}
+                  id="evidence-file-input"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={handleFileSelect}
+                  hidden
+                />
+
+                <div className="evidence-picker-controls">
+                  <button
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Icon name="camera" style={{ width: 16, height: 16 }} />
+                    <span>+ Pilih dari Galeri</span>
+                  </button>
+                  <span className="picker-status-txt">
+                    {evidencePreviews.length > 0
+                      ? `✓ ${evidencePreviews.length} foto bukti pekerjaan dipilih`
+                      : 'Pilih satu atau beberapa screenshot/foto pekerjaan Anda'}
+                  </span>
+                </div>
+
+                {/* Thumbnails Gallery inside Form */}
+                {evidencePreviews.length > 0 && (
+                  <div className="evidence-form-thumbs-grid">
+                    {evidencePreviews.map((pUrl, idx) => (
+                      <div key={idx} className="evidence-form-thumb-item">
+                        <img
+                          src={pUrl}
+                          alt={`Bukti ${idx + 1}`}
+                          className="thumb-img"
+                          onClick={() => {
+                            setActivePreviewIndex(idx);
+                            setIsLightboxOpen(true);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="thumb-remove-btn"
+                          onClick={() => handleRemovePhoto(idx)}
+                          title="Hapus foto ini"
+                          aria-label="Hapus foto"
+                        >
+                          <Icon name="x" style={{ width: 12, height: 12 }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Slider Row */}
@@ -216,9 +379,14 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
               />
             </div>
 
+            {/* Submit Action Buttons with Small 18px Check Icon */}
             <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
-              <button type="submit" className="btn btn-dark" style={{ flex: 1, justifyContent: 'center' }}>
-                <Icon name="check" />
+              <button
+                type="submit"
+                className="btn btn-dark"
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                <Icon name="check" style={{ width: 18, height: 18 }} />
                 <span>Kirim Laporan Kerja</span>
               </button>
               <button
@@ -226,99 +394,204 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
                 className="btn btn-outline"
                 onClick={() => onNavigate('reports')}
               >
-                Batal
+                <Icon name="x" style={{ width: 16, height: 16 }} />
+                <span>Batal</span>
               </button>
             </div>
           </form>
         </div>
 
-        {/* Right Live Preview */}
+        {/* Right Panel: Pratinjau Bukti Pekerjaan (Replaces Large Doc Icon) */}
         <div>
           <div className="card preview-card">
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-              <Icon name="doc" />
+              <Icon name="camera" style={{ width: 18, height: 18 }} />
               <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 800 }}>
-                Pratinjau Laporan Langsung
+                Pratinjau Bukti Pekerjaan
               </h3>
             </div>
             <p className="section-sub" style={{ margin: '0 0 16px' }}>
-              Format tampilan yang akan dilihat oleh Project Lead dan tim Anda
+              Bukti hasil kerja nyata yang akan ditampilkan di dashboard dan laporan tim
             </p>
 
-            <div className="preview-row">
-              <div className="pic2">
-                <Icon name="users" />
-              </div>
-              <div className="pl">
-                <div className="lbl">Pelapor</div>
-                <div className="val">Rangga Arya (UI/UX)</div>
-              </div>
-            </div>
-
-            <div className="preview-row">
-              <div className="pic2">
-                <Icon name="folder" />
-              </div>
-              <div className="pl">
-                <div className="lbl">Proyek</div>
-                <div className="val">{selectedProject}</div>
-              </div>
-            </div>
-
-            <div className="preview-row">
-              <div className="pic2">
-                <Icon name="palette" />
-              </div>
-              <div className="pl">
-                <div className="lbl">Kategori</div>
-                <div className="val">{category}</div>
-              </div>
-            </div>
-
-            <div className="preview-row">
-              <div className="pic2">
-                <Icon name="checksq" />
-              </div>
-              <div className="pl">
-                <div className="lbl">Judul Tugas</div>
-                <div className="val">{task || '(Belum mengisi judul tugas)'}</div>
-              </div>
-            </div>
-
-            <div className="preview-row">
-              <div className="pic2">
-                <Icon name="target" />
-              </div>
-              <div className="pl">
-                <div className="lbl">Progress &amp; Status</div>
-                <div className="val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span>{progress}%</span>
-                  <span className="preview-badge">{status}</span>
+            {/* Empty or Filled Evidence Box */}
+            {evidencePreviews.length === 0 ? (
+              <div
+                className="evidence-empty-preview-dropzone"
+                onClick={() => fileInputRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                role="button"
+                tabIndex={0}
+              >
+                <div className="dropzone-icon">
+                  <Icon name="upload" style={{ width: 22, height: 22 }} />
                 </div>
+                <b>+ Tambah Bukti</b>
+                <span>Upload foto pekerjaan dari galeri</span>
+                <small>PNG, JPG, WEBP</small>
               </div>
-            </div>
-
-            <div className="preview-row">
-              <div className="pic2">
-                <Icon name="clock" />
-              </div>
-              <div className="pl">
-                <div className="lbl">Durasi Kerja</div>
-                <div className="val">{timeSpent}</div>
-              </div>
-            </div>
-
-            {desc && (
-              <div style={{ marginTop: '14px', padding: '12px', background: 'var(--paper)', borderRadius: '12px' }}>
-                <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', marginBottom: '4px' }}>
-                  Deskripsi:
+            ) : (
+              <div className="evidence-filled-preview-box">
+                {/* Main Hero Thumbnail */}
+                <div
+                  className="evidence-hero-frame"
+                  onClick={() => setIsLightboxOpen(true)}
+                  title="Klik untuk memperbesar bukti"
+                >
+                  <img
+                    src={evidencePreviews[activePreviewIndex] || evidencePreviews[0]}
+                    alt="Pratinjau bukti pekerjaan"
+                    className="hero-evidence-img"
+                  />
+                  <span className="hero-zoom-badge">
+                    <Icon name="search" style={{ width: 14, height: 14 }} />
+                  </span>
                 </div>
-                <div style={{ fontSize: '13px', lineHeight: 1.4 }}>{desc}</div>
+
+                {/* Multiple thumbnails strip */}
+                {evidencePreviews.length > 1 && (
+                  <div className="evidence-strip-row">
+                    {evidencePreviews.map((pUrl, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`strip-thumb-btn ${idx === activePreviewIndex ? 'active' : ''}`}
+                        onClick={() => setActivePreviewIndex(idx)}
+                      >
+                        <img src={pUrl} alt={`Foto ${idx + 1}`} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Action footer below thumbnail */}
+                <div className="evidence-filled-footer">
+                  <div>
+                    <div className="fn-title">Bukti Pekerjaan</div>
+                    <div className="fn-count">{evidencePreviews.length} foto dipilih</div>
+                  </div>
+                  <div className="fn-actions">
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-xs"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Ganti
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-danger-soft btn-xs"
+                      onClick={handleClearEvidence}
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
+
+            {/* Summary Metadata Rows */}
+            <div style={{ marginTop: '20px', borderTop: '1px solid var(--line-soft)', paddingTop: '16px' }}>
+              <div className="preview-row">
+                <div className="pic2">
+                  <Icon name="users" style={{ width: 16, height: 16 }} />
+                </div>
+                <div className="pl">
+                  <div className="lbl">Pelapor</div>
+                  <div className="val">Rangga Arya (UI/UX)</div>
+                </div>
+              </div>
+
+              <div className="preview-row">
+                <div className="pic2">
+                  <Icon name="folder" style={{ width: 16, height: 16 }} />
+                </div>
+                <div className="pl">
+                  <div className="lbl">Proyek</div>
+                  <div className="val">{selectedProject}</div>
+                </div>
+              </div>
+
+              <div className="preview-row">
+                <div className="pic2">
+                  <Icon name="palette" style={{ width: 16, height: 16 }} />
+                </div>
+                <div className="pl">
+                  <div className="lbl">Kategori</div>
+                  <div className="val">{category}</div>
+                </div>
+              </div>
+
+              <div className="preview-row">
+                <div className="pic2">
+                  <Icon name="checksq" style={{ width: 16, height: 16 }} />
+                </div>
+                <div className="pl">
+                  <div className="lbl">Judul Tugas</div>
+                  <div className="val">{task || '(Belum mengisi judul tugas)'}</div>
+                </div>
+              </div>
+
+              <div className="preview-row">
+                <div className="pic2">
+                  <Icon name="target" style={{ width: 16, height: 16 }} />
+                </div>
+                <div className="pl">
+                  <div className="lbl">Progress &amp; Status</div>
+                  <div className="val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>{progress}%</span>
+                    <span className="preview-badge">{status}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="preview-row">
+                <div className="pic2">
+                  <Icon name="clock" style={{ width: 16, height: 16 }} />
+                </div>
+                <div className="pl">
+                  <div className="lbl">Durasi Kerja</div>
+                  <div className="val">{timeSpent}</div>
+                </div>
+              </div>
+
+              {desc && (
+                <div
+                  style={{
+                    marginTop: '14px',
+                    padding: '12px',
+                    background: 'var(--paper)',
+                    borderRadius: '12px',
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: '11px',
+                      fontWeight: 700,
+                      color: 'var(--muted)',
+                      marginBottom: '4px',
+                    }}
+                  >
+                    Deskripsi:
+                  </div>
+                  <div style={{ fontSize: '13px', lineHeight: 1.4 }}>{desc}</div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* Lightbox for Previewing Evidence Full-screen */}
+      <ImageLightbox
+        isOpen={isLightboxOpen}
+        images={evidencePreviews}
+        currentIndex={activePreviewIndex}
+        title={task || selectedProject}
+        onClose={() => setIsLightboxOpen(false)}
+        onNavigate={(newIdx) => setActivePreviewIndex(newIdx)}
+      />
     </div>
   );
 };
