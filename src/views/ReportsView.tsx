@@ -42,7 +42,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         </div>
         <div>
           <button className="btn btn-dark" onClick={() => onNavigate('create-report')}>
-            <Icon name="plus" />
+            <Icon name="plus" size={18} />
             <span>Buat Laporan Baru</span>
           </button>
         </div>
@@ -145,7 +145,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                 }}
               >
                 <div className="ric">
-                  <Icon name="doc" />
+                  {r.evidence_urls && r.evidence_urls.length > 0 ? (
+                    <img
+                      src={r.evidence_urls[0]}
+                      alt="Bukti"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px' }}
+                    />
+                  ) : r.evidence_url ? (
+                    <img
+                      src={r.evidence_url}
+                      alt="Bukti"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px' }}
+                    />
+                  ) : (
+                    <Icon name="doc" size={17} />
+                  )}
                 </div>
                 <div className="rmid">
                   <b>{r.task}</b>
@@ -192,11 +206,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             </div>
 
             <button
-              className="btn btn-dark"
-              style={{ width: '100%', marginTop: '16px', justifyContent: 'center' }}
+              className="btn btn-dark submit-report-cta"
               onClick={() => onNavigate('create-report')}
             >
-              <Icon name="plus" />
+              <div className="cta-icon-badge">
+                <Icon name="plus" size={16} />
+              </div>
               <span>Submit Laporan Hari Ini</span>
             </button>
           </div>

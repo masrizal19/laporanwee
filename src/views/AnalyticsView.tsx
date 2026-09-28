@@ -1,6 +1,6 @@
 import React from 'react';
 import { ViewType } from '../types';
-import { Icon, Illustration } from '../components/icons';
+import { Icon } from '../components/icons';
 
 interface AnalyticsViewProps {
   onNavigate: (view: ViewType) => void;

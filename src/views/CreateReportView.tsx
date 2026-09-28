@@ -2,9 +2,12 @@ import React, { useState, useRef } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
+import { getUserDisplayName } from '../utils/userUtils';
 
 interface CreateReportViewProps {
   projects: Project[];
+  userName?: string;
+  userEmail?: string;
   onNavigate: (view: ViewType) => void;
   onAddReport: (report: Omit<Report, 'id'>) => string;
   onSelectReport: (reportId: string) => void;
@@ -13,11 +16,15 @@ interface CreateReportViewProps {
 
 export const CreateReportView: React.FC<CreateReportViewProps> = ({
   projects,
+  userName,
+  userEmail,
   onNavigate,
   onAddReport,
   onSelectReport,
   onAddToast,
 }) => {
+  const reporterName = getUserDisplayName({ name: userName, email: userEmail });
+
   const [selectedProject, setSelectedProject] = useState(
     projects[0]?.name || 'Website Redesign Wee Agency'
   );
@@ -127,7 +134,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
           ];
 
     const newId = onAddReport({
-      person: 'Rangga Arya',
+      person: reporterName,
       date: '14 Okt 2026',
       project: selectedProject,
       task: task.trim(),
@@ -495,17 +502,17 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
             <div style={{ marginTop: '20px', borderTop: '1px solid var(--line-soft)', paddingTop: '16px' }}>
               <div className="preview-row">
                 <div className="pic2">
-                  <Icon name="users" style={{ width: 16, height: 16 }} />
+                  <Icon name="users" size={20} />
                 </div>
                 <div className="pl">
                   <div className="lbl">Pelapor</div>
-                  <div className="val">Rangga Arya (UI/UX)</div>
+                  <div className="val">{reporterName}</div>
                 </div>
               </div>
 
               <div className="preview-row">
                 <div className="pic2">
-                  <Icon name="folder" style={{ width: 16, height: 16 }} />
+                  <Icon name="folder" size={20} />
                 </div>
                 <div className="pl">
                   <div className="lbl">Proyek</div>
@@ -515,7 +522,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
 
               <div className="preview-row">
                 <div className="pic2">
-                  <Icon name="palette" style={{ width: 16, height: 16 }} />
+                  <Icon name="palette" size={20} />
                 </div>
                 <div className="pl">
                   <div className="lbl">Kategori</div>
@@ -525,7 +532,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
 
               <div className="preview-row">
                 <div className="pic2">
-                  <Icon name="checksq" style={{ width: 16, height: 16 }} />
+                  <Icon name="checksq" size={20} />
                 </div>
                 <div className="pl">
                   <div className="lbl">Judul Tugas</div>
@@ -535,7 +542,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
 
               <div className="preview-row">
                 <div className="pic2">
-                  <Icon name="target" style={{ width: 16, height: 16 }} />
+                  <Icon name="target" size={20} />
                 </div>
                 <div className="pl">
                   <div className="lbl">Progress &amp; Status</div>
@@ -548,7 +555,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
 
               <div className="preview-row">
                 <div className="pic2">
-                  <Icon name="clock" style={{ width: 16, height: 16 }} />
+                  <Icon name="clock" size={20} />
                 </div>
                 <div className="pl">
                   <div className="lbl">Durasi Kerja</div>

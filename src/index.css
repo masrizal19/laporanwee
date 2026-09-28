@@ -4978,6 +4978,143 @@ input[type=range]::-webkit-slider-thumb:active {
   display: block;
 }
 
+/* ======================================================
+   ACTION BUTTONS & COMPACT ICON STYLES (NORMALIZED)
+   ====================================================== */
+
+.submit-report-cta {
+  width: 100%;
+  max-width: 220px;
+  height: 64px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 20px;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 4px 14px rgba(20, 19, 26, 0.15);
+  margin-top: 18px;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.submit-report-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(20, 19, 26, 0.22);
+}
+
+.cta-icon-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: #fff;
+}
+
+.cta-icon-badge svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Verifikasi Laporan actions */
+.verify-actions-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.verify-btn-approve,
+.verify-btn-revision {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: transform .15s, background .15s;
+}
+
+.verify-action-ic {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.verify-btn-approve .verify-action-ic {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.verify-btn-revision .verify-action-ic {
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line-soft);
+}
+
+.verify-action-ic svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Agenda Terdekat right arrow chip */
+.upc-arrow-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--paper);
+  border: 1px solid var(--line-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  color: var(--muted);
+  transition: background .15s, color .15s;
+}
+
+.upc-row:hover .upc-arrow-chip {
+  background: var(--violet);
+  color: #fff;
+  border-color: var(--violet);
+}
+
+.btn-add-agenda {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+/* Report Detail Box Icon */
+.rd-box-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--violet);
+  border: 1px solid var(--line-soft);
+  flex: none;
+}
+
 /* Mobile & Tablet Responsiveness for Cards & Evidence */
 @media (max-width: 768px) {
   .feature-evidence-body {

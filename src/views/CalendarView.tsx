@@ -131,13 +131,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </p>
         </div>
         <button
-          className="btn btn-dark"
+          className="btn btn-dark btn-add-agenda"
           onClick={() => {
             setNewDate(selectedDate || '2026-10-15');
             setIsAddOpen(true);
           }}
         >
-          <Icon name="plus" />
+          <Icon name="plus" size={18} />
           <span>Tambah Agenda Baru</span>
         </button>
       </div>
@@ -305,7 +305,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     <b>{ev.title}</b>
                     <span>Pukul {ev.time} WIB</span>
                   </div>
-                  <Icon name="arrowR" />
+                  <div className="upc-arrow-chip" title="Lihat detail agenda">
+                    <Icon name="arrowR" size={14} />
+                  </div>
                 </div>
               ))}
             </div>

@@ -141,7 +141,9 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
           <div className="rd-grid2">
             <div className="rd-box">
               <div className="rl">
-                <Icon name="folder" />
+                <div className="rd-box-icon">
+                  <Icon name="folder" size={15} />
+                </div>
                 <span>Proyek Terkait</span>
               </div>
               <div className="rv">{report.project}</div>
@@ -149,7 +151,9 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
             <div className="rd-box">
               <div className="rl">
-                <Icon name="palette" />
+                <div className="rd-box-icon">
+                  <Icon name="palette" size={15} />
+                </div>
                 <span>Kategori Kerja</span>
               </div>
               <div className="rv">{report.category}</div>
@@ -190,7 +194,9 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
           <div className="rd-grid2">
             <div className="rd-box">
               <div className="rl">
-                <Icon name="flag" />
+                <div className="rd-box-icon">
+                  <Icon name="flag" size={15} />
+                </div>
                 <span>Kendala &amp; Hambatan</span>
               </div>
               <div className="rd-desc">
@@ -200,7 +206,9 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
             <div className="rd-box">
               <div className="rl">
-                <Icon name="arrowR" />
+                <div className="rd-box-icon">
+                  <Icon name="arrowR" size={15} />
+                </div>
                 <span>Rencana Kerja Selanjutnya</span>
               </div>
               <div className="rd-desc">
@@ -329,22 +337,26 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
               Tinjau capaian kerja ini dan beri tanda persetujuan atau instruksi revisi.
             </p>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <div className="verify-actions-wrap">
               <button
-                className="btn btn-dark"
-                style={{ width: '100%', justifyContent: 'center' }}
+                type="button"
+                className="btn btn-dark verify-btn-approve"
                 onClick={handleApprove}
               >
-                <Icon name="check" />
+                <div className="verify-action-ic">
+                  <Icon name="check" size={18} />
+                </div>
                 <span>Setujui Laporan Ini</span>
               </button>
 
               <button
-                className="btn btn-outline"
-                style={{ width: '100%', justifyContent: 'center' }}
+                type="button"
+                className="btn btn-outline verify-btn-revision"
                 onClick={handleRequestRevision}
               >
-                <Icon name="pencil" />
+                <div className="verify-action-ic">
+                  <Icon name="pencil" size={16} />
+                </div>
                 <span>Minta Catatan Revisi</span>
               </button>
             </div>

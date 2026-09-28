@@ -2,10 +2,13 @@ import React, { useState } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
+import { getUserFirstName } from '../utils/userUtils';
 
 interface DashboardViewProps {
   projects: Project[];
   reports?: Report[];
+  userName?: string;
+  userEmail?: string;
   onNavigate: (view: ViewType) => void;
   onSelectProject: (projectId: string) => void;
   onAddToast: (text: string) => void;
@@ -14,11 +17,16 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   projects,
   reports = [],
+  userName,
+  userEmail,
   onNavigate,
   onSelectProject,
   onAddToast,
 }) => {
   const [filterTab, setFilterTab] = useState<'All' | 'Ongoing' | 'Completed' | 'Urgent'>('All');
+
+  // Compute dynamic greeting name from logged in session
+  const greetingName = getUserFirstName({ name: userName, email: userEmail });
 
   const filteredProjects = projects.filter((p) => {
     if (filterTab === 'Ongoing') return p.progress < 100;
@@ -50,7 +58,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Page Header */}
       <div className="page-head">
         <div>
-          <h1>Halo, Rangga! 👋</h1>
+          <h1>Halo, {greetingName}! 👋</h1>
           <p className="sub">
             Rabu, 14 Oktober 2026 &bull; Pantau seluruh progres tim kreatif Wee Studio hari ini.
           </p>
