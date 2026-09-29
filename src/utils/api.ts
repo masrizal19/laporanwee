@@ -6,6 +6,9 @@ import {
   Report,
   TeamMember,
   AnalyticsSummary,
+  Task,
+  TaskStatus,
+  PriorityLevel,
 } from '../types';
 
 export const API_BASE_URL =
@@ -697,5 +700,123 @@ export const analyticsService = {
 };
 
 export const fetchAnalytics = analyticsService.fetchSummary;
+
+// ==========================================
+// 8. TASK / KANBAN SERVICE (MySQL API)
+// ==========================================
+
+export const mapBackendTaskStatusToFrontend = (status?: string): TaskStatus => {
+  if (!status) return 'todo';
+  const s = status.toLowerCase();
+  if (s === 'in_progress' || s === 'inprogress' || s === 'sedang dikerjakan') return 'inprogress';
+  if (s === 'review' || s === 'in_review' || s === 'dalam review') return 'review';
+  if (s === 'completed' || s === 'done' || s === 'selesai') return 'done';
+  return 'todo';
+};
+
+export const mapFrontendTaskStatusToBackend = (col?: TaskStatus): string => {
+  if (col === 'inprogress') return 'in_progress';
+  if (col === 'review') return 'review';
+  if (col === 'done') return 'completed';
+  return 'todo';
+};
+
+export const mapBackendTaskPriorityToFrontend = (priority?: string): PriorityLevel => {
+  if (!priority) return 'Medium';
+  const p = priority.toLowerCase();
+  if (p === 'high' || p === 'tinggi') return 'High';
+  if (p === 'low' || p === 'rendah') return 'Low';
+  return 'Medium';
+};
+
+export const taskService = {
+  fetchTasks: async (): Promise<Task[]> => {
+    try {
+      const res = await api.get('/tasks/list.php');
+      if (!res || !Array.isArray(res.data)) {
+        return [];
+      }
+
+      return res.data.map((item: any): Task => {
+        return {
+          id: String(item.id),
+          proj: item.category || item.project_name || item.project || 'Creative Sprint',
+          title: item.title || 'Tugas Baru',
+          priority: mapBackendTaskPriorityToFrontend(item.priority),
+          assignee: item.assignee_name || item.assignee || item.assignee_email || '',
+          due: item.deadline || item.due || 'Hari ini',
+          progress: Number(item.progress) || 0,
+          col: mapBackendTaskStatusToFrontend(item.status),
+          documents: Array.isArray(item.documents) ? item.documents : [],
+        };
+      });
+    } catch (err) {
+      console.warn('Sync tasks from API notice:', err);
+      return [];
+    }
+  },
+
+  createTask: async (taskData: Partial<Task>): Promise<Task> => {
+    const payload = {
+      title: taskData.title || '',
+      description: '',
+      status: mapFrontendTaskStatusToBackend(taskData.col),
+      priority: (taskData.priority || 'Medium').toLowerCase(),
+      progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
+      category: taskData.proj || 'Creative Sprint',
+      assignee_name: taskData.assignee || '',
+      deadline: taskData.due || 'Hari ini',
+    };
+
+    const res = await api.post('/tasks/create.php', payload);
+    const createdId = res?.data?.id ? String(res.data.id) : `t_${Date.now()}`;
+    return {
+      id: createdId,
+      proj: taskData.proj || 'Creative Sprint',
+      title: taskData.title || '',
+      priority: taskData.priority || 'Medium',
+      assignee: taskData.assignee || '',
+      due: taskData.due || 'Hari ini',
+      progress: taskData.progress || 0,
+      col: taskData.col || 'todo',
+      documents: taskData.documents || [],
+    };
+  },
+
+  updateTask: async (taskData: Partial<Task> & { id: string | number }): Promise<boolean> => {
+    const payload: Record<string, any> = {
+      id: Number(taskData.id) || taskData.id,
+    };
+    if (taskData.title !== undefined) payload.title = taskData.title;
+    if (taskData.col !== undefined) payload.status = mapFrontendTaskStatusToBackend(taskData.col);
+    if (taskData.priority !== undefined) payload.priority = taskData.priority.toLowerCase();
+    if (taskData.progress !== undefined) payload.progress = taskData.progress;
+    if (taskData.proj !== undefined) payload.category = taskData.proj;
+    if (taskData.assignee !== undefined) payload.assignee_name = taskData.assignee;
+    if (taskData.due !== undefined) payload.deadline = taskData.due;
+
+    const res = await api.post('/tasks/update.php', payload);
+    return Boolean(res && res.success !== false);
+  },
+
+  deleteTask: async (id: string | number): Promise<boolean> => {
+    const numericId = Number(id);
+    const res = await api.post('/tasks/delete.php', {
+      id: isNaN(numericId) ? id : numericId,
+    });
+    return Boolean(res && res.success !== false);
+  },
+
+  resetTasks: async (): Promise<boolean> => {
+    const res = await api.post('/tasks/reset.php', {});
+    return Boolean(res && res.success !== false);
+  },
+};
+
+export const fetchTasks = taskService.fetchTasks;
+export const createTask = taskService.createTask;
+export const updateTask = taskService.updateTask;
+export const deleteTask = taskService.deleteTask;
+export const resetTasks = taskService.resetTasks;
 
 
