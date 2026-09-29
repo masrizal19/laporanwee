@@ -506,67 +506,77 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="card progress-card">
             <div className="ph">
               <h3>Kemajuan Divisi</h3>
-              <span className="pill-mini">
-                <Icon name="check" style={{ width: 15, height: 15 }} />
-                <span>On-Track</span>
-              </span>
+              {analytics?.division_distribution && analytics.division_distribution.length > 0 && (
+                <span className="pill-mini">
+                  <Icon name="check" style={{ width: 15, height: 15 }} />
+                  <span>On-Track</span>
+                </span>
+              )}
             </div>
             <p className="section-sub">Tingkat capaian deliverable divisi minggu ini</p>
 
-            <div className="prog-row">
-              <div className="pic" style={{ background: 'var(--lavender)' }}>
-                <Icon name="palette" style={{ width: 16, height: 16 }} />
-              </div>
-              <div className="plabel">Desain Grafis</div>
-              <div className="ptrack">
-                <div className="pfill" style={{ width: '82%', background: 'var(--violet)' }} />
-              </div>
-              <div className="pval">82%</div>
-            </div>
+            {analytics?.division_distribution && analytics.division_distribution.length > 0 ? (
+              analytics.division_distribution.map((div, i) => {
+                const dName = (div.division || '').toLowerCase();
+                let icName = 'palette';
+                let bg = 'var(--lavender)';
+                let barColor = div.color || 'var(--violet)';
+                if (dName.includes('video')) {
+                  icName = 'video';
+                  bg = 'var(--mint)';
+                  if (!div.color) barColor = '#1e6e56';
+                } else if (dName.includes('photo') || dName.includes('foto')) {
+                  icName = 'camera';
+                  bg = 'var(--pink)';
+                  if (!div.color) barColor = '#d64d7c';
+                } else if (
+                  dName.includes('dev') ||
+                  dName.includes('code') ||
+                  dName.includes('web') ||
+                  dName.includes('front')
+                ) {
+                  icName = 'code';
+                  bg = 'var(--cream)';
+                  if (!div.color) barColor = '#d8ea2c';
+                } else if (
+                  dName.includes('copy') ||
+                  dName.includes('market') ||
+                  dName.includes('content')
+                ) {
+                  icName = 'megaphone';
+                  bg = 'var(--paper)';
+                  if (!div.color) barColor = 'var(--violet-ink)';
+                }
 
-            <div className="prog-row">
-              <div className="pic" style={{ background: 'var(--mint)' }}>
-                <Icon name="video" style={{ width: 16, height: 16 }} />
+                return (
+                  <div key={i} className="prog-row">
+                    <div className="pic" style={{ background: bg }}>
+                      <Icon name={icName} style={{ width: 16, height: 16 }} />
+                    </div>
+                    <div className="plabel">{div.division}</div>
+                    <div className="ptrack">
+                      <div
+                        className="pfill"
+                        style={{ width: `${div.percentage}%`, background: barColor }}
+                      />
+                    </div>
+                    <div className="pval">{div.percentage}%</div>
+                  </div>
+                );
+              })
+            ) : (
+              <div
+                style={{
+                  padding: '24px 16px',
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  fontSize: '13px',
+                  margin: '12px 0',
+                }}
+              >
+                Belum ada data capaian divisi
               </div>
-              <div className="plabel">Videografi</div>
-              <div className="ptrack">
-                <div className="pfill" style={{ width: '58%', background: '#1e6e56' }} />
-              </div>
-              <div className="pval">58%</div>
-            </div>
-
-            <div className="prog-row">
-              <div className="pic" style={{ background: 'var(--pink)' }}>
-                <Icon name="camera" style={{ width: 16, height: 16 }} />
-              </div>
-              <div className="plabel">Fotografi</div>
-              <div className="ptrack">
-                <div className="pfill" style={{ width: '90%', background: '#d64d7c' }} />
-              </div>
-              <div className="pval">90%</div>
-            </div>
-
-            <div className="prog-row">
-              <div className="pic" style={{ background: 'var(--cream)' }}>
-                <Icon name="code" style={{ width: 16, height: 16 }} />
-              </div>
-              <div className="plabel">Frontend Dev</div>
-              <div className="ptrack">
-                <div className="pfill" style={{ width: '74%', background: '#d8ea2c' }} />
-              </div>
-              <div className="pval">74%</div>
-            </div>
-
-            <div className="prog-row">
-              <div className="pic" style={{ background: 'var(--paper)' }}>
-                <Icon name="megaphone" style={{ width: 16, height: 16 }} />
-              </div>
-              <div className="plabel">Copywriting</div>
-              <div className="ptrack">
-                <div className="pfill" style={{ width: '95%', background: 'var(--violet-ink)' }} />
-              </div>
-              <div className="pval">95%</div>
-            </div>
+            )}
 
             <button
               className="link-row"
