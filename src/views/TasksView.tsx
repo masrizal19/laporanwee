@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Task, TaskStatus, PriorityLevel, Project, TaskDocument } from '../types';
+import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile } from '../utils/taskDocuments';
@@ -8,21 +8,29 @@ import { MediaViewerModal } from '../components/MediaViewerModal';
 interface TasksViewProps {
   tasks: Task[];
   projects: Project[];
+  members?: TeamMember[];
+  isAdmin?: boolean;
   onAddTask: (task: Omit<Task, 'id'>) => void;
   onUpdateTask: (task: Task) => void;
   onDeleteTask: (taskId: string) => void;
+  onResetTasks?: () => void;
+  onRefreshTasks?: () => void;
   onAddToast: (text: string) => void;
 }
 
 export const TasksView: React.FC<TasksViewProps> = ({
   tasks,
   projects,
+  members = [],
+  isAdmin = false,
   onAddTask,
   onUpdateTask,
   onDeleteTask,
+  onResetTasks,
+  onRefreshTasks,
   onAddToast,
 }) => {
-  const [filter, setFilter] = useState<'All' | 'Mine' | 'High' | 'Done'>('All');
+  const [filter, setFilter] = useState<'All' | 'High' | 'Done'>('All');
   const [search, setSearch] = useState('');
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
 
@@ -30,8 +38,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [defaultCol, setDefaultCol] = useState<TaskStatus>('todo');
   const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskProj, setNewTaskProj] = useState(projects[0]?.name || 'Website Redesign');
+  const [newTaskProj, setNewTaskProj] = useState(projects[0]?.name || 'Creative Sprint');
   const [newTaskPriority, setNewTaskPriority] = useState<PriorityLevel>('High');
+  const [newTaskAssignee, setNewTaskAssignee] = useState('');
   const [newTaskDue, setNewTaskDue] = useState('Besok');
 
   // Modal State for Editing Task
@@ -50,6 +59,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Delete Confirmation State
   const [docToDelete, setDocToDelete] = useState<TaskDocument | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   // Load documents when editing task opens
   useEffect(() => {
@@ -85,12 +95,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
     try {
       // Get current logged in user name if available
-      let uploaderName = 'Rangga Arya';
+      let uploaderName = 'Tim LaporanWee';
       try {
         const storedUser = localStorage.getItem('laporanwee_user');
         if (storedUser) {
           const parsed = JSON.parse(storedUser);
-          if (parsed?.full_name) uploaderName = parsed.full_name;
+          if (parsed?.name || parsed?.full_name) {
+            uploaderName = parsed.name || parsed.full_name;
+          }
         }
       } catch (_) {}
 
@@ -191,7 +203,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
         progress: targetCol === 'done' ? 100 : targetCol === 'todo' ? 0 : task.progress,
       };
       onUpdateTask(updated);
-      onAddToast(`Tugas dipindahkan ke "${targetCol}".`);
+      onAddToast(`Tugas dipindahkan ke status "${targetCol === 'done' ? 'Selesai' : targetCol === 'inprogress' ? 'Sedang Dikerjakan' : targetCol === 'review' ? 'Dalam Review' : 'To Do'}".`);
     }
   };
 
@@ -200,18 +212,18 @@ export const TasksView: React.FC<TasksViewProps> = ({
     if (!newTaskTitle.trim()) return;
 
     onAddTask({
-      proj: newTaskProj,
+      proj: newTaskProj || (projects[0]?.name || 'Creative Sprint'),
       title: newTaskTitle.trim(),
       priority: newTaskPriority,
-      assignee: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      assignee: newTaskAssignee || '',
       due: newTaskDue || 'Besok',
       progress: defaultCol === 'done' ? 100 : 0,
       col: defaultCol,
     });
 
-    onAddToast(`Tugas "${newTaskTitle}" berhasil ditambahkan!`);
     setIsAddOpen(false);
     setNewTaskTitle('');
+    setNewTaskAssignee('');
   };
 
   const handleSaveEdit = (e: React.FormEvent) => {
@@ -223,6 +235,98 @@ export const TasksView: React.FC<TasksViewProps> = ({
     setEditingTask(null);
   };
 
+  const renderAssigneeAvatar = (assignee?: string) => {
+    if (!assignee) {
+      return (
+        <div
+          className="kcard-avatar-fallback"
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: '50%',
+            background: 'var(--violet-bg, #ede9fe)',
+            color: 'var(--violet, #7c3aed)',
+            fontSize: '10px',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            border: '1px solid rgba(0,0,0,0.06)',
+            flexShrink: 0,
+          }}
+        >
+          <Icon name="user" style={{ width: 12, height: 12 }} />
+        </div>
+      );
+    }
+
+    if (
+      assignee.startsWith('http://') ||
+      assignee.startsWith('https://') ||
+      assignee.startsWith('data:') ||
+      assignee.startsWith('blob:')
+    ) {
+      return (
+        <img
+          src={assignee}
+          alt="Assignee"
+          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }}
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
+    }
+
+    // Check if assignee matches any team member in members list
+    const foundMember = members.find(
+      (m) =>
+        m.name?.toLowerCase() === assignee.toLowerCase() ||
+        m.full_name?.toLowerCase() === assignee.toLowerCase() ||
+        m.email?.toLowerCase() === assignee.toLowerCase()
+    );
+
+    if (
+      foundMember?.img &&
+      (foundMember.img.startsWith('http://') || foundMember.img.startsWith('https://'))
+    ) {
+      return (
+        <img
+          src={foundMember.img}
+          alt={assignee}
+          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }}
+        />
+      );
+    }
+
+    const initials = (foundMember?.full_name || foundMember?.name || assignee)
+      .substring(0, 2)
+      .toUpperCase();
+
+    return (
+      <div
+        className="kcard-avatar-fallback"
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: '50%',
+          background: 'var(--violet-bg, #ede9fe)',
+          color: 'var(--violet, #7c3aed)',
+          fontSize: '10px',
+          fontWeight: 600,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '1px solid rgba(0,0,0,0.06)',
+          flexShrink: 0,
+        }}
+        title={assignee}
+      >
+        {initials}
+      </div>
+    );
+  };
+
   return (
     <div className="view">
       {/* Page Head */}
@@ -230,19 +334,46 @@ export const TasksView: React.FC<TasksViewProps> = ({
         <div>
           <h1>Papan Tugas (Kanban)</h1>
           <p className="sub">
-            Atur dan pindahkan alur kerja tim dari perencanaan hingga selesai dengan drag &amp; drop.
+            Atur dan pindahkan alur kerja tim dari perencanaan hingga selesai dengan drag &amp; drop real-time.
           </p>
         </div>
-        <button
-          className="btn btn-dark"
-          onClick={() => {
-            setDefaultCol('todo');
-            setIsAddOpen(true);
-          }}
-        >
-          <Icon name="plus" />
-          <span>Tambah Tugas Baru</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {onRefreshTasks && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => onRefreshTasks()}
+              title="Refresh daftar tugas dari MySQL database"
+            >
+              <Icon name="refresh" style={{ width: 14, height: 14 }} />
+              <span>Sinkron</span>
+            </button>
+          )}
+
+          {isAdmin && onResetTasks && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ color: 'var(--danger)', borderColor: 'rgba(225, 75, 75, 0.3)' }}
+              onClick={() => setIsResetModalOpen(true)}
+              title="Reset seluruh tugas di Kanban (Khusus Admin)"
+            >
+              <Icon name="trash" style={{ width: 14, height: 14 }} />
+              <span>Reset Papan</span>
+            </button>
+          )}
+
+          <button
+            className="btn btn-dark"
+            onClick={() => {
+              setDefaultCol('todo');
+              setIsAddOpen(true);
+            }}
+          >
+            <Icon name="plus" />
+            <span>Tambah Tugas Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Head stats */}
@@ -359,7 +490,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   <h5>{t.title}</h5>
 
                   <div className="kcard-foot">
-                    <img src={t.assignee} alt="Assignee" />
+                    {renderAssigneeAvatar(t.assignee)}
                     <span className="kdate">
                       <Icon name="clock" />
                       <span>{t.due}</span>
@@ -419,11 +550,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
               value={newTaskProj}
               onChange={(e) => setNewTaskProj(e.target.value)}
             >
-              {projects.map((p) => (
-                <option key={p.id} value={p.name}>
-                  {p.name}
-                </option>
-              ))}
+              {projects.length > 0 ? (
+                projects.map((p) => (
+                  <option key={p.id} value={p.name}>
+                    {p.name}
+                  </option>
+                ))
+              ) : (
+                <option value="Creative Sprint">Creative Sprint</option>
+              )}
             </select>
           </div>
 
@@ -437,6 +572,33 @@ export const TasksView: React.FC<TasksViewProps> = ({
               onChange={(e) => setNewTaskTitle(e.target.value)}
               required
             />
+          </div>
+
+          <div className="field">
+            <label htmlFor="task-assignee-select">Penanggung Jawab (Opsional)</label>
+            {members.length > 0 ? (
+              <select
+                id="task-assignee-select"
+                className="input"
+                value={newTaskAssignee}
+                onChange={(e) => setNewTaskAssignee(e.target.value)}
+              >
+                <option value="">-- Pilih Anggota Tim --</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.full_name || m.name}>
+                    {m.full_name || m.name} ({m.role})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                id="task-assignee-input"
+                type="text"
+                placeholder="Nama penanggung jawab"
+                value={newTaskAssignee}
+                onChange={(e) => setNewTaskAssignee(e.target.value)}
+              />
+            )}
           </div>
 
           <div className="form-2col">
@@ -459,7 +621,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
               <input
                 id="task-due-input"
                 type="text"
-                placeholder="Misal: Hari ini, 18 Okt"
+                placeholder="Misal: Hari ini, Besok, 18 Okt"
                 value={newTaskDue}
                 onChange={(e) => setNewTaskDue(e.target.value)}
               />
@@ -501,6 +663,28 @@ export const TasksView: React.FC<TasksViewProps> = ({
               />
             </div>
 
+            <div className="field">
+              <label htmlFor="edit-task-proj">Proyek</label>
+              <select
+                id="edit-task-proj"
+                className="input"
+                value={editingTask.proj}
+                onChange={(e) =>
+                  setEditingTask({ ...editingTask, proj: e.target.value })
+                }
+              >
+                {projects.length > 0 ? (
+                  projects.map((p) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value={editingTask.proj}>{editingTask.proj}</option>
+                )}
+              </select>
+            </div>
+
             <div className="form-2col">
               <div className="field">
                 <label htmlFor="edit-task-col">Status Kolom</label>
@@ -513,7 +697,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                     setEditingTask({
                       ...editingTask,
                       col,
-                      progress: col === 'done' ? 100 : editingTask.progress,
+                      progress: col === 'done' ? 100 : col === 'todo' ? 0 : editingTask.progress,
                     });
                   }}
                 >
@@ -745,7 +929,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 style={{ color: 'var(--danger)', borderColor: 'rgba(225, 75, 75, 0.3)' }}
                 onClick={() => {
                   onDeleteTask(editingTask.id);
-                  onAddToast(`Tugas "${editingTask.title}" dihapus.`);
                   setEditingTask(null);
                 }}
               >
@@ -767,6 +950,45 @@ export const TasksView: React.FC<TasksViewProps> = ({
             </div>
           </form>
         </Modal>
+      )}
+
+      {/* Confirmation Dialog: Reset All Tasks (Admin Only) */}
+      {isResetModalOpen && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => setIsResetModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="doc-delete-confirm-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h4>Reset Seluruh Papan Tugas?</h4>
+            <p>
+              Tindakan ini akan menghapus semua tugas di database MySQL. Data yang direset tidak dapat dipulihkan.
+            </p>
+            <div className="doc-delete-confirm-actions">
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setIsResetModalOpen(false)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn-confirm-delete"
+                onClick={() => {
+                  setIsResetModalOpen(false);
+                  if (onResetTasks) onResetTasks();
+                }}
+              >
+                Reset Semua
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Confirmation Dialog: Delete Task Document */}

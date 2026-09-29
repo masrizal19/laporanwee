@@ -94,6 +94,7 @@ export const api = {
     const response = await fetch(url, {
       method: 'GET',
       headers: getHeaders(),
+      cache: 'no-store',
     });
     return handleResponse(response);
   },
@@ -744,7 +745,7 @@ export const taskService = {
           title: item.title || 'Tugas Baru',
           priority: mapBackendTaskPriorityToFrontend(item.priority),
           assignee: item.assignee_name || item.assignee || item.assignee_email || '',
-          due: item.deadline || item.due || 'Hari ini',
+          due: (item.deadline && item.deadline !== '0000-00-00') ? item.deadline : (item.due || 'Besok'),
           progress: Number(item.progress) || 0,
           col: mapBackendTaskStatusToFrontend(item.status),
           documents: Array.isArray(item.documents) ? item.documents : [],

@@ -11,9 +11,6 @@ import {
   ToastMessage,
   UISettings,
 } from './types';
-import {
-  INITIAL_TASKS,
-} from './data/initialData';
 import { Navbar } from './components/Navbar';
 import { ToastContainer } from './components/Toast';
 import { Icon } from './components/icons';
@@ -42,6 +39,7 @@ import {
   dailyReportService,
   teamService,
   analyticsService,
+  taskService,
 } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
@@ -196,13 +194,7 @@ export function App() {
   }, [currentPath, user]);
 
   const [projects, setProjects] = useState<Project[]>([]);
-  const [tasks, setTasks] = useState<Task[]>(() => {
-    try {
-      const saved = localStorage.getItem('laporanwee_local_tasks');
-      if (saved) return JSON.parse(saved);
-    } catch (_) {}
-    return INITIAL_TASKS;
-  });
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -222,12 +214,16 @@ export function App() {
     (user as any)?.is_admin === true
   );
 
-  // Synchronize Tasks with local storage
-  useEffect(() => {
+  // Synchronize Tasks with Backend PHP/MySQL API — Single Source of Truth
+  const refreshTasksFromApi = useCallback(async () => {
     try {
-      localStorage.setItem('laporanwee_local_tasks', JSON.stringify(tasks));
-    } catch (_) {}
-  }, [tasks]);
+      const fetchedTasks = await taskService.fetchTasks();
+      setTasks(fetchedTasks || []);
+    } catch (err) {
+      console.warn('Sync tasks from API notice:', err);
+      setTasks([]);
+    }
+  }, []);
 
   // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
   const refreshProjectsFromApi = useCallback(async () => {
@@ -323,6 +319,7 @@ export function App() {
   // Load all server-side global data when user is authenticated
   useEffect(() => {
     if (user) {
+      refreshTasksFromApi();
       refreshProjectsFromApi();
       refreshActivitiesFromApi();
       refreshEventsFromApi();
@@ -349,6 +346,7 @@ export function App() {
       };
     } else {
       setProjects([]);
+      setTasks([]);
       setActivities([]);
       setEvents([]);
       setReports([]);
@@ -357,6 +355,7 @@ export function App() {
     }
   }, [
     user,
+    refreshTasksFromApi,
     refreshProjectsFromApi,
     refreshActivitiesFromApi,
     refreshEventsFromApi,
@@ -364,6 +363,13 @@ export function App() {
     refreshTeamFromApi,
     refreshAnalyticsFromApi,
   ]);
+
+  // Re-fetch tasks whenever user navigates to tasks view
+  useEffect(() => {
+    if (user && currentView === 'tasks') {
+      refreshTasksFromApi();
+    }
+  }, [user, currentView, refreshTasksFromApi]);
 
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -453,31 +459,86 @@ export function App() {
     }
   };
 
-  // Tasks CRUD
-  const handleAddTask = (taskData: Omit<Task, 'id'>) => {
-    const newId = `t_${Date.now()}`;
-    const newTask: Task = { id: newId, ...taskData };
-    setTasks((prev) => [newTask, ...prev]);
+  // Tasks CRUD strictly connected to backend MySQL API
+  const handleAddTask = async (taskData: Omit<Task, 'id'>) => {
+    try {
+      await taskService.createTask(taskData);
+      // Re-fetch directly from MySQL API to ensure single source of truth
+      await refreshTasksFromApi();
+      addToast(`Tugas "${taskData.title}" berhasil ditambahkan!`);
 
-    // Log activity to backend MySQL API
-    activityService.createActivity({
-      title: 'menambahkan tugas baru',
-      description: `"${taskData.title}" (${taskData.proj})`,
-      activity_type: 'task',
-      icon_type: 'checksq',
-      user_name: user?.name || 'Admin',
-      user_email: user?.email || '',
-    }).then(() => refreshActivitiesFromApi()).catch(() => {});
+      // Log activity to backend MySQL API
+      await activityService.createActivity({
+        title: 'menambahkan tugas baru',
+        description: `"${taskData.title}" (${taskData.proj})`,
+        activity_type: 'task',
+        icon_type: 'checksq',
+        user_name: user?.name || 'Admin',
+        user_email: user?.email || '',
+      });
+      await refreshActivitiesFromApi();
+      await refreshAnalyticsFromApi();
+    } catch (e: any) {
+      console.error('API create task error:', e);
+      addToast(e?.message || `Gagal membuat tugas "${taskData.title}".`);
+    }
   };
 
-  const handleUpdateTask = (updatedTask: Task) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
-    );
+  const handleUpdateTask = async (updatedTask: Task) => {
+    try {
+      // Optimistic UI update
+      setTasks((prev) =>
+        prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+      );
+      const ok = await taskService.updateTask(updatedTask);
+      if (ok) {
+        await refreshTasksFromApi();
+        await refreshAnalyticsFromApi();
+      } else {
+        addToast('Gagal memperbarui status tugas di database.');
+        await refreshTasksFromApi();
+      }
+    } catch (e: any) {
+      console.error('API update task error:', e);
+      addToast(e?.message || 'Gagal memperbarui tugas.');
+      await refreshTasksFromApi();
+    }
   };
 
-  const handleDeleteTask = (taskId: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const ok = await taskService.deleteTask(taskId);
+      if (ok) {
+        await refreshTasksFromApi();
+        addToast('Tugas berhasil dihapus.');
+        await refreshAnalyticsFromApi();
+      } else {
+        addToast('Gagal menghapus tugas dari database.');
+      }
+    } catch (e: any) {
+      console.error('API delete task error:', e);
+      addToast(e?.message || 'Gagal menghapus tugas.');
+    }
+  };
+
+  const handleResetTasks = async () => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat mereset papan tugas.');
+      return;
+    }
+    try {
+      const ok = await taskService.resetTasks();
+      if (ok) {
+        await refreshTasksFromApi();
+        addToast('Seluruh tugas di papan Kanban berhasil direset.');
+        await refreshAnalyticsFromApi();
+      } else {
+        addToast('Gagal mereset tugas dari database.');
+      }
+    } catch (e: any) {
+      console.error('API reset tasks error:', e);
+      addToast(e?.message || 'Gagal mereset tugas.');
+    }
   };
 
   // Reports CRUD strictly connected to backend MySQL API
@@ -853,9 +914,13 @@ export function App() {
           <TasksView
             tasks={tasks}
             projects={projects}
+            members={members}
+            isAdmin={isAdmin}
             onAddTask={handleAddTask}
             onUpdateTask={handleUpdateTask}
             onDeleteTask={handleDeleteTask}
+            onResetTasks={handleResetTasks}
+            onRefreshTasks={refreshTasksFromApi}
             onAddToast={addToast}
           />
         )}
