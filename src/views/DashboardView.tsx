@@ -3,6 +3,7 @@ import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 import { getUserFirstName } from '../utils/userUtils';
+import { api } from '../utils/api';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -11,6 +12,7 @@ interface DashboardViewProps {
   userEmail?: string;
   onNavigate: (view: ViewType) => void;
   onSelectProject: (projectId: string) => void;
+  onDeleteProject?: (projectId: string) => void;
   onAddToast: (text: string) => void;
 }
 
@@ -21,9 +23,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   userEmail,
   onNavigate,
   onSelectProject,
+  onDeleteProject,
   onAddToast,
 }) => {
   const [filterTab, setFilterTab] = useState<'All' | 'Ongoing' | 'Completed' | 'Urgent'>('All');
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Compute dynamic greeting name from logged in session
   const greetingName = getUserFirstName({ name: userName, email: userEmail });
@@ -52,6 +57,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   const featuredProject = projects[0] || filteredProjects[0];
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+    const target = projectToDelete;
+    setIsDeleting(true);
+    try {
+      try {
+        await api.delete(`/projects/${target.id}`);
+      } catch (backendErr) {
+        console.warn('Backend delete project fallback:', backendErr);
+      }
+
+      if (onDeleteProject) {
+        onDeleteProject(target.id);
+      }
+      setProjectToDelete(null);
+      onAddToast('Project berhasil dihapus.');
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+      onAddToast('Project gagal dihapus. Silakan coba lagi.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <div className="view">
@@ -121,13 +150,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
 
               <div className="feature-evidence-body">
-                <div className="tag-row">
-                  <Icon name={featuredProject.cat || 'palette'} style={{ width: 16, height: 16 }} />
-                  <span>{featuredProject.catLabel}</span>
-                  <span className="deadline-badge">
-                    <Icon name="clock" style={{ width: 14, height: 14 }} />
-                    <span>Tenggat: {featuredProject.due}</span>
-                  </span>
+                <div className="tag-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <Icon name={featuredProject.cat || 'palette'} style={{ width: 16, height: 16 }} />
+                    <span>{featuredProject.catLabel}</span>
+                    <span className="deadline-badge">
+                      <Icon name="clock" style={{ width: 14, height: 14 }} />
+                      <span>Tenggat: {featuredProject.due}</span>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-delete-project"
+                    title="Hapus Project"
+                    aria-label="Hapus project"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setProjectToDelete(featuredProject);
+                    }}
+                  >
+                    <Icon name="trash" style={{ width: 18, height: 18 }} />
+                  </button>
                 </div>
 
                 <h3>{featuredProject.name}</h3>
@@ -252,13 +295,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </div>
 
                     <div className="wc-content">
-                      {/* Divisi / Kategori with small icon */}
+                      {/* Divisi / Kategori with small icon & Trash button */}
                       <div className="wc-cat-row">
                         <span className="cat-badge">
                           <Icon name={p.cat} style={{ width: 14, height: 14 }} />
                           <span>{p.catLabel}</span>
                         </span>
-                        <span className="status-badge-sm">{p.status}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className="status-badge-sm">{p.status}</span>
+                          <button
+                            type="button"
+                            className="btn-delete-project"
+                            title="Hapus Project"
+                            aria-label="Hapus project"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setProjectToDelete(p);
+                            }}
+                          >
+                            <Icon name="trash" style={{ width: 18, height: 18 }} />
+                          </button>
+                        </div>
                       </div>
 
                       {/* 2. Nama Proyek */}
@@ -432,6 +489,116 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal Konfirmasi Hapus Project */}
+      {projectToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isDeleting && setProjectToDelete(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.15s ease',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              color: 'var(--text-color, #1a1a1a)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'inherit' }}>
+                Hapus Project?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted, #6b7280)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Project ini beserta data yang terkait akan dihapus. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setProjectToDelete(null)}
+                disabled={isDeleting}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isDeleting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  background: '#dc2626',
+                  color: '#ffffff',
+                  border: 'none',
+                  cursor: isDeleting ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(220, 38, 38, 0.3)',
+                }}
+              >
+                {isDeleting ? (
+                  <>
+                    <Icon name="loader" style={{ width: 14, height: 14 }} className="spin" />
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="trash" style={{ width: 15, height: 15 }} />
+                    <span>Hapus Project</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

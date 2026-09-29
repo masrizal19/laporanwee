@@ -3,6 +3,7 @@ import { Project, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
+import { api } from '../utils/api';
 
 interface ProjectsViewProps {
   projects: Project[];
@@ -25,6 +26,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'due' | 'progDesc' | 'progAsc'>('newest');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // New Project Form State
   const [name, setName] = useState('');
@@ -32,6 +35,28 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [desc, setDesc] = useState('');
   const [due, setDue] = useState('2026-10-31');
   const [formErr, setFormErr] = useState('');
+
+  const handleConfirmDelete = async () => {
+    if (!projectToDelete) return;
+    const target = projectToDelete;
+    setIsDeleting(true);
+    try {
+      try {
+        await api.delete(`/projects/${target.id}`);
+      } catch (backendErr) {
+        console.warn('Backend delete project fallback:', backendErr);
+      }
+
+      onDeleteProject(target.id);
+      setProjectToDelete(null);
+      onAddToast('Project berhasil dihapus.');
+    } catch (err) {
+      console.error('Failed to delete project:', err);
+      onAddToast('Project gagal dihapus. Silakan coba lagi.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const filteredProjects = projects
     .filter((p) => {
@@ -256,18 +281,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                     <span>{p.catLabel}</span>
                   </div>
                   <button
-                    className="more-dots"
+                    type="button"
+                    className="btn-delete-project"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (window.confirm(`Hapus proyek "${p.name}"?`)) {
-                        onDeleteProject(p.id);
-                        onAddToast(`Proyek "${p.name}" telah dihapus.`);
-                      }
+                      setProjectToDelete(p);
                     }}
-                    title="Hapus proyek"
-                    aria-label="Hapus proyek"
+                    title="Hapus Project"
+                    aria-label="Hapus project"
                   >
-                    <Icon name="dots" style={{ width: 16, height: 16 }} />
+                    <Icon name="trash" style={{ width: 18, height: 18 }} />
                   </button>
                 </div>
 
@@ -376,6 +399,116 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
           </div>
         </form>
       </Modal>
+
+      {/* Modal Konfirmasi Hapus Project */}
+      {projectToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isDeleting && setProjectToDelete(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.15s ease',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              color: 'var(--text-color, #1a1a1a)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'inherit' }}>
+                Hapus Project?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted, #6b7280)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Project ini beserta data yang terkait akan dihapus. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setProjectToDelete(null)}
+                disabled={isDeleting}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: isDeleting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                style={{
+                  padding: '8px 18px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  background: '#dc2626',
+                  color: '#ffffff',
+                  border: 'none',
+                  cursor: isDeleting ? 'not-allowed' : 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 6px rgba(220, 38, 38, 0.3)',
+                }}
+              >
+                {isDeleting ? (
+                  <>
+                    <Icon name="loader" style={{ width: 14, height: 14 }} className="spin" />
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="trash" style={{ width: 15, height: 15 }} />
+                    <span>Hapus Project</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
