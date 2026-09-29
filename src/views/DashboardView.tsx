@@ -63,20 +63,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const target = projectToDelete;
     setIsDeleting(true);
     try {
-      try {
-        await projectService.deleteProject(target.id);
-      } catch (backendErr) {
-        console.warn('Backend delete project notice:', backendErr);
-      }
-
       if (onDeleteProject) {
-        onDeleteProject(target.id);
+        await onDeleteProject(target.id);
       }
       setProjectToDelete(null);
-      onAddToast('Project berhasil dihapus.');
     } catch (err) {
       console.error('Failed to delete project:', err);
-      onAddToast('Project gagal dihapus. Silakan coba lagi.');
     } finally {
       setIsDeleting(false);
     }
@@ -270,125 +262,154 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
 
             {/* Grid of Work Cards with Work Evidence Thumbnails */}
-            <div className="card-grid-2">
-              {filteredProjects.slice(0, 4).map((p) => {
-                const evidenceList = getProjectEvidenceList(p);
+            {projects.length === 0 ? (
+              <div className="empty-state card" style={{ background: '#fff', padding: '36px 20px', textAlign: 'center', borderRadius: '16px', border: '1px solid var(--line-soft)' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', color: 'var(--violet)' }}>
+                  <Icon name="folder" style={{ width: 24, height: 24 }} />
+                </div>
+                <b style={{ fontSize: '15px', display: 'block', marginBottom: '4px' }}>Belum ada proyek</b>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', margin: '0 0 16px' }}>
+                  Buat proyek pertama Anda untuk mulai memantau deliverable dan bukti pekerjaan tim.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-dark btn-sm"
+                  onClick={() => onNavigate('projects')}
+                >
+                  <Icon name="plus" style={{ width: 14, height: 14 }} />
+                  <span>+ Buat Proyek Baru</span>
+                </button>
+              </div>
+            ) : filteredProjects.length === 0 ? (
+              <div className="empty-state card" style={{ background: '#fff', padding: '24px 20px', textAlign: 'center', borderRadius: '16px', border: '1px solid var(--line-soft)' }}>
+                <b style={{ fontSize: '14px', display: 'block', marginBottom: '4px' }}>Tidak ada proyek dengan filter ini</b>
+                <p style={{ fontSize: '12.5px', color: 'var(--muted)', margin: 0 }}>
+                  Coba pilih tab filter lain di atas.
+                </p>
+              </div>
+            ) : (
+              <div className="card-grid-2">
+                {filteredProjects.slice(0, 4).map((p) => {
+                  const evidenceList = getProjectEvidenceList(p);
 
-                return (
-                  <div
-                    key={p.id}
-                    className="work-card evidence-card"
-                    onClick={() => {
-                      onSelectProject(p.id);
-                      onNavigate('project-detail');
-                    }}
-                  >
-                    {/* 1. THUMBNAIL BUKTI PEKERJAAN SEBAGAI VISUAL UTAMA */}
-                    <div className="wc-evidence-media">
-                      <WorkEvidenceThumbnail
-                        evidenceUrls={evidenceList}
-                        thumbnailUrl={p.thumbnail_url}
-                        projectTitle={p.name}
-                        height={185}
-                        onCreateReport={() => onNavigate('create-report')}
-                      />
-                    </div>
+                  return (
+                    <div
+                      key={p.id}
+                      className="work-card evidence-card"
+                      onClick={() => {
+                        onSelectProject(p.id);
+                        onNavigate('project-detail');
+                      }}
+                    >
+                      {/* 1. THUMBNAIL BUKTI PEKERJAAN SEBAGAI VISUAL UTAMA */}
+                      <div className="wc-evidence-media">
+                        <WorkEvidenceThumbnail
+                          evidenceUrls={evidenceList}
+                          thumbnailUrl={p.thumbnail_url}
+                          projectTitle={p.name}
+                          height={185}
+                          onCreateReport={() => onNavigate('create-report')}
+                        />
+                      </div>
 
-                    <div className="wc-content">
-                      {/* Divisi / Kategori with small icon & Trash button */}
-                      <div className="wc-cat-row">
-                        <span className="cat-badge">
-                          <Icon name={p.cat} style={{ width: 14, height: 14 }} />
-                          <span>{p.catLabel}</span>
-                        </span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span className="status-badge-sm">{p.status}</span>
+                      <div className="wc-content">
+                        {/* Divisi / Kategori with small icon & Trash button */}
+                        <div className="wc-cat-row">
+                          <span className="cat-badge">
+                            <Icon name={p.cat} style={{ width: 14, height: 14 }} />
+                            <span>{p.catLabel}</span>
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="status-badge-sm">{p.status}</span>
+                            <button
+                              type="button"
+                              className="btn-delete-project"
+                              title="Hapus Project"
+                              aria-label="Hapus project"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setProjectToDelete(p);
+                              }}
+                            >
+                              <Icon name="trash" style={{ width: 18, height: 18 }} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 2. Nama Proyek */}
+                        <h4 className="wc-title">{p.name}</h4>
+
+                        {/* 3. Persentase Selesai & Sprint/Status */}
+                        <div className="wc-sub-meta">
+                          <span className="pct-bold">{p.progress}% Selesai</span>
+                          <span className="dot-sep">&bull;</span>
+                          <span className="sub-tag">
+                            {p.status === 'Completed' ? 'Tuntas' : p.progress > 70 ? 'Sprint 2' : 'Sprint 1'}
+                          </span>
+                        </div>
+
+                        {/* 4. Progress Track */}
+                        <div className="wc-progress-row">
+                          <div className="mini-track">
+                            <div
+                              className="mini-fill"
+                              style={{
+                                width: `${p.progress}%`,
+                                background: p.progress === 100 ? '#1e6e56' : 'var(--primary-color, #4A55FF)',
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* 5. Metadata: Anggota & Icon Jam Kecil 14px */}
+                        <div className="wc-footer-meta">
+                          <div className="avatar-stack-sm">
+                            {p.team.slice(0, 3).map((img, i) => (
+                              <img key={i} src={img} alt="Anggota" />
+                            ))}
+                            {p.team.length > 3 && (
+                              <span className="plus-sm">+{p.team.length - 3}</span>
+                            )}
+                          </div>
+
+                          {/* Clock icon small 14px indicator only */}
+                          <div className="wc-date-chip" title={`Tenggat: ${p.due}`}>
+                            <Icon name="clock" style={{ width: 14, height: 14 }} />
+                            <span>{p.due}</span>
+                          </div>
+                        </div>
+
+                        {/* 5. Action Button */}
+                        <div className="wc-action-row">
                           <button
                             type="button"
-                            className="btn-delete-project"
-                            title="Hapus Project"
-                            aria-label="Hapus project"
+                            className="btn btn-outline btn-xs"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setProjectToDelete(p);
+                              onSelectProject(p.id);
+                              onNavigate('project-detail');
                             }}
                           >
-                            <Icon name="trash" style={{ width: 18, height: 18 }} />
+                            <span>Buka Proyek</span>
+                            <Icon name="arrowR" style={{ width: 14, height: 14 }} />
                           </button>
                         </div>
                       </div>
-
-                      {/* 2. Nama Proyek */}
-                      <h4 className="wc-title">{p.name}</h4>
-
-                      {/* 3. Persentase Selesai & Sprint/Status */}
-                      <div className="wc-sub-meta">
-                        <span className="pct-bold">{p.progress}% Selesai</span>
-                        <span className="dot-sep">&bull;</span>
-                        <span className="sub-tag">
-                          {p.status === 'Completed' ? 'Tuntas' : p.progress > 70 ? 'Sprint 2' : 'Sprint 1'}
-                        </span>
-                      </div>
-
-                      {/* 4. Progress Track */}
-                      <div className="wc-progress-row">
-                        <div className="mini-track">
-                          <div
-                            className="mini-fill"
-                            style={{
-                              width: `${p.progress}%`,
-                              background: p.progress === 100 ? '#1e6e56' : 'var(--primary-color, #4A55FF)',
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* 5. Metadata: Anggota & Icon Jam Kecil 14px */}
-                      <div className="wc-footer-meta">
-                        <div className="avatar-stack-sm">
-                          {p.team.slice(0, 3).map((img, i) => (
-                            <img key={i} src={img} alt="Anggota" />
-                          ))}
-                          {p.team.length > 3 && (
-                            <span className="plus-sm">+{p.team.length - 3}</span>
-                          )}
-                        </div>
-
-                        {/* Clock icon small 14px indicator only */}
-                        <div className="wc-date-chip" title={`Tenggat: ${p.due}`}>
-                          <Icon name="clock" style={{ width: 14, height: 14 }} />
-                          <span>{p.due}</span>
-                        </div>
-                      </div>
-
-                      {/* 5. Action Button */}
-                      <div className="wc-action-row">
-                        <button
-                          type="button"
-                          className="btn btn-outline btn-xs"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectProject(p.id);
-                            onNavigate('project-detail');
-                          }}
-                        >
-                          <span>Buka Proyek</span>
-                          <Icon name="arrowR" style={{ width: 14, height: 14 }} />
-                        </button>
-                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
-            <button
-              className="see-all-bar"
-              style={{ width: '100%' }}
-              onClick={() => onNavigate('projects')}
-            >
-              Lihat Semua {projects.length} Proyek Tim &rarr;
-            </button>
+            {projects.length > 0 && (
+              <button
+                className="see-all-bar"
+                style={{ width: '100%' }}
+                onClick={() => onNavigate('projects')}
+              >
+                Lihat Semua {projects.length} Proyek Tim &rarr;
+              </button>
+            )}
           </div>
         </div>
 

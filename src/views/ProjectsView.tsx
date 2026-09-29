@@ -41,18 +41,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     const target = projectToDelete;
     setIsDeleting(true);
     try {
-      try {
-        await projectService.deleteProject(target.id);
-      } catch (backendErr) {
-        console.warn('Backend delete project notice:', backendErr);
+      if (onDeleteProject) {
+        await onDeleteProject(target.id);
       }
-
-      onDeleteProject(target.id);
       setProjectToDelete(null);
-      onAddToast('Project berhasil dihapus.');
     } catch (err) {
       console.error('Failed to delete project:', err);
-      onAddToast('Project gagal dihapus. Silakan coba lagi.');
     } finally {
       setIsDeleting(false);
     }

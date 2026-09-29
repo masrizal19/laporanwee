@@ -11,7 +11,6 @@ import {
   UISettings,
 } from './types';
 import {
-  INITIAL_PROJECTS,
   INITIAL_TASKS,
   INITIAL_REPORTS,
   INITIAL_ACTIVITIES,
@@ -191,33 +190,65 @@ export function App() {
     }
   }, [currentPath, user]);
 
-  const [projects, setProjects] = useState<Project[]>(INITIAL_PROJECTS);
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
-  const [reports, setReports] = useState<Report[]>(INITIAL_REPORTS);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_local_tasks');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return INITIAL_TASKS;
+  });
+  const [reports, setReports] = useState<Report[]>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_local_reports');
+      if (saved) return JSON.parse(saved);
+    } catch (_) {}
+    return INITIAL_REPORTS;
+  });
   const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
   const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
   const [members] = useState<TeamMember[]>(INITIAL_MEMBERS);
 
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('p1');
+  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedReportId, setSelectedReportId] = useState<string>('r1');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Synchronize Projects with Backend PHP/MySQL API
+  // Synchronize Tasks and Reports to local storage so user modifications persist across refreshes
+  useEffect(() => {
+    try {
+      localStorage.setItem('laporanwee_local_tasks', JSON.stringify(tasks));
+    } catch (_) {}
+  }, [tasks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('laporanwee_local_reports', JSON.stringify(reports));
+    } catch (_) {}
+  }, [reports]);
+
+  // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
+  const refreshProjectsFromApi = async () => {
+    try {
+      const fetchedProjects = await projectService.fetchProjects();
+      setProjects(fetchedProjects || []);
+      if (fetchedProjects && fetchedProjects.length > 0) {
+        setSelectedProjectId((prev) =>
+          fetchedProjects.some((p) => p.id === prev) ? prev : fetchedProjects[0].id
+        );
+      } else {
+        setSelectedProjectId('');
+      }
+    } catch (err) {
+      console.warn('Sync projects from API notice:', err);
+      setProjects([]);
+    }
+  };
+
   useEffect(() => {
     if (user) {
-      projectService
-        .fetchProjects()
-        .then((fetchedProjects) => {
-          if (fetchedProjects && fetchedProjects.length > 0) {
-            setProjects(fetchedProjects);
-            setSelectedProjectId((prev) =>
-              fetchedProjects.some((p) => p.id === prev) ? prev : fetchedProjects[0].id
-            );
-          }
-        })
-        .catch((err) => {
-          console.warn('Sync projects from API notice:', err);
-        });
+      refreshProjectsFromApi();
+    } else {
+      setProjects([]);
     }
   }, [user]);
 
@@ -235,57 +266,59 @@ export function App() {
     setCurrentView(view);
   };
 
-  // Projects CRUD connected to backend MySQL API
+  // Projects CRUD strictly connected to backend MySQL API
   const handleAddProject = async (projectData: Omit<Project, 'id'>) => {
     try {
       const created = await projectService.createProject(projectData);
-      setProjects((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+      // Re-fetch directly from MySQL API to ensure single source of truth
+      await refreshProjectsFromApi();
       setSelectedProjectId(created.id);
       addToast(`Proyek "${created.name}" berhasil dibuat!`);
-    } catch (e: any) {
-      console.warn('API create project fallback:', e);
-      const newId = `p_${Date.now()}`;
-      const newProj: Project = { id: newId, ...projectData };
-      setProjects((prev) => [newProj, ...prev]);
-      addToast(`Proyek "${projectData.name}" berhasil dibuat!`);
-    }
 
-    // Add activity
-    setActivities((prev) => [
-      {
-        id: `act_${Date.now()}`,
-        person: user?.name || 'Rangga Arya',
-        action: 'membuat proyek baru',
-        quote: `"${projectData.name}"`,
-        time: 'Baru saja',
-        project: projectData.name,
-        kind: 'Tasks',
-        icon: 'folder',
-      },
-      ...prev,
-    ]);
+      // Add activity
+      setActivities((prev) => [
+        {
+          id: `act_${Date.now()}`,
+          person: user?.name || 'Rangga Arya',
+          action: 'membuat proyek baru',
+          quote: `"${created.name}"`,
+          time: 'Baru saja',
+          project: created.name,
+          kind: 'Tasks',
+          icon: 'folder',
+        },
+        ...prev,
+      ]);
+    } catch (e: any) {
+      console.error('API create project error:', e);
+      addToast(e?.message || `Gagal membuat proyek "${projectData.name}".`);
+    }
   };
 
   const handleDeleteProject = async (projectId: string) => {
     try {
-      await projectService.deleteProject(projectId);
-    } catch (e) {
-      console.warn('API delete project fallback:', e);
-    }
-    setProjects((prev) => prev.filter((p) => p.id !== projectId));
-    if (selectedProjectId === projectId) {
-      const remaining = projects.filter((p) => p.id !== projectId);
-      setSelectedProjectId(remaining[0]?.id || '');
+      const ok = await projectService.deleteProject(projectId);
+      if (ok) {
+        // Re-fetch directly from MySQL API
+        await refreshProjectsFromApi();
+        addToast('Project berhasil dihapus.');
+      } else {
+        addToast('Project gagal dihapus. Silakan coba lagi.');
+      }
+    } catch (e: any) {
+      console.error('API delete project error:', e);
+      addToast('Project gagal dihapus. Silakan coba lagi.');
     }
   };
 
   const handleUpdateProject = async (updatedProject: Project) => {
     try {
-      const saved = await projectService.updateProject(updatedProject);
-      setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
-    } catch (e) {
-      console.warn('API update project fallback:', e);
-      setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
+      await projectService.updateProject(updatedProject);
+      await refreshProjectsFromApi();
+      addToast('Proyek berhasil diperbarui.');
+    } catch (e: any) {
+      console.error('API update project error:', e);
+      addToast('Gagal memperbarui proyek.');
     }
   };
 
