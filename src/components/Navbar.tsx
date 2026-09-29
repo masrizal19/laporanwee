@@ -185,14 +185,26 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               aria-label="Menu Pengguna"
             >
-              <img
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                alt={userName || "Rangga Arya"}
-                className="avatar"
-              />
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'var(--primary-color, #4A55FF)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                {(userName || userEmail || 'U').trim().charAt(0).toUpperCase()}
+              </div>
               <div className="meta">
-                <div className="hi">{userName || "Rangga Arya"}</div>
-                <div className="mail">{userEmail || "rangga@wee.agency"}</div>
+                <div className="hi">{userName || userEmail?.split('@')[0] || 'Anggota Tim'}</div>
+                <div className="mail">{userEmail || 'user@laporanwee.agency'}</div>
               </div>
               <span className="chev">
                 <Icon name="chevdown" />

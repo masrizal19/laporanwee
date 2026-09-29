@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Project, Report, ViewType } from '../types';
+import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 import { getUserFirstName } from '../utils/userUtils';
@@ -8,6 +8,9 @@ import { projectService } from '../utils/projectService';
 interface DashboardViewProps {
   projects: Project[];
   reports?: Report[];
+  members?: TeamMember[];
+  analytics?: AnalyticsSummary;
+  tasksCount?: number;
   userName?: string;
   userEmail?: string;
   onNavigate: (view: ViewType) => void;
@@ -19,6 +22,9 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({
   projects,
   reports = [],
+  members = [],
+  analytics,
+  tasksCount = 0,
   userName,
   userEmail,
   onNavigate,
@@ -32,6 +38,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Compute dynamic greeting name from logged in session
   const greetingName = getUserFirstName({ name: userName, email: userEmail });
+
+  // Only project with status "active" for Proyek Aktif
+  const activeProjects = projects.filter((p) => {
+    const s = (p.status || '').toLowerCase();
+    return s === 'active' || s === 'in progress' || s === 'in_progress';
+  });
+
+  // Dynamic metrics
+  const activeProjectsCount = activeProjects.length;
+  const runningTasksCount = analytics?.tasks?.total || tasksCount || 0;
+  const totalTeamCount = members.length;
+  const completionRate =
+    analytics && analytics.reports?.total > 0
+      ? Math.round((analytics.reports.completed / analytics.reports.total) * 100)
+      : projects.length > 0
+      ? Math.round(projects.reduce((acc, p) => acc + (p.progress || 0), 0) / projects.length)
+      : 0;
 
   const filteredProjects = projects.filter((p) => {
     if (filterTab === 'Ongoing') return p.progress < 100;
@@ -74,6 +97,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
+  // Helper to render dynamic member avatar or clean initial badge
+  const renderAvatarItem = (m: { name?: string; img?: string }, idx: number, isSmall: boolean = false) => {
+    const size = isSmall ? '24px' : '32px';
+    const fontSize = isSmall ? '10px' : '12px';
+
+    if (m.img) {
+      return <img key={idx} src={m.img} alt={m.name || 'Anggota'} />;
+    }
+    const initial = (m.name || 'U').trim().charAt(0).toUpperCase();
+    return (
+      <div
+        key={idx}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          background: 'var(--primary-color, #4A55FF)',
+          color: '#fff',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: fontSize,
+          fontWeight: 700,
+          border: '2px solid #fff',
+          flexShrink: 0,
+        }}
+        title={m.name || 'Anggota'}
+      >
+        {initial}
+      </div>
+    );
+  };
+
   return (
     <div className="view">
       {/* Page Header */}
@@ -90,7 +146,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Icon name="folder" style={{ width: 18, height: 18 }} />
             </div>
             <div>
-              <div className="num">6</div>
+              <div className="num">{activeProjectsCount}</div>
               <div className="lbl">Proyek Aktif</div>
             </div>
           </div>
@@ -99,7 +155,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Icon name="checksq" style={{ width: 18, height: 18 }} />
             </div>
             <div>
-              <div className="num">18</div>
+              <div className="num">{runningTasksCount}</div>
               <div className="lbl">Tugas Berjalan</div>
             </div>
           </div>
@@ -108,7 +164,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Icon name="target" style={{ width: 18, height: 18 }} />
             </div>
             <div>
-              <div className="num">94%</div>
+              <div className="num">{completionRate}%</div>
               <div className="lbl">Tingkat Selesai</div>
             </div>
           </div>
@@ -117,7 +173,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Icon name="users" style={{ width: 18, height: 18 }} />
             </div>
             <div>
-              <div className="num">6</div>
+              <div className="num">{totalTeamCount}</div>
               <div className="lbl">Anggota Tim</div>
             </div>
           </div>
@@ -183,19 +239,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                 <div className="feature-bottom-row">
                   <div className="avatar-stack">
-                    <img
-                      src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-                      alt="Rangga"
-                    />
-                    <img
-                      src="https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80"
-                      alt="Dimas"
-                    />
-                    <img
-                      src="https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80"
-                      alt="Siti"
-                    />
-                    <div className="plus">+2</div>
+                    {members.length > 0 ? (
+                      <>
+                        {members.slice(0, 3).map((m, idx) => renderAvatarItem(m, idx, false))}
+                        {members.length > 3 && (
+                          <div className="plus">+{members.length - 3}</div>
+                        )}
+                      </>
+                    ) : (
+                      <div
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '50%',
+                          background: 'var(--paper, #f3f4f6)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '12px',
+                          color: 'var(--muted)',
+                          border: '2px solid #fff',
+                        }}
+                      >
+                        <Icon name="user" style={{ width: 14, height: 14 }} />
+                      </div>
+                    )}
                   </div>
 
                   <div className="feature-actions">
@@ -364,11 +432,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {/* 5. Metadata: Anggota & Icon Jam Kecil 14px */}
                         <div className="wc-footer-meta">
                           <div className="avatar-stack-sm">
-                            {p.team.slice(0, 3).map((img, i) => (
-                              <img key={i} src={img} alt="Anggota" />
-                            ))}
-                            {p.team.length > 3 && (
-                              <span className="plus-sm">+{p.team.length - 3}</span>
+                            {members.length > 0 ? (
+                              <>
+                                {members.slice(0, 3).map((m, idx) => renderAvatarItem(m, idx, true))}
+                                {members.length > 3 && (
+                                  <span className="plus-sm">+{members.length - 3}</span>
+                                )}
+                              </>
+                            ) : (
+                              <div
+                                style={{
+                                  width: '24px',
+                                  height: '24px',
+                                  borderRadius: '50%',
+                                  background: 'var(--paper, #f3f4f6)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '10px',
+                                  color: 'var(--muted)',
+                                  border: '2px solid #fff',
+                                }}
+                              >
+                                <Icon name="user" style={{ width: 12, height: 12 }} />
+                              </div>
                             )}
                           </div>
 

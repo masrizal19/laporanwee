@@ -7,12 +7,12 @@ import {
   Activity,
   CalendarEvent,
   TeamMember,
+  AnalyticsSummary,
   ToastMessage,
   UISettings,
 } from './types';
 import {
   INITIAL_TASKS,
-  INITIAL_MEMBERS,
 } from './data/initialData';
 import { Navbar } from './components/Navbar';
 import { ToastContainer } from './components/Toast';
@@ -35,7 +35,14 @@ import { AdminUISettingsView } from './views/AdminUISettingsView';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
-import { api, activityService, calendarService, dailyReportService } from './utils/api';
+import {
+  api,
+  activityService,
+  calendarService,
+  dailyReportService,
+  teamService,
+  analyticsService,
+} from './utils/api';
 import { projectService } from './utils/projectService';
 import {
   fetchUISettings,
@@ -199,7 +206,8 @@ export function App() {
   const [reports, setReports] = useState<Report[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [members] = useState<TeamMember[]>(INITIAL_MEMBERS);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | undefined>(undefined);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedReportId, setSelectedReportId] = useState<string>('');
@@ -279,6 +287,39 @@ export function App() {
     }
   }, []);
 
+  // Synchronize Team Members from Backend PHP/MySQL API
+  const refreshTeamFromApi = useCallback(async () => {
+    try {
+      const res = await teamService.fetchTeamMembers();
+      setMembers(res.members || []);
+    } catch (err) {
+      console.warn('Sync team members from API notice:', err);
+      setMembers([]);
+    }
+  }, []);
+
+  // Synchronize Analytics from Backend PHP/MySQL API
+  const refreshAnalyticsFromApi = useCallback(async () => {
+    try {
+      const res = await analyticsService.fetchSummary();
+      setAnalytics(res);
+    } catch (err) {
+      console.warn('Sync analytics from API notice:', err);
+    }
+  }, []);
+
+  // Reset Presence handler
+  const handleResetPresence = useCallback(async () => {
+    try {
+      await teamService.resetPresence();
+      await refreshTeamFromApi();
+      addToast('Seluruh status kehadiran berhasil direset ke offline.');
+    } catch (err: any) {
+      console.error('Reset presence error:', err);
+      addToast(err?.message || 'Gagal mereset kehadiran tim.');
+    }
+  }, [refreshTeamFromApi]);
+
   // Load all server-side global data when user is authenticated
   useEffect(() => {
     if (user) {
@@ -286,13 +327,43 @@ export function App() {
       refreshActivitiesFromApi();
       refreshEventsFromApi();
       refreshReportsFromApi();
+      refreshTeamFromApi();
+      refreshAnalyticsFromApi();
+
+      // Mark current user as online in database
+      if (user.email) {
+        teamService.updatePresence(true, user.email).then(() => {
+          refreshTeamFromApi();
+        });
+      }
+
+      // Handle window beforeunload to mark offline
+      const handleBeforeUnload = () => {
+        if (user?.email) {
+          teamService.updatePresence(false, user.email);
+        }
+      };
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+      };
     } else {
       setProjects([]);
       setActivities([]);
       setEvents([]);
       setReports([]);
+      setMembers([]);
+      setAnalytics(undefined);
     }
-  }, [user, refreshProjectsFromApi, refreshActivitiesFromApi, refreshEventsFromApi, refreshReportsFromApi]);
+  }, [
+    user,
+    refreshProjectsFromApi,
+    refreshActivitiesFromApi,
+    refreshEventsFromApi,
+    refreshReportsFromApi,
+    refreshTeamFromApi,
+    refreshAnalyticsFromApi,
+  ]);
 
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -615,6 +686,9 @@ export function App() {
 
   const handleLogout = () => {
     const token = localStorage.getItem('laporanwee_token');
+    if (user?.email) {
+      teamService.updatePresence(false, user.email).catch(() => {});
+    }
     
     // Clear state & storage immediately for reactive UI response
     localStorage.removeItem('laporanwee_user');
@@ -689,6 +763,11 @@ export function App() {
           <DashboardView
             projects={projects}
             reports={reports}
+            members={members}
+            analytics={analytics}
+            tasksCount={tasks.length}
+            userName={user.name}
+            userEmail={user.email}
             onNavigate={handleNavigate}
             onSelectProject={(id) => setSelectedProjectId(id)}
             onDeleteProject={handleDeleteProject}
@@ -790,6 +869,8 @@ export function App() {
             onAddToast={addToast}
             onDeleteActivity={handleDeleteActivity}
             onResetActivities={handleResetActivities}
+            onResetPresence={handleResetPresence}
+            onRefreshTeam={refreshTeamFromApi}
           />
         )}
 
@@ -821,8 +902,10 @@ export function App() {
 
         {currentView === 'analytics' && (
           <AnalyticsView
+            analytics={analytics}
             onNavigate={handleNavigate}
             onAddToast={addToast}
+            onRefresh={refreshAnalyticsFromApi}
           />
         )}
 

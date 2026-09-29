@@ -35,9 +35,44 @@ export type PriorityLevel = 'High' | 'Medium' | 'Low';
 export interface TeamMember {
   id: string;
   name: string;
+  full_name?: string;
+  email: string;
   role: string;
-  img: string;
+  img?: string;
   status: 'working' | 'break' | 'offline';
+  is_online?: boolean;
+  last_seen?: string | null;
+}
+
+export interface DailyActivityItem {
+  day: string;
+  tasks_completed: number;
+  reports: number;
+}
+
+export interface DivisionDistributionItem {
+  division: string;
+  percentage: number;
+  count?: number;
+  color?: string;
+}
+
+export interface AnalyticsSummary {
+  total_hours: number;
+  reports: {
+    total: number;
+    completed: number;
+  };
+  tasks: {
+    total: number;
+    completed: number;
+  };
+  activities: {
+    total: number;
+  };
+  deadline_accuracy: number;
+  daily_activity: DailyActivityItem[];
+  division_distribution: DivisionDistributionItem[];
 }
 
 export interface ProjectDocument {

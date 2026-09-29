@@ -1,13 +1,80 @@
-import React from 'react';
-import { ViewType } from '../types';
+import React, { useState, useEffect } from 'react';
+import { AnalyticsSummary, ViewType } from '../types';
 import { Icon } from '../components/icons';
+import { analyticsService } from '../utils/api';
 
 interface AnalyticsViewProps {
+  analytics?: AnalyticsSummary;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
+  onRefresh?: () => void;
 }
 
-export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddToast }) => {
+export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
+  analytics: propAnalytics,
+  onNavigate,
+  onAddToast,
+  onRefresh,
+}) => {
+  const [data, setData] = useState<AnalyticsSummary>(
+    propAnalytics || {
+      total_hours: 0,
+      reports: { total: 0, completed: 0 },
+      tasks: { total: 0, completed: 0 },
+      activities: { total: 0 },
+      deadline_accuracy: 0,
+      daily_activity: [
+        { day: 'Senin', tasks_completed: 0, reports: 0 },
+        { day: 'Selasa', tasks_completed: 0, reports: 0 },
+        { day: 'Rabu', tasks_completed: 0, reports: 0 },
+        { day: 'Kamis', tasks_completed: 0, reports: 0 },
+        { day: 'Jumat', tasks_completed: 0, reports: 0 },
+      ],
+      division_distribution: [],
+    }
+  );
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (propAnalytics) {
+      setData(propAnalytics);
+    }
+  }, [propAnalytics]);
+
+  const loadAnalytics = async () => {
+    setIsLoading(true);
+    try {
+      const summary = await analyticsService.fetchSummary();
+      setData(summary);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      console.warn('Load analytics error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadAnalytics();
+  }, []);
+
+  const dailyList =
+    data.daily_activity && data.daily_activity.length > 0
+      ? data.daily_activity
+      : [
+          { day: 'Senin', tasks_completed: 0, reports: 0 },
+          { day: 'Selasa', tasks_completed: 0, reports: 0 },
+          { day: 'Rabu', tasks_completed: 0, reports: 0 },
+          { day: 'Kamis', tasks_completed: 0, reports: 0 },
+          { day: 'Jumat', tasks_completed: 0, reports: 0 },
+        ];
+
+  // Compute maximum value for relative bar heights
+  const maxVal = Math.max(
+    ...dailyList.map((d) => Math.max(d.tasks_completed, d.reports)),
+    1
+  );
+
   return (
     <div className="view">
       <div className="page-head">
@@ -17,13 +84,26 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
             Evaluasi kecepatan sprint, konsistensi pelaporan harian, dan distribusi beban kerja tim.
           </p>
         </div>
-        <button
-          className="btn btn-outline"
-          onClick={() => onAddToast('Mengunduh laporan analitik bulanan (PDF)...')}
-        >
-          <Icon name="doc" />
-          <span>Ekspor Laporan (PDF)</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={loadAnalytics}
+            disabled={isLoading}
+            title="Muat ulang analitik dari database"
+          >
+            <Icon name="refresh" className={isLoading ? 'spin' : ''} style={{ width: 16, height: 16 }} />
+            <span>{isLoading ? 'Memuat...' : 'Segarkan Data'}</span>
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => onAddToast('Mengunduh laporan analitik bulanan (PDF)...')}
+          >
+            <Icon name="doc" />
+            <span>Ekspor Laporan (PDF)</span>
+          </button>
+        </div>
       </div>
 
       {/* Head stats */}
@@ -33,7 +113,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
             <Icon name="clock" />
           </div>
           <div>
-            <div className="num">142 Jam</div>
+            <div className="num">{data.total_hours} Jam</div>
             <div className="lbl">Total Jam Kerja</div>
           </div>
         </div>
@@ -42,7 +122,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
             <Icon name="checksq" />
           </div>
           <div>
-            <div className="num">24</div>
+            <div className="num">{data.reports.completed}</div>
             <div className="lbl">Laporan Disetujui</div>
           </div>
         </div>
@@ -51,7 +131,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
             <Icon name="target" />
           </div>
           <div>
-            <div className="num">98.2%</div>
+            <div className="num">{data.deadline_accuracy}%</div>
             <div className="lbl">Ketepatan Deadline</div>
           </div>
         </div>
@@ -85,70 +165,49 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
             </div>
 
             <div className="bar-chart">
-              {/* Senin */}
-              <div className="bar-group">
-                <div className="bars">
-                  <div className="bar" style={{ height: '55%', background: 'var(--violet)' }}>
-                    <span className="bv">14</span>
-                  </div>
-                  <div className="bar" style={{ height: '40%', background: 'var(--lime-deep)' }}>
-                    <span className="bv">10</span>
-                  </div>
-                </div>
-                <div className="bar-day">Senin</div>
-              </div>
+              {dailyList.map((item, idx) => {
+                const taskPct =
+                  item.tasks_completed > 0
+                    ? Math.max(Math.round((item.tasks_completed / maxVal) * 85), 10)
+                    : 4;
+                const reportPct =
+                  item.reports > 0
+                    ? Math.max(Math.round((item.reports / maxVal) * 85), 10)
+                    : 4;
 
-              {/* Selasa */}
-              <div className="bar-group">
-                <div className="bars">
-                  <div className="bar" style={{ height: '70%', background: 'var(--violet)' }}>
-                    <span className="bv">18</span>
-                  </div>
-                  <div className="bar" style={{ height: '50%', background: 'var(--lime-deep)' }}>
-                    <span className="bv">13</span>
-                  </div>
-                </div>
-                <div className="bar-day">Selasa</div>
-              </div>
+                const isToday = item.day.toLowerCase() === 'rabu';
 
-              {/* Rabu (Today) */}
-              <div className="bar-group">
-                <div className="bars">
-                  <div className="bar" style={{ height: '90%', background: 'var(--violet)' }}>
-                    <span className="bv">24</span>
+                return (
+                  <div key={idx} className="bar-group">
+                    <div className="bars">
+                      <div
+                        className="bar"
+                        style={{
+                          height: `${taskPct}%`,
+                          background: item.tasks_completed > 0 ? 'var(--violet)' : 'rgba(74, 85, 255, 0.15)',
+                        }}
+                      >
+                        <span className="bv">{item.tasks_completed}</span>
+                      </div>
+                      <div
+                        className="bar"
+                        style={{
+                          height: `${reportPct}%`,
+                          background: item.reports > 0 ? 'var(--lime-deep)' : 'rgba(216, 234, 44, 0.25)',
+                        }}
+                      >
+                        <span className="bv">{item.reports}</span>
+                      </div>
+                    </div>
+                    <div
+                      className="bar-day"
+                      style={isToday ? { color: 'var(--violet)', fontWeight: 800 } : undefined}
+                    >
+                      {item.day}
+                    </div>
                   </div>
-                  <div className="bar" style={{ height: '75%', background: 'var(--lime-deep)' }}>
-                    <span className="bv">19</span>
-                  </div>
-                </div>
-                <div className="bar-day" style={{ color: 'var(--violet)', fontWeight: 800 }}>Rabu</div>
-              </div>
-
-              {/* Kamis */}
-              <div className="bar-group">
-                <div className="bars">
-                  <div className="bar" style={{ height: '60%', background: 'var(--violet)' }}>
-                    <span className="bv">15</span>
-                  </div>
-                  <div className="bar" style={{ height: '45%', background: 'var(--lime-deep)' }}>
-                    <span className="bv">11</span>
-                  </div>
-                </div>
-                <div className="bar-day">Kamis</div>
-              </div>
-
-              {/* Jumat */}
-              <div className="bar-group">
-                <div className="bars">
-                  <div className="bar" style={{ height: '80%', background: 'var(--violet)' }}>
-                    <span className="bv">21</span>
-                  </div>
-                  <div className="bar" style={{ height: '65%', background: 'var(--lime-deep)' }}>
-                    <span className="bv">16</span>
-                  </div>
-                </div>
-                <div className="bar-day">Jumat</div>
-              </div>
+                );
+              })}
             </div>
           </div>
 
@@ -158,52 +217,42 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
               Distribusi Beban Kerja per Divisi
             </h3>
             <p className="section-sub" style={{ margin: '0 0 16px' }}>
-              Persentase porsi pengerjaan tim kreatif di bulan Oktober
+              Persentase porsi pengerjaan tim kreatif di database
             </p>
 
-            <div className="dist-row">
-              <div className="dist-ic" style={{ background: 'var(--lavender)' }}>
-                <Icon name="palette" />
+            {data.division_distribution && data.division_distribution.length > 0 ? (
+              data.division_distribution.map((div, i) => (
+                <div key={i} className="dist-row">
+                  <div className="dist-ic" style={{ background: 'var(--lavender)' }}>
+                    <Icon name="palette" />
+                  </div>
+                  <div className="dist-label">{div.division}</div>
+                  <div className="dist-track">
+                    <div
+                      className="dist-fill"
+                      style={{
+                        width: `${div.percentage}%`,
+                        background: div.color || 'var(--violet)',
+                      }}
+                    />
+                  </div>
+                  <div className="dist-val">{div.percentage}%</div>
+                </div>
+              ))
+            ) : (
+              <div
+                style={{
+                  padding: '24px 16px',
+                  textAlign: 'center',
+                  color: 'var(--muted)',
+                  fontSize: '13px',
+                  background: 'var(--paper, #f9fafb)',
+                  borderRadius: '10px',
+                }}
+              >
+                Belum ada data distribusi beban kerja divisi.
               </div>
-              <div className="dist-label">Desain &amp; Branding</div>
-              <div className="dist-track">
-                <div className="dist-fill" style={{ width: '38%', background: 'var(--violet)' }} />
-              </div>
-              <div className="dist-val">38%</div>
-            </div>
-
-            <div className="dist-row">
-              <div className="dist-ic" style={{ background: 'var(--mint)' }}>
-                <Icon name="video" />
-              </div>
-              <div className="dist-label">Video &amp; Motion</div>
-              <div className="dist-track">
-                <div className="dist-fill" style={{ width: '26%', background: '#1e6e56' }} />
-              </div>
-              <div className="dist-val">26%</div>
-            </div>
-
-            <div className="dist-row">
-              <div className="dist-ic" style={{ background: 'var(--pink)' }}>
-                <Icon name="camera" />
-              </div>
-              <div className="dist-label">Fotografi Katalog</div>
-              <div className="dist-track">
-                <div className="dist-fill" style={{ width: '20%', background: '#d64d7c' }} />
-              </div>
-              <div className="dist-val">20%</div>
-            </div>
-
-            <div className="dist-row">
-              <div className="dist-ic" style={{ background: 'var(--cream)' }}>
-                <Icon name="code" />
-              </div>
-              <div className="dist-label">Web &amp; Mobile Dev</div>
-              <div className="dist-track">
-                <div className="dist-fill" style={{ width: '16%', background: 'var(--ink)' }} />
-              </div>
-              <div className="dist-val">16%</div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -219,10 +268,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
                 <Icon name="clock" />
               </div>
               <div>
-                <div className="ws-num">142.5 Jam</div>
+                <div className="ws-num">{data.total_hours} Jam</div>
                 <div className="ws-lbl">Jam Kerja Efektif</div>
               </div>
-              <span className="ws-delta">+12.4%</span>
             </div>
 
             <div className="week-stat-row">
@@ -230,10 +278,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
                 <Icon name="check" />
               </div>
               <div>
-                <div className="ws-num">24 / 26</div>
+                <div className="ws-num">
+                  {data.reports.completed} / {data.reports.total}
+                </div>
                 <div className="ws-lbl">Laporan Disetujui Langsung</div>
               </div>
-              <span className="ws-delta">+8.0%</span>
             </div>
 
             <div className="week-stat-row">
@@ -241,24 +290,24 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ onNavigate, onAddT
                 <Icon name="target" />
               </div>
               <div>
-                <div className="ws-num">96.5%</div>
-                <div className="ws-lbl">Skor Produktivitas</div>
+                <div className="ws-num">{data.deadline_accuracy}%</div>
+                <div className="ws-lbl">Skor Produktivitas &amp; Deadline</div>
               </div>
-              <span className="ws-delta">+3.1%</span>
             </div>
           </div>
 
           {/* Momentum Card */}
           <div className="momentum-card">
             <div className="momentum-big">
-              <span>98.2%</span>
+              <span>{data.deadline_accuracy}%</span>
               <span style={{ fontSize: '20px' }}>🚀</span>
             </div>
-            <h3>Sprint Momentum Tinggi</h3>
+            <h3>Sprint Momentum Tim</h3>
             <p>
-              Tingkat penyelesaian deliverable tim meningkat 24% dibandingkan bulan lalu tanpa adanya laporan yang terlambat.
+              Tingkat penyelesaian deliverable dan kepatuhan tenggat waktu dihitung real-time dari database.
             </p>
             <button
+              type="button"
               className="btn btn-sm"
               style={{ background: '#fff', color: 'var(--violet-ink)' }}
               onClick={() => onNavigate('reports')}

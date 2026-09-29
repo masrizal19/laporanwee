@@ -1,4 +1,12 @@
-import { Project, ProjectDocument, Activity, CalendarEvent, Report } from '../types';
+import {
+  Project,
+  ProjectDocument,
+  Activity,
+  CalendarEvent,
+  Report,
+  TeamMember,
+  AnalyticsSummary,
+} from '../types';
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string)?.replace(/\/$/, '') ||
@@ -177,7 +185,7 @@ export const projectService = {
         ? item.team
         : typeof item.team === 'string' && item.team.trim()
         ? item.team.split(',').map((s: string) => s.trim())
-        : ['Rangga Arya'];
+        : (item.created_by ? [item.created_by] : []);
 
       return {
         id: String(item.id),
@@ -547,5 +555,159 @@ export const fetchDailyReports = dailyReportService.fetchDailyReports;
 export const createDailyReport = dailyReportService.createDailyReport;
 export const deleteDailyReport = dailyReportService.deleteDailyReport;
 export const resetDailyReports = dailyReportService.resetDailyReports;
+
+// ==========================================
+// 6. TEAM & PRESENCE SERVICE
+// ==========================================
+
+export const teamService = {
+  fetchTeamMembers: async (): Promise<{
+    members: TeamMember[];
+    total_users: number;
+    online_count: number;
+  }> => {
+    try {
+      const res = await api.get('/team/list.php');
+      if (!res || !Array.isArray(res.data)) {
+        return { members: [], total_users: 0, online_count: 0 };
+      }
+
+      const members: TeamMember[] = res.data
+        .filter((item: any) => item.status === 'active' || item.status === undefined)
+        .map((item: any): TeamMember => {
+          const isOnline = Boolean(
+            item.is_online === true ||
+              item.is_online === 1 ||
+              item.is_online === '1' ||
+              item.is_online === 'true'
+          );
+          const roleLabel =
+            item.role === 'admin'
+              ? 'Administrator'
+              : item.role === 'lead'
+              ? 'Project Lead'
+              : item.role === 'designer'
+              ? 'UI/UX Designer'
+              : item.role === 'developer'
+              ? 'Frontend Dev'
+              : 'Anggota Tim';
+
+          return {
+            id: String(item.id),
+            name: item.full_name || item.name || item.email?.split('@')[0] || 'Anggota Tim',
+            full_name: item.full_name,
+            email: item.email || '',
+            role: roleLabel,
+            img: item.avatar_url || item.img || '',
+            status: isOnline ? 'working' : 'offline',
+            is_online: isOnline,
+            last_seen: item.last_seen || null,
+          };
+        });
+
+      return {
+        members,
+        total_users: typeof res.total_users === 'number' ? res.total_users : members.length,
+        online_count:
+          typeof res.online_count === 'number'
+            ? res.online_count
+            : members.filter((m) => m.is_online).length,
+      };
+    } catch (err) {
+      console.warn('Sync team members from API notice:', err);
+      return { members: [], total_users: 0, online_count: 0 };
+    }
+  },
+
+  updatePresence: async (isOnline: boolean, userEmail?: string): Promise<boolean> => {
+    try {
+      const payload = {
+        is_online: isOnline ? 1 : 0,
+      };
+      const res = await api.post('/team/presence.php', payload);
+      return Boolean(res && res.success !== false);
+    } catch (err) {
+      console.warn('Update presence notice:', err);
+      return false;
+    }
+  },
+
+  resetPresence: async (): Promise<boolean> => {
+    try {
+      const res = await api.post('/team/reset.php', {});
+      return Boolean(res && res.success !== false);
+    } catch (err) {
+      console.warn('Reset presence notice:', err);
+      return false;
+    }
+  },
+};
+
+export const fetchTeamMembers = teamService.fetchTeamMembers;
+export const updatePresence = teamService.updatePresence;
+export const resetPresence = teamService.resetPresence;
+
+// ==========================================
+// 7. ANALYTICS SERVICE
+// ==========================================
+
+export const analyticsService = {
+  fetchSummary: async (): Promise<AnalyticsSummary> => {
+    try {
+      const res = await api.get('/analytics/summary.php');
+      const data = res?.data || {};
+
+      return {
+        total_hours: Number(data.total_hours) || 0,
+        reports: {
+          total: Number(data.reports?.total) || 0,
+          completed: Number(data.reports?.completed) || 0,
+        },
+        tasks: {
+          total: Number(data.tasks?.total) || 0,
+          completed: Number(data.tasks?.completed) || 0,
+        },
+        activities: {
+          total: Number(data.activities?.total) || 0,
+        },
+        deadline_accuracy: Number(data.deadline_accuracy) || 0,
+        daily_activity: Array.isArray(data.daily_activity)
+          ? data.daily_activity.map((d: any) => ({
+              day: d.day || '',
+              tasks_completed: Number(d.tasks_completed) || 0,
+              reports: Number(d.reports) || 0,
+            }))
+          : [],
+        division_distribution: Array.isArray(data.division_distribution)
+          ? data.division_distribution.map((div: any) => ({
+              division: div.division || '',
+              percentage: Number(div.percentage) || 0,
+              count: Number(div.count) || 0,
+              color: div.color || undefined,
+            }))
+          : [],
+      };
+    } catch (err) {
+      console.warn('Sync analytics from API notice:', err);
+      return {
+        total_hours: 0,
+        reports: { total: 0, completed: 0 },
+        tasks: { total: 0, completed: 0 },
+        activities: { total: 0 },
+        deadline_accuracy: 0,
+        daily_activity: [
+          { day: 'Senin', tasks_completed: 0, reports: 0 },
+          { day: 'Selasa', tasks_completed: 0, reports: 0 },
+          { day: 'Rabu', tasks_completed: 0, reports: 0 },
+          { day: 'Kamis', tasks_completed: 0, reports: 0 },
+          { day: 'Jumat', tasks_completed: 0, reports: 0 },
+        ],
+        division_distribution: [],
+      };
+    }
+  },
+};
+
+export const fetchAnalytics = analyticsService.fetchSummary;
 
 

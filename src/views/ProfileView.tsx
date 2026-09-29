@@ -24,12 +24,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   userEmail,
   userName,
 }) => {
-  const [name, setName] = useState(userName || 'Rangga Arya');
-  const [role, setRole] = useState('Lead Product Designer & UI Specialist');
-  const [email, setEmail] = useState(userEmail || 'rangga@wee.agency');
+  const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna LaporanWee');
+  const [role, setRole] = useState('Anggota Tim Kreatif');
+  const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
   const [isEditOpen, setIsEditOpen] = useState(false);
 
-  const myReports = reports.filter((r) => r.person.includes('Rangga'));
+  const myReports = reports.filter(
+    (r) =>
+      (userEmail && r.person.toLowerCase().includes(userEmail.split('@')[0].toLowerCase())) ||
+      (userName && r.person.toLowerCase().includes(userName.toLowerCase()))
+  );
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,15 +1,6 @@
 import { Project, Task, Report, Activity, CalendarEvent, TeamMember } from '../types';
 
-export const INITIAL_MEMBERS: TeamMember[] = [
-  { id: 'm1', name: 'Rangga Arya', role: 'UI/UX Designer', img: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80', status: 'working' },
-  { id: 'm2', name: 'Alvaro Satria', role: 'Videographer', img: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80', status: 'working' },
-  { id: 'm3', name: 'Nadia Putri', role: 'Photographer', img: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100&auto=format&fit=crop&q=80', status: 'break' },
-  { id: 'm4', name: 'Dimas Wicaksono', role: 'Frontend Dev', img: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80', status: 'working' },
-  { id: 'm5', name: 'Siti Rahma', role: 'Copywriter', img: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80', status: 'offline' },
-  { id: 'm6', name: 'Rizky Pratama', role: 'Project Lead', img: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&auto=format&fit=crop&q=80', status: 'working' },
-];
-
-export const INITIAL_PROJECTS: Project[] = [];
+export const INITIAL_MEMBERS: TeamMember[] = [];
 
 export const INITIAL_TASKS: Task[] = [
   {
@@ -17,7 +8,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Website Redesign',
     title: 'Finalisasi mockup homepage desktop & mobile di Figma',
     priority: 'High',
-    assignee: INITIAL_MEMBERS[0].img,
+    assignee: '',
     due: 'Hari ini',
     progress: 85,
     col: 'todo',
@@ -65,7 +56,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Dokumentasi Video',
     title: 'Export draft kasar b-roll scene 3 & kirim link review',
     priority: 'Medium',
-    assignee: INITIAL_MEMBERS[1].img,
+    assignee: '',
     due: 'Besok',
     progress: 40,
     col: 'todo',
@@ -89,7 +80,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Photoshoot Brand',
     title: 'Color grading 12 photo outdoor set senayan',
     priority: 'High',
-    assignee: INITIAL_MEMBERS[2].img,
+    assignee: '',
     due: '15 Okt',
     progress: 60,
     col: 'inprogress',
@@ -99,7 +90,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Website Redesign',
     title: 'Slicing component navigation & footer Tailwind CSS',
     priority: 'Medium',
-    assignee: INITIAL_MEMBERS[3].img,
+    assignee: '',
     due: '16 Okt',
     progress: 50,
     col: 'inprogress',
@@ -109,7 +100,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Social Media',
     title: 'Review caption carousel IG dari tim copywriter',
     priority: 'Low',
-    assignee: INITIAL_MEMBERS[4].img,
+    assignee: '',
     due: '14 Okt',
     progress: 90,
     col: 'review',
@@ -119,7 +110,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Brand Identity',
     title: 'Presentasi guidelines warna & font ke klien via GMeet',
     priority: 'High',
-    assignee: INITIAL_MEMBERS[5].img,
+    assignee: '',
     due: '14 Okt',
     progress: 80,
     col: 'review',
@@ -129,7 +120,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Social Media Campaign',
     title: 'Publish feed batch 1 & update report engagement',
     priority: 'Medium',
-    assignee: INITIAL_MEMBERS[4].img,
+    assignee: '',
     due: '10 Okt',
     progress: 100,
     col: 'done',
@@ -139,7 +130,7 @@ export const INITIAL_TASKS: Task[] = [
     proj: 'Photoshoot Brand',
     title: 'Briefing model dan sewa studio lighting Senopati',
     priority: 'Low',
-    assignee: INITIAL_MEMBERS[2].img,
+    assignee: '',
     due: '08 Okt',
     progress: 100,
     col: 'done',

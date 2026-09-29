@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
-import { api } from '../utils/api';
+import { api, teamService } from '../utils/api';
 
 interface TeamViewProps {
   activities: Activity[];
@@ -12,6 +12,8 @@ interface TeamViewProps {
   onAddToast: (text: string) => void;
   onDeleteActivity?: (id: string) => void;
   onResetActivities?: () => void;
+  onResetPresence?: () => void;
+  onRefreshTeam?: () => void;
 }
 
 export const TeamView: React.FC<TeamViewProps> = ({
@@ -22,6 +24,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
   onAddToast,
   onDeleteActivity,
   onResetActivities,
+  onResetPresence,
+  onRefreshTeam,
 }) => {
   const [filter, setFilter] = useState<'All' | 'Reports' | 'Tasks' | 'Files' | 'Comments'>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,6 +38,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
   // Admin Delete & Reset modals state
   const [actToDelete, setActToDelete] = useState<Activity | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResetPresenceModalOpen, setIsResetPresenceModalOpen] = useState(false);
+  const [isResettingPresence, setIsResettingPresence] = useState(false);
 
   const handleCreateUserSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,6 +64,10 @@ export const TeamView: React.FC<TeamViewProps> = ({
         setFullName('');
         setEmail('');
         setPassword('');
+        // Refresh team list from database MySQL
+        if (onRefreshTeam) {
+          onRefreshTeam();
+        }
       })
       .catch((err: any) => {
         setIsCreating(false);
@@ -80,18 +90,70 @@ export const TeamView: React.FC<TeamViewProps> = ({
     setIsResetModalOpen(false);
   };
 
+  const handleConfirmResetPresence = async () => {
+    setIsResettingPresence(true);
+    try {
+      if (onResetPresence) {
+        await onResetPresence();
+      } else {
+        await teamService.resetPresence();
+        if (onRefreshTeam) onRefreshTeam();
+      }
+      onAddToast('Seluruh status kehadiran berhasil direset ke offline.');
+    } catch (err) {
+      console.error('Reset presence error:', err);
+    } finally {
+      setIsResettingPresence(false);
+      setIsResetPresenceModalOpen(false);
+    }
+  };
+
   const filteredActivities = activities.filter((a) => {
     if (filter === 'All') return true;
     return a.kind === filter;
   });
 
-  const workingMembers = members.filter((m) => m.status === 'working');
-  const breakMembers = members.filter((m) => m.status === 'break');
-  const offlineMembers = members.filter((m) => m.status === 'offline');
+  const workingMembers = members.filter((m) => m.is_online || m.status === 'working');
+  const offlineMembers = members.filter((m) => !m.is_online && m.status !== 'working');
 
   const handleCopyInvite = () => {
     navigator.clipboard?.writeText('https://laporanwee.agency/invite/team-creative-q4');
     onAddToast('Tautan undangan tim berhasil disalin!');
+  };
+
+  // Helper to render dynamic member avatar or clean initial badge
+  const renderMemberAvatar = (m: { name?: string; img?: string }, size: string = '36px', fontSize: string = '13px') => {
+    if (m.img) {
+      return (
+        <img
+          src={m.img}
+          alt={m.name || 'Anggota'}
+          style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
+        />
+      );
+    }
+    const initial = (m.name || 'U').trim().charAt(0).toUpperCase();
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          background: 'var(--primary-color, #4A55FF)',
+          color: '#fff',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: fontSize,
+          fontWeight: 700,
+          border: '1px solid rgba(0,0,0,0.06)',
+          flexShrink: 0,
+        }}
+        title={m.name || 'Anggota'}
+      >
+        {initial}
+      </div>
+    );
   };
 
   return (
@@ -103,10 +165,28 @@ export const TeamView: React.FC<TeamViewProps> = ({
             Pantau update real-time pengerjaan, file yang diunggah, dan ketersediaan rekan tim.
           </p>
         </div>
-        <button className="btn btn-dark" onClick={() => setIsModalOpen(true)}>
-          <Icon name="users" />
-          <span>Tambah Anggota Baru</span>
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {isAdmin && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setIsResetPresenceModalOpen(true)}
+              title="Reset status kehadiran semua user ke offline"
+              style={{
+                borderColor: '#fca5a5',
+                color: '#dc2626',
+                background: '#fff',
+              }}
+            >
+              <Icon name="refresh" style={{ width: 16, height: 16 }} />
+              <span>Reset Kehadiran</span>
+            </button>
+          )}
+          <button className="btn btn-dark" onClick={() => setIsModalOpen(true)}>
+            <Icon name="users" />
+            <span>Tambah Anggota Baru</span>
+          </button>
+        </div>
       </div>
 
       {/* Head stats */}
@@ -117,7 +197,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
           </div>
           <div>
             <div className="num">{workingMembers.length}</div>
-            <div className="lbl">Sedang Bekerja</div>
+            <div className="lbl">Sedang Bekerja Online</div>
           </div>
         </div>
         <div className="stat-chip c-pink">
@@ -125,8 +205,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
             <Icon name="clock" />
           </div>
           <div>
-            <div className="num">{breakMembers.length}</div>
-            <div className="lbl">Sedang Istirahat</div>
+            <div className="num">{offlineMembers.length}</div>
+            <div className="lbl">Sedang Offline</div>
           </div>
         </div>
         <div className="stat-chip c-white">
@@ -135,7 +215,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
           </div>
           <div>
             <div className="num">{members.length}</div>
-            <div className="lbl">Total Tim</div>
+            <div className="lbl">Total Tim Terdaftar</div>
           </div>
         </div>
       </div>
@@ -221,10 +301,9 @@ export const TeamView: React.FC<TeamViewProps> = ({
               </div>
             ) : (
               filteredActivities.map((act) => {
-                const member = members.find((m) => m.name.includes(act.person.split(' ')[0]));
-                const avatarUrl =
-                  member?.img ||
-                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+                const member = members.find((m) =>
+                  m.name.toLowerCase().includes(act.person.toLowerCase().split(' ')[0])
+                );
 
                 return (
                   <div
@@ -237,7 +316,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
                     }}
                   >
                     <div style={{ position: 'relative' }}>
-                      <img src={avatarUrl} alt={act.person} className="act-avatar" />
+                      {renderMemberAvatar(member || { name: act.person }, '40px', '14px')}
                       <div className="act-ic">
                         <Icon name={act.icon} />
                       </div>
@@ -253,9 +332,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
                         </b>
                         <span className="act-time">{act.time}</span>
                       </div>
-
-                      <div className="act-quote">{act.quote}</div>
-
+                      {act.quote && <div className="act-quote">{act.quote}</div>}
                       <div className="act-tag">
                         <Icon name="folder" />
                         <span>{act.project}</span>
@@ -314,41 +391,28 @@ export const TeamView: React.FC<TeamViewProps> = ({
               Status Kehadiran Tim
             </h3>
 
-            {/* Working */}
+            {/* Working Online */}
             <div className="status-group">
               <div className="status-group-title">
                 <span className="dot" style={{ background: '#1e6e56' }} />
                 <span>Sedang Bekerja Online ({workingMembers.length})</span>
               </div>
               <div className="member-list">
-                {workingMembers.map((m) => (
-                  <div key={m.id} className="member-row">
-                    <img src={m.img} alt={m.name} />
-                    <div className="m-info">
-                      <b>{m.name}</b>
-                      <span>{m.role}</span>
-                    </div>
+                {workingMembers.length === 0 ? (
+                  <div style={{ padding: '8px 10px', fontSize: '12px', color: 'var(--muted)' }}>
+                    Tidak ada anggota yang sedang online saat ini.
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Break */}
-            <div className="status-group">
-              <div className="status-group-title">
-                <span className="dot" style={{ background: '#f59e0b' }} />
-                <span>Sedang Istirahat ({breakMembers.length})</span>
-              </div>
-              <div className="member-list">
-                {breakMembers.map((m) => (
-                  <div key={m.id} className="member-row">
-                    <img src={m.img} alt={m.name} />
-                    <div className="m-info">
-                      <b>{m.name}</b>
-                      <span>{m.role}</span>
+                ) : (
+                  workingMembers.map((m) => (
+                    <div key={m.id} className="member-row">
+                      {renderMemberAvatar(m, '36px', '13px')}
+                      <div className="m-info">
+                        <b>{m.name}</b>
+                        <span>{m.role}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -359,15 +423,21 @@ export const TeamView: React.FC<TeamViewProps> = ({
                 <span>Offline ({offlineMembers.length})</span>
               </div>
               <div className="member-list">
-                {offlineMembers.map((m) => (
-                  <div key={m.id} className="member-row">
-                    <img src={m.img} alt={m.name} />
-                    <div className="m-info">
-                      <b>{m.name}</b>
-                      <span>{m.role}</span>
-                    </div>
+                {offlineMembers.length === 0 ? (
+                  <div style={{ padding: '8px 10px', fontSize: '12px', color: 'var(--muted)' }}>
+                    Semua anggota sedang online.
                   </div>
-                ))}
+                ) : (
+                  offlineMembers.map((m) => (
+                    <div key={m.id} className="member-row">
+                      {renderMemberAvatar(m, '36px', '13px')}
+                      <div className="m-info">
+                        <b>{m.name}</b>
+                        <span>{m.role}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -450,6 +520,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              minLength={6}
             />
           </div>
 
@@ -550,6 +621,101 @@ export const TeamView: React.FC<TeamViewProps> = ({
               >
                 <Icon name="trash" style={{ width: 14, height: 14 }} />
                 <span>Hapus Aktivitas</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reset Kehadiran */}
+      {isResetPresenceModalOpen && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isResettingPresence && setIsResetPresenceModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '440px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="refresh" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Reset Seluruh Kehadiran Tim?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Tindakan ini akan mengembalikan status seluruh anggota tim menjadi <b>Offline</b>. Akun pengguna dan data proyek tidak akan terhapus.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setIsResetPresenceModalOpen(false)}
+                disabled={isResettingPresence}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmResetPresence}
+                disabled={isResettingPresence}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                {isResettingPresence ? (
+                  <>
+                    <Icon name="loader" style={{ width: 14, height: 14 }} className="spin" />
+                    <span>Mereset...</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="refresh" style={{ width: 15, height: 15 }} />
+                    <span>Ya, Reset Kehadiran</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
