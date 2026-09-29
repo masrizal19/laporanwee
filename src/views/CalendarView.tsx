@@ -6,14 +6,21 @@ import { Modal } from '../components/Modal';
 interface CalendarViewProps {
   events: CalendarEvent[];
   members: TeamMember[];
+  isAdmin?: boolean;
+  userEmail?: string;
   onAddEvent: (event: Omit<CalendarEvent, 'id'>) => void;
+  onDeleteEvent?: (id: string) => void;
+  onResetEvents?: () => void;
   onAddToast: (text: string) => void;
 }
 
 export const CalendarView: React.FC<CalendarViewProps> = ({
   events,
   members,
+  isAdmin = false,
   onAddEvent,
+  onDeleteEvent,
+  onResetEvents,
   onAddToast,
 }) => {
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
@@ -27,9 +34,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   const [newDate, setNewDate] = useState('2026-10-15');
   const [newTime, setNewTime] = useState('14:00');
   const [newCat, setNewCat] = useState('cat-meeting');
+  const [newDesc, setNewDesc] = useState('');
 
   // Modal State for viewing Day events
   const [viewingDayEvents, setViewingDayEvents] = useState<{ date: string; events: CalendarEvent[] } | null>(null);
+
+  // Admin Delete & Reset modals state
+  const [eventToDelete, setEventToDelete] = useState<CalendarEvent | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   const monthNames = [
     'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
@@ -56,7 +68,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
   // Generate calendar days for currentMonth of currentYear
   const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay(); // 0 is Sunday
-  // Convert Sunday (0) to 7, so Monday is 1
   const adjustedFirstDay = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
   const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
   const daysInPrevMonth = new Date(currentYear, currentMonth, 0).getDate();
@@ -86,7 +97,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     });
   }
 
-  // Next month leading days to complete 35 or 42 grid
+  // Next month leading days to complete grid
   const remaining = (7 - (calendarCells.length % 7)) % 7;
   for (let nextD = 1; nextD <= remaining; nextD++) {
     const m = currentMonth === 11 ? 1 : currentMonth + 2;
@@ -114,11 +125,35 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       date: newDate,
       time: newTime,
       cat: newCat,
+      description: newDesc.trim() || undefined,
     });
 
-    onAddToast(`Agenda "${newTitle}" berhasil dijadwalkan!`);
     setIsAddOpen(false);
     setNewTitle('');
+    setNewDesc('');
+  };
+
+  const handleConfirmDeleteEvent = () => {
+    if (!eventToDelete) return;
+    if (onDeleteEvent) {
+      onDeleteEvent(eventToDelete.id);
+    }
+    // If viewingDayEvents is currently open, update its list too
+    if (viewingDayEvents) {
+      setViewingDayEvents({
+        ...viewingDayEvents,
+        events: viewingDayEvents.events.filter((e) => e.id !== eventToDelete.id),
+      });
+    }
+    setEventToDelete(null);
+  };
+
+  const handleConfirmResetEvents = () => {
+    if (onResetEvents) {
+      onResetEvents();
+    }
+    setViewingDayEvents(null);
+    setIsResetModalOpen(false);
   };
 
   return (
@@ -130,16 +165,40 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             Sinkronisasi sesi photoshoot, presentasi klien, dan deadline sprint proyek.
           </p>
         </div>
-        <button
-          className="btn btn-dark btn-add-agenda"
-          onClick={() => {
-            setNewDate(selectedDate || '2026-10-15');
-            setIsAddOpen(true);
-          }}
-        >
-          <Icon name="plus" size={18} />
-          <span>Tambah Agenda Baru</span>
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {isAdmin && events.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setIsResetModalOpen(true)}
+              style={{
+                borderColor: '#fca5a5',
+                color: '#dc2626',
+                background: '#fff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                fontSize: '13px',
+                fontWeight: 600,
+              }}
+              title="Hapus seluruh agenda kalender"
+            >
+              <Icon name="trash" style={{ width: 14, height: 14 }} />
+              <span>Reset Kalender</span>
+            </button>
+          )}
+          <button
+            className="btn btn-dark btn-add-agenda"
+            onClick={() => {
+              setNewDate(selectedDate || '2026-10-15');
+              setIsAddOpen(true);
+            }}
+          >
+            <Icon name="plus" size={18} />
+            <span>Tambah Agenda Baru</span>
+          </button>
+        </div>
       </div>
 
       <div className="cal-layout">
@@ -278,38 +337,82 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               Jadwal penting yang perlu dipersiapkan
             </p>
 
-            <div className="upcoming-list">
-              {events.slice(0, 5).map((ev) => (
-                <div
-                  key={ev.id}
-                  className="upc-row"
-                  onClick={() => {
-                    setSelectedDate(ev.date);
-                    onAddToast(`Agenda: ${ev.title} (${ev.time})`);
-                  }}
-                >
+            <div className="upcoming-list" style={{ marginTop: '12px' }}>
+              {events.length === 0 ? (
+                <div style={{ padding: '24px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                  <Icon name="calendar" style={{ width: 22, height: 22, margin: '0 auto 6px', color: 'var(--line-soft)' }} />
+                  <span>Belum ada agenda terdekat.</span>
+                </div>
+              ) : (
+                events.slice(0, 5).map((ev) => (
                   <div
-                    className="upc-badge"
-                    style={{
-                      background:
-                        ev.date.includes('14')
-                          ? 'var(--lime)'
-                          : ev.date.includes('15') || ev.date.includes('16')
-                          ? 'var(--lavender)'
-                          : 'var(--peach)',
+                    key={ev.id}
+                    className="upc-row"
+                    onClick={() => {
+                      setSelectedDate(ev.date);
+                      onAddToast(`Agenda: ${ev.title} (${ev.time})`);
                     }}
                   >
-                    {ev.date.includes('14') ? 'Hari Ini' : ev.date.slice(5)}
+                    <div
+                      className="upc-badge"
+                      style={{
+                        background:
+                          ev.date.includes('14')
+                            ? 'var(--lime)'
+                            : ev.date.includes('15') || ev.date.includes('16')
+                            ? 'var(--lavender)'
+                            : 'var(--peach)',
+                      }}
+                    >
+                      {ev.date.includes('14') ? 'Hari Ini' : ev.date.slice(5)}
+                    </div>
+                    <div className="upc-mid" style={{ flex: 1 }}>
+                      <b>{ev.title}</b>
+                      <span>Pukul {ev.time} WIB</span>
+                    </div>
+                    
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        title="Hapus agenda"
+                        aria-label="Hapus agenda"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEventToDelete(ev);
+                        }}
+                        style={{
+                          width: '26px',
+                          height: '26px',
+                          borderRadius: '6px',
+                          background: 'transparent',
+                          border: 'none',
+                          color: 'var(--muted)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          flexShrink: 0,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fee2e2';
+                          e.currentTarget.style.color = '#dc2626';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = 'var(--muted)';
+                        }}
+                      >
+                        <Icon name="trash" style={{ width: 14, height: 14 }} />
+                      </button>
+                    ) : (
+                      <div className="upc-arrow-chip" title="Lihat detail agenda">
+                        <Icon name="arrowR" size={14} />
+                      </div>
+                    )}
                   </div>
-                  <div className="upc-mid">
-                    <b>{ev.title}</b>
-                    <span>Pukul {ev.time} WIB</span>
-                  </div>
-                  <div className="upc-arrow-chip" title="Lihat detail agenda">
-                    <Icon name="arrowR" size={14} />
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--line-soft)' }}>
@@ -388,6 +491,17 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             </select>
           </div>
 
+          <div className="field">
+            <label htmlFor="agenda-desc-input">Catatan Tambahan (Opsional)</label>
+            <textarea
+              id="agenda-desc-input"
+              rows={2}
+              placeholder="Tambahkan detail atau link meeting..."
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+            />
+          </div>
+
           <div className="modal-foot">
             <button
               type="button"
@@ -421,18 +535,45 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                   <div
                     key={ev.id}
                     className="report-row"
-                    style={{ margin: 0 }}
+                    style={{ margin: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
                   >
-                    <div className="ric">
-                      <Icon name="clock" />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                      <div className="ric">
+                        <Icon name="clock" />
+                      </div>
+                      <div className="rmid">
+                        <b>{ev.title}</b>
+                        <span>Pukul {ev.time} WIB</span>
+                      </div>
                     </div>
-                    <div className="rmid">
-                      <b>{ev.title}</b>
-                      <span>Pukul {ev.time} WIB</span>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span className={`rstat ${ev.cat.replace('cat-', '')}`}>
+                        {ev.cat.replace('cat-', '')}
+                      </span>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          title="Hapus agenda ini"
+                          aria-label="Hapus agenda"
+                          onClick={() => setEventToDelete(ev)}
+                          style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '6px',
+                            background: '#fee2e2',
+                            color: '#dc2626',
+                            border: '1px solid #fca5a5',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <Icon name="trash" style={{ width: 13, height: 13 }} />
+                        </button>
+                      )}
                     </div>
-                    <span className={`rstat ${ev.cat.replace('cat-', '')}`}>
-                      {ev.cat.replace('cat-', '')}
-                    </span>
                   </div>
                 ))}
               </div>
@@ -460,6 +601,174 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Modal: Konfirmasi Hapus Single Event */}
+      {eventToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => setEventToDelete(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Hapus Agenda?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Agenda <strong>"{eventToDelete.title}"</strong> ({eventToDelete.date} {eventToDelete.time} WIB) akan dihapus dari kalender. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setEventToDelete(null)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmDeleteEvent}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Icon name="trash" style={{ width: 14, height: 14 }} />
+                <span>Hapus Agenda</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Konfirmasi Reset Seluruh Kalender */}
+      {isResetModalOpen && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => setIsResetModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Reset Seluruh Kalender?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Semua agenda akan dihapus dan tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setIsResetModalOpen(false)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmResetEvents}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Icon name="trash" style={{ width: 14, height: 14 }} />
+                <span>Reset Kalender</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

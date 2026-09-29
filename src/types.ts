@@ -142,6 +142,9 @@ export interface CalendarEvent {
   date: string; // YYYY-MM-DD
   time: string;
   cat: string;
+  description?: string;
+  created_by?: string;
+  created_at?: string;
 }
 
 export interface ToastMessage {

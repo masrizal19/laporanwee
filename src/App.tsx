@@ -205,15 +205,36 @@ export function App() {
     } catch (_) {}
     return INITIAL_REPORTS;
   });
-  const [activities, setActivities] = useState<Activity[]>(INITIAL_ACTIVITIES);
-  const [events, setEvents] = useState<CalendarEvent[]>(INITIAL_EVENTS);
+  const [activities, setActivities] = useState<Activity[]>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_activities');
+      if (saved !== null) return JSON.parse(saved);
+    } catch (_) {}
+    return INITIAL_ACTIVITIES;
+  });
+  const [events, setEvents] = useState<CalendarEvent[]>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_events');
+      if (saved !== null) return JSON.parse(saved);
+    } catch (_) {}
+    return INITIAL_EVENTS;
+  });
   const [members] = useState<TeamMember[]>(INITIAL_MEMBERS);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedReportId, setSelectedReportId] = useState<string>('r1');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Synchronize Tasks and Reports to local storage so user modifications persist across refreshes
+  // Determine if current logged in user has Administrator privileges
+  const isAdmin = Boolean(
+    user?.email?.toLowerCase().includes('admin') ||
+    user?.email === 'rizalstudios.backup01@gmail.com' ||
+    user?.email === 'rizalsaragih498@gmail.com' ||
+    (user as any)?.role === 'admin' ||
+    (user as any)?.is_admin === true
+  );
+
+  // Synchronize Tasks, Reports, Activities, and Calendar Events with localStorage for persistent state
   useEffect(() => {
     try {
       localStorage.setItem('laporanwee_local_tasks', JSON.stringify(tasks));
@@ -225,6 +246,18 @@ export function App() {
       localStorage.setItem('laporanwee_local_reports', JSON.stringify(reports));
     } catch (_) {}
   }, [reports]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('laporanwee_activities', JSON.stringify(activities));
+    } catch (_) {}
+  }, [activities]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('laporanwee_events', JSON.stringify(events));
+    } catch (_) {}
+  }, [events]);
 
   // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
   const refreshProjectsFromApi = async () => {
@@ -421,11 +454,78 @@ export function App() {
     );
   };
 
-  // Events CRUD
+  // Activities Admin CRUD
+  const handleDeleteActivity = (activityId: string) => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat menghapus aktivitas.');
+      return;
+    }
+    setActivities((prev) => {
+      const updated = prev.filter((a) => a.id !== activityId);
+      try {
+        localStorage.setItem('laporanwee_activities', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+    addToast('Aktivitas berhasil dihapus.');
+  };
+
+  const handleResetActivities = () => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat mereset riwayat aktivitas.');
+      return;
+    }
+    setActivities([]);
+    try {
+      localStorage.setItem('laporanwee_activities', JSON.stringify([]));
+    } catch (_) {}
+    addToast('Seluruh riwayat aktivitas berhasil dikosongkan.');
+  };
+
+  // Calendar Events Admin CRUD
   const handleAddEvent = (eventData: Omit<CalendarEvent, 'id'>) => {
-    const newId = `e_${Date.now()}`;
-    const newEvent: CalendarEvent = { id: newId, ...eventData };
-    setEvents((prev) => [...prev, newEvent]);
+    const newId = `ev_${Date.now()}`;
+    const newEvent: CalendarEvent = {
+      id: newId,
+      ...eventData,
+      created_by: user?.email || 'Admin',
+      created_at: new Date().toISOString(),
+    };
+    setEvents((prev) => {
+      const updated = [newEvent, ...prev];
+      try {
+        localStorage.setItem('laporanwee_events', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+    addToast(`Agenda "${eventData.title}" berhasil disimpan!`);
+  };
+
+  const handleDeleteEvent = (eventId: string) => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat menghapus agenda.');
+      return;
+    }
+    setEvents((prev) => {
+      const updated = prev.filter((e) => e.id !== eventId);
+      try {
+        localStorage.setItem('laporanwee_events', JSON.stringify(updated));
+      } catch (_) {}
+      return updated;
+    });
+    addToast('Agenda berhasil dihapus dari kalender.');
+  };
+
+  const handleResetEvents = () => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat mereset kalender.');
+      return;
+    }
+    setEvents([]);
+    try {
+      localStorage.setItem('laporanwee_events', JSON.stringify([]));
+    } catch (_) {}
+    addToast('Seluruh jadwal kalender berhasil direset.');
   };
 
   const handleLogout = () => {
@@ -574,8 +674,11 @@ export function App() {
           <TeamView
             activities={activities}
             members={members}
+            isAdmin={isAdmin}
             onNavigate={handleNavigate}
             onAddToast={addToast}
+            onDeleteActivity={handleDeleteActivity}
+            onResetActivities={handleResetActivities}
           />
         )}
 
@@ -583,7 +686,11 @@ export function App() {
           <CalendarView
             events={events}
             members={members}
+            isAdmin={isAdmin}
+            userEmail={user.email}
             onAddEvent={handleAddEvent}
+            onDeleteEvent={handleDeleteEvent}
+            onResetEvents={handleResetEvents}
             onAddToast={addToast}
           />
         )}

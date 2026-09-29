@@ -7,15 +7,21 @@ import { api } from '../utils/api';
 interface TeamViewProps {
   activities: Activity[];
   members: TeamMember[];
+  isAdmin?: boolean;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
+  onDeleteActivity?: (id: string) => void;
+  onResetActivities?: () => void;
 }
 
 export const TeamView: React.FC<TeamViewProps> = ({
   activities,
   members,
+  isAdmin = false,
   onNavigate,
   onAddToast,
+  onDeleteActivity,
+  onResetActivities,
 }) => {
   const [filter, setFilter] = useState<'All' | 'Reports' | 'Tasks' | 'Files' | 'Comments'>('All');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -24,6 +30,10 @@ export const TeamView: React.FC<TeamViewProps> = ({
   const [password, setPassword] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Admin Delete & Reset modals state
+  const [actToDelete, setActToDelete] = useState<Activity | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
   const handleCreateUserSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +50,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
       email: email.trim().toLowerCase(),
       password,
     })
-      .then((res) => {
+      .then(() => {
         setIsCreating(false);
         setIsModalOpen(false);
         onAddToast(`Akun anggota tim "${fullName}" berhasil dibuat!`);
@@ -53,6 +63,21 @@ export const TeamView: React.FC<TeamViewProps> = ({
         setIsCreating(false);
         setErrorMsg(err.message || 'Gagal membuat akun anggota tim.');
       });
+  };
+
+  const handleConfirmDeleteActivity = () => {
+    if (!actToDelete) return;
+    if (onDeleteActivity) {
+      onDeleteActivity(actToDelete.id);
+    }
+    setActToDelete(null);
+  };
+
+  const handleConfirmResetActivities = () => {
+    if (onResetActivities) {
+      onResetActivities();
+    }
+    setIsResetModalOpen(false);
   };
 
   const filteredActivities = activities.filter((a) => {
@@ -154,55 +179,131 @@ export const TeamView: React.FC<TeamViewProps> = ({
       <div className="activity-layout">
         {/* Left: Feed stream */}
         <div className="card" style={{ padding: '20px 24px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 16px' }}>
-            Linimasa Aktivitas Terkini
-          </h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '8px' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
+              Linimasa Aktivitas Terkini
+            </h3>
+            {isAdmin && activities.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-outline btn-xs"
+                onClick={() => setIsResetModalOpen(true)}
+                style={{
+                  borderColor: '#fca5a5',
+                  color: '#dc2626',
+                  background: '#fff',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  padding: '5px 10px',
+                  borderRadius: '6px',
+                }}
+                title="Hapus seluruh riwayat aktivitas"
+              >
+                <Icon name="trash" style={{ width: 13, height: 13 }} />
+                <span>Reset History Aktivitas</span>
+              </button>
+            )}
+          </div>
 
           <div className="activity-list">
-            {filteredActivities.map((act) => {
-              const member = members.find((m) => m.name.includes(act.person.split(' ')[0]));
-              const avatarUrl =
-                member?.img ||
-                'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
+            {filteredActivities.length === 0 ? (
+              <div style={{ padding: '36px 16px', textAlign: 'center', color: 'var(--muted)' }}>
+                <Icon name="checksq" style={{ width: 28, height: 28, margin: '0 auto 8px', color: 'var(--line-soft)' }} />
+                <b style={{ display: 'block', fontSize: '14.5px', marginBottom: '4px', color: 'inherit' }}>
+                  Belum ada riwayat aktivitas
+                </b>
+                <span style={{ fontSize: '12.5px' }}>
+                  Aktivitas pengerjaan tugas, pengiriman laporan, dan kolaborasi tim akan muncul di sini.
+                </span>
+              </div>
+            ) : (
+              filteredActivities.map((act) => {
+                const member = members.find((m) => m.name.includes(act.person.split(' ')[0]));
+                const avatarUrl =
+                  member?.img ||
+                  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80';
 
-              return (
-                <div
-                  key={act.id}
-                  className="act-row"
-                  onClick={() => {
-                    if (act.kind === 'Reports') onNavigate('reports');
-                    else if (act.kind === 'Tasks') onNavigate('tasks');
-                    else onAddToast(`Melihat aktivitas ${act.person}`);
-                  }}
-                >
-                  <div style={{ position: 'relative' }}>
-                    <img src={avatarUrl} alt={act.person} className="act-avatar" />
-                    <div className="act-ic">
-                      <Icon name={act.icon} />
+                return (
+                  <div
+                    key={act.id}
+                    className="act-row"
+                    onClick={() => {
+                      if (act.kind === 'Reports') onNavigate('reports');
+                      else if (act.kind === 'Tasks') onNavigate('tasks');
+                      else onAddToast(`Melihat aktivitas ${act.person}`);
+                    }}
+                  >
+                    <div style={{ position: 'relative' }}>
+                      <img src={avatarUrl} alt={act.person} className="act-avatar" />
+                      <div className="act-ic">
+                        <Icon name={act.icon} />
+                      </div>
                     </div>
+
+                    <div className="act-body" style={{ flex: 1 }}>
+                      <div className="act-top">
+                        <b>
+                          {act.person}{' '}
+                          <span style={{ fontWeight: 500, color: 'var(--muted)' }}>
+                            {act.action}
+                          </span>
+                        </b>
+                        <span className="act-time">{act.time}</span>
+                      </div>
+
+                      <div className="act-quote">{act.quote}</div>
+
+                      <div className="act-tag">
+                        <Icon name="folder" />
+                        <span>{act.project}</span>
+                      </div>
+                    </div>
+
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        title="Hapus aktivitas"
+                        aria-label="Hapus aktivitas"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActToDelete(act);
+                        }}
+                        style={{
+                          marginLeft: '10px',
+                          flexShrink: 0,
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          background: 'rgba(20, 19, 26, 0.04)',
+                          border: '1px solid var(--line-soft)',
+                          color: 'var(--muted)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fee2e2';
+                          e.currentTarget.style.color = '#dc2626';
+                          e.currentTarget.style.borderColor = '#fca5a5';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(20, 19, 26, 0.04)';
+                          e.currentTarget.style.color = 'var(--muted)';
+                          e.currentTarget.style.borderColor = 'var(--line-soft)';
+                        }}
+                      >
+                        <Icon name="trash" style={{ width: 14, height: 14 }} />
+                      </button>
+                    )}
                   </div>
-
-                  <div className="act-body">
-                    <div className="act-top">
-                      <b>
-                        {act.person}{' '}
-                        <span style={{ fontWeight: 500, color: 'var(--muted)' }}>
-                          {act.action}
-                        </span>
-                      </b>
-                      <span className="act-time">{act.time}</span>
-                    </div>
-
-                    <div className="act-quote">{act.quote}</div>
-
-                    <div className="act-tag">
-                      <Icon name="folder" />
-                      <span>{act.project}</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -219,14 +320,15 @@ export const TeamView: React.FC<TeamViewProps> = ({
                 <span className="dot" style={{ background: '#1e6e56' }} />
                 <span>Sedang Bekerja Online ({workingMembers.length})</span>
               </div>
-              <div className="status-avatars">
+              <div className="member-list">
                 {workingMembers.map((m) => (
-                  <img
-                    key={m.id}
-                    src={m.img}
-                    alt={m.name}
-                    title={`${m.name} - ${m.role}`}
-                  />
+                  <div key={m.id} className="member-row">
+                    <img src={m.img} alt={m.name} />
+                    <div className="m-info">
+                      <b>{m.name}</b>
+                      <span>{m.role}</span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -234,17 +336,18 @@ export const TeamView: React.FC<TeamViewProps> = ({
             {/* Break */}
             <div className="status-group">
               <div className="status-group-title">
-                <span className="dot" style={{ background: '#d99726' }} />
+                <span className="dot" style={{ background: '#f59e0b' }} />
                 <span>Sedang Istirahat ({breakMembers.length})</span>
               </div>
-              <div className="status-avatars">
+              <div className="member-list">
                 {breakMembers.map((m) => (
-                  <img
-                    key={m.id}
-                    src={m.img}
-                    alt={m.name}
-                    title={`${m.name} - ${m.role}`}
-                  />
+                  <div key={m.id} className="member-row">
+                    <img src={m.img} alt={m.name} />
+                    <div className="m-info">
+                      <b>{m.name}</b>
+                      <span>{m.role}</span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -252,31 +355,34 @@ export const TeamView: React.FC<TeamViewProps> = ({
             {/* Offline */}
             <div className="status-group">
               <div className="status-group-title">
-                <span className="dot" style={{ background: '#999' }} />
+                <span className="dot" style={{ background: '#9ca3af' }} />
                 <span>Offline ({offlineMembers.length})</span>
               </div>
-              <div className="status-avatars">
+              <div className="member-list">
                 {offlineMembers.map((m) => (
-                  <img
-                    key={m.id}
-                    src={m.img}
-                    alt={m.name}
-                    title={`${m.name} - ${m.role}`}
-                    style={{ opacity: 0.55 }}
-                  />
+                  <div key={m.id} className="member-row">
+                    <img src={m.img} alt={m.name} />
+                    <div className="m-info">
+                      <b>{m.name}</b>
+                      <span>{m.role}</span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
           </div>
 
-          {/* Invite Card */}
           <div className="promo-card">
             <div>
               <h3>Ruang Kreatif Terpusat</h3>
               <p>Bagikan tautan undangan ini ke desainer, fotografer, atau editor baru.</p>
-              <button className="btn btn-sm" onClick={handleCopyInvite}>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleCopyInvite}
+              >
                 <span>Salin Tautan Undangan</span>
-                <Icon name="arrowR" />
+                <Icon name="arrowR" style={{ width: 16, height: 16 }} />
               </button>
             </div>
             <div className="promo-badge-tag">
@@ -286,71 +392,253 @@ export const TeamView: React.FC<TeamViewProps> = ({
         </div>
       </div>
 
-      {/* Modal Tambah Anggota Baru */}
+      {/* Modal: Tambah Anggota Tim */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
           setErrorMsg('');
         }}
-        title="Tambah Anggota Tim Baru"
+        title="Daftarkan Anggota Tim Baru"
       >
         <form onSubmit={handleCreateUserSubmit}>
+          {errorMsg && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: '8px',
+                background: '#fee2e2',
+                color: '#dc2626',
+                fontSize: '13px',
+                marginBottom: '14px',
+              }}
+            >
+              {errorMsg}
+            </div>
+          )}
+
           <div className="field">
-            <label htmlFor="team-fullname-input">Nama Lengkap</label>
+            <label htmlFor="user-fullname">Nama Lengkap Anggota *</label>
             <input
-              id="team-fullname-input"
+              id="user-fullname"
               type="text"
+              placeholder="Contoh: Rangga Arya"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              placeholder="Contoh: Rangga Arya"
               required
             />
           </div>
 
           <div className="field">
-            <label htmlFor="team-email-input">Alamat Email</label>
+            <label htmlFor="user-email">Alamat E-Mail *</label>
             <input
-              id="team-email-input"
+              id="user-email"
               type="email"
+              placeholder="nama@laporanwee.agency"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="Contoh: admin@laporanwee.agency"
               required
             />
           </div>
 
           <div className="field">
-            <label htmlFor="team-password-input">Password Akun</label>
+            <label htmlFor="user-password">Kata Sandi Akun *</label>
             <input
-              id="team-password-input"
+              id="user-password"
               type="password"
+              placeholder="Minimal 6 karakter"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Minimal 6 karakter"
               required
             />
           </div>
-
-          {errorMsg && <div className="auth-error" style={{ marginBottom: '15px' }}>{errorMsg}</div>}
 
           <div className="modal-foot">
             <button
               type="button"
               className="btn btn-outline"
-              onClick={() => {
-                setIsModalOpen(false);
-                setErrorMsg('');
-              }}
+              onClick={() => setIsModalOpen(false)}
             >
               Batal
             </button>
-            <button type="submit" className="btn btn-dark" disabled={isCreating}>
-              {isCreating ? 'Membuat...' : 'Buat Anggota Tim'}
+            <button
+              type="submit"
+              className="btn btn-dark"
+              disabled={isCreating}
+            >
+              {isCreating ? 'Mendaftarkan...' : 'Buat Akun Anggota'}
             </button>
           </div>
         </form>
       </Modal>
+
+      {/* Modal: Konfirmasi Hapus Single Activity */}
+      {actToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => setActToDelete(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Hapus Riwayat Aktivitas?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Aktivitas <strong>"{actToDelete.person} {actToDelete.action}"</strong> akan dihapus dari linimasa. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setActToDelete(null)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmDeleteActivity}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Icon name="trash" style={{ width: 14, height: 14 }} />
+                <span>Hapus Aktivitas</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Konfirmasi Reset Seluruh History Aktivitas */}
+      {isResetModalOpen && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => setIsResetModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Hapus Seluruh Riwayat Aktivitas?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Seluruh linimasa riwayat aktivitas tim akan dikosongkan. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setIsResetModalOpen(false)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmResetActivities}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Icon name="trash" style={{ width: 14, height: 14 }} />
+                <span>Reset History</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
