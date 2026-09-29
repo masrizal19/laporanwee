@@ -12,11 +12,11 @@ import {
 } from './types';
 import {
   INITIAL_TASKS,
-  INITIAL_REPORTS,
   INITIAL_MEMBERS,
 } from './data/initialData';
 import { Navbar } from './components/Navbar';
 import { ToastContainer } from './components/Toast';
+import { Icon } from './components/icons';
 
 // Views
 import { DashboardView } from './views/DashboardView';
@@ -35,7 +35,7 @@ import { AdminUISettingsView } from './views/AdminUISettingsView';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
-import { api, activityService, calendarService } from './utils/api';
+import { api, activityService, calendarService, dailyReportService } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
   fetchUISettings,
@@ -196,19 +196,13 @@ export function App() {
     } catch (_) {}
     return INITIAL_TASKS;
   });
-  const [reports, setReports] = useState<Report[]>(() => {
-    try {
-      const saved = localStorage.getItem('laporanwee_local_reports');
-      if (saved) return JSON.parse(saved);
-    } catch (_) {}
-    return INITIAL_REPORTS;
-  });
+  const [reports, setReports] = useState<Report[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [members] = useState<TeamMember[]>(INITIAL_MEMBERS);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [selectedReportId, setSelectedReportId] = useState<string>('r1');
+  const [selectedReportId, setSelectedReportId] = useState<string>('');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Determine if current logged in user has Administrator privileges
@@ -220,18 +214,12 @@ export function App() {
     (user as any)?.is_admin === true
   );
 
-  // Synchronize Tasks and Reports with local storage
+  // Synchronize Tasks with local storage
   useEffect(() => {
     try {
       localStorage.setItem('laporanwee_local_tasks', JSON.stringify(tasks));
     } catch (_) {}
   }, [tasks]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('laporanwee_local_reports', JSON.stringify(reports));
-    } catch (_) {}
-  }, [reports]);
 
   // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
   const refreshProjectsFromApi = useCallback(async () => {
@@ -273,18 +261,38 @@ export function App() {
     }
   }, []);
 
+  // Synchronize Daily Reports with Backend PHP/MySQL API
+  const refreshReportsFromApi = useCallback(async () => {
+    try {
+      const fetchedReports = await dailyReportService.fetchDailyReports();
+      setReports(fetchedReports || []);
+      if (fetchedReports && fetchedReports.length > 0) {
+        setSelectedReportId((prev) =>
+          fetchedReports.some((r) => r.id === prev) ? prev : fetchedReports[0].id
+        );
+      } else {
+        setSelectedReportId('');
+      }
+    } catch (err) {
+      console.warn('Sync reports from API notice:', err);
+      setReports([]);
+    }
+  }, []);
+
   // Load all server-side global data when user is authenticated
   useEffect(() => {
     if (user) {
       refreshProjectsFromApi();
       refreshActivitiesFromApi();
       refreshEventsFromApi();
+      refreshReportsFromApi();
     } else {
       setProjects([]);
       setActivities([]);
       setEvents([]);
+      setReports([]);
     }
-  }, [user, refreshProjectsFromApi, refreshActivitiesFromApi, refreshEventsFromApi]);
+  }, [user, refreshProjectsFromApi, refreshActivitiesFromApi, refreshEventsFromApi, refreshReportsFromApi]);
 
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -401,58 +409,99 @@ export function App() {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
   };
 
-  // Reports CRUD
-  const handleAddReport = (reportData: Omit<Report, 'id'>): string => {
-    const newId = `r_${Date.now()}`;
-    const newReport: Report = { id: newId, ...reportData };
-    setReports((prev) => [newReport, ...prev]);
+  // Reports CRUD strictly connected to backend MySQL API
+  const handleAddReport = async (reportData: Omit<Report, 'id'>): Promise<string> => {
+    try {
+      const created = await dailyReportService.createDailyReport(
+        reportData,
+        user?.email,
+        user?.name
+      );
+      // Re-fetch directly from MySQL API to ensure single source of truth
+      await refreshReportsFromApi();
+      setSelectedReportId(created.id);
+      addToast(`Laporan kerja "${reportData.task}" berhasil dikirim!`);
 
-    // Log activity to backend MySQL API
-    activityService.createActivity({
-      title: 'mengirim laporan kerja',
-      description: `"${reportData.task}" (${reportData.project})`,
-      activity_type: 'report',
-      icon_type: 'doc',
-      user_name: reportData.person || user?.name || 'Tim LaporanWee',
-      user_email: user?.email || '',
-    }).then(() => refreshActivitiesFromApi()).catch(() => {});
+      // Log activity to backend MySQL API
+      await activityService.createActivity({
+        title: 'mengirim laporan kerja',
+        description: `"${reportData.task}" (${reportData.project})`,
+        activity_type: 'report',
+        icon_type: 'doc',
+        user_name: reportData.person || user?.name || 'Tim LaporanWee',
+        user_email: user?.email || '',
+      });
+      await refreshActivitiesFromApi();
 
-    // Also bump project progress and update thumbnail/evidence if project matches
-    setProjects((prev) =>
-      prev.map((p) => {
-        const matchesProject =
-          p.name.toLowerCase() === reportData.project.toLowerCase() ||
-          reportData.project.toLowerCase().includes(p.name.toLowerCase()) ||
-          p.name.toLowerCase().includes(reportData.project.toLowerCase());
+      // Refresh projects from API as well in case project progress/cover was updated
+      await refreshProjectsFromApi();
 
-        if (matchesProject) {
-          const newProg = Math.min(100, Math.max(p.progress, reportData.progress));
-          const reportEvidence =
-            reportData.evidence_urls && reportData.evidence_urls.length > 0
-              ? reportData.evidence_urls
-              : reportData.evidence_url
-              ? [reportData.evidence_url]
-              : [];
+      return created.id;
+    } catch (e: any) {
+      console.error('API create daily report error:', e);
+      addToast(e?.message || 'Gagal mengirim laporan kerja.');
+      throw e;
+    }
+  };
 
-          const existingEvidence = p.evidence_urls || [];
-          const combinedEvidence =
-            reportEvidence.length > 0
-              ? Array.from(new Set([...reportEvidence, ...existingEvidence]))
-              : existingEvidence;
+  const handleDeleteReport = async (reportId: string) => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat menghapus laporan.');
+      return;
+    }
+    try {
+      const ok = await dailyReportService.deleteDailyReport(reportId);
+      if (ok) {
+        await refreshReportsFromApi();
+        addToast('Laporan berhasil dihapus.');
 
-          return {
-            ...p,
-            progress: newProg,
-            status: newProg === 100 ? 'Completed' : p.status,
-            thumbnail_url: reportEvidence[0] || p.thumbnail_url,
-            evidence_urls: combinedEvidence,
-          };
-        }
-        return p;
-      })
-    );
+        // Log activity to backend MySQL API
+        await activityService.createActivity({
+          title: 'menghapus laporan kerja',
+          description: `ID: ${reportId}`,
+          activity_type: 'report',
+          icon_type: 'trash',
+          user_name: user?.name || 'Admin',
+          user_email: user?.email || '',
+        });
+        await refreshActivitiesFromApi();
+      } else {
+        addToast('Gagal menghapus laporan dari database.');
+      }
+    } catch (e: any) {
+      console.error('API delete daily report error:', e);
+      addToast(e?.message || 'Gagal menghapus laporan.');
+    }
+  };
 
-    return newId;
+  const handleResetReports = async () => {
+    if (!isAdmin) {
+      addToast('Akses ditolak: Hanya Administrator yang dapat mereset seluruh laporan.');
+      return;
+    }
+    try {
+      const ok = await dailyReportService.resetDailyReports();
+      if (ok) {
+        await refreshReportsFromApi();
+        addToast('Seluruh laporan kerja harian berhasil direset.');
+
+        // Log activity to backend MySQL API
+        await activityService.createActivity({
+          title: 'mereset seluruh laporan kerja',
+          description: 'Mengosongkan daftar daily reports',
+          activity_type: 'report',
+          icon_type: 'trash',
+          user_name: user?.name || 'Admin',
+          user_email: user?.email || '',
+        });
+        await refreshActivitiesFromApi();
+      } else {
+        addToast('Gagal mereset laporan kerja dari database.');
+      }
+    } catch (e: any) {
+      console.error('API reset daily reports error:', e);
+      addToast(e?.message || 'Gagal mereset laporan kerja.');
+    }
   };
 
   const handleUpdateReportStatus = (
@@ -639,6 +688,7 @@ export function App() {
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
+            reports={reports}
             onNavigate={handleNavigate}
             onSelectProject={(id) => setSelectedProjectId(id)}
             onDeleteProject={handleDeleteProject}
@@ -671,23 +721,48 @@ export function App() {
         {currentView === 'reports' && (
           <ReportsView
             reports={reports}
+            isAdmin={isAdmin}
             onNavigate={handleNavigate}
             onSelectReport={(id) => setSelectedReportId(id)}
+            onDeleteReport={handleDeleteReport}
+            onResetReports={handleResetReports}
+            onAddToast={addToast}
           />
         )}
 
-        {currentView === 'report-detail' && currentReport && (
-          <ReportDetailView
-            report={currentReport}
-            onNavigate={handleNavigate}
-            onUpdateStatus={handleUpdateReportStatus}
-            onAddToast={addToast}
-          />
+        {currentView === 'report-detail' && (
+          currentReport ? (
+            <ReportDetailView
+              report={currentReport}
+              onNavigate={handleNavigate}
+              onUpdateStatus={handleUpdateReportStatus}
+              onAddToast={addToast}
+            />
+          ) : (
+            <div className="view">
+              <div className="card" style={{ padding: '48px 24px', textAlign: 'center', background: '#fff' }}>
+                <Icon name="doc" style={{ width: 32, height: 32, margin: '0 auto 12px', color: 'var(--line-soft)' }} />
+                <h3 style={{ margin: '0 0 6px', fontSize: '17px' }}>Laporan Tidak Ditemukan</h3>
+                <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: '0 0 16px' }}>
+                  Laporan kerja belum dipilih atau telah dihapus dari database.
+                </p>
+                <button
+                  type="button"
+                  className="btn btn-dark btn-sm"
+                  onClick={() => handleNavigate('reports')}
+                >
+                  Kembali ke Daftar Laporan
+                </button>
+              </div>
+            </div>
+          )
         )}
 
         {currentView === 'create-report' && (
           <CreateReportView
             projects={projects}
+            userName={user.name}
+            userEmail={user.email}
             onNavigate={handleNavigate}
             onAddReport={handleAddReport}
             onSelectReport={(id) => setSelectedReportId(id)}

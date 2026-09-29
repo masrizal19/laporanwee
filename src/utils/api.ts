@@ -1,4 +1,4 @@
-import { Project, ProjectDocument, Activity, CalendarEvent } from '../types';
+import { Project, ProjectDocument, Activity, CalendarEvent, Report } from '../types';
 
 export const API_BASE_URL =
   (import.meta.env.VITE_API_URL as string)?.replace(/\/$/, '') ||
@@ -430,4 +430,122 @@ export const calendarService = {
     return res && res.success !== false;
   },
 };
+
+// ==========================================
+// 5. DAILY REPORTS SERVICE (MySQL API)
+// ==========================================
+export const mapBackendStatusToFrontend = (
+  status?: string
+): Report['status'] => {
+  const s = (status || '').toLowerCase().replace(/\s+/g, '_');
+  if (s === 'completed' || s === 'selesai') return 'Completed';
+  if (s === 'in_progress' || s === 'sedang_berjalan' || s === 'ongoing') return 'In Progress';
+  if (s === 'todo' || s === 'to_do') return 'To Do';
+  return 'In Review';
+};
+
+export const mapFrontendStatusToBackend = (
+  status?: Report['status'] | string
+): string => {
+  if (status === 'Completed') return 'completed';
+  if (status === 'In Progress') return 'in_progress';
+  if (status === 'To Do') return 'todo';
+  return 'in_review';
+};
+
+export const dailyReportService = {
+  fetchDailyReports: async (): Promise<Report[]> => {
+    const res = await api.get('/daily-reports/list.php');
+    if (!res || !Array.isArray(res.data)) {
+      return [];
+    }
+
+    return res.data.map((item: any): Report => {
+      const cover = item.cover_url || null;
+      const evidenceList = cover ? [cover] : [];
+      let dateDisplay = item.report_date || '14 Okt 2026';
+      if (item.report_date && item.report_date.includes('-')) {
+        try {
+          const parts = item.report_date.split('-');
+          if (parts.length === 3) {
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+            const mIdx = parseInt(parts[1], 10) - 1;
+            dateDisplay = `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
+          }
+        } catch (_) {}
+      }
+
+      return {
+        id: String(item.id),
+        person: item.user_name || item.user_email?.split('@')[0] || 'Tim LaporanWee',
+        date: dateDisplay,
+        project: item.project_name || 'LaporanWee',
+        task: item.title || 'Laporan Kerja Harian',
+        category: item.category || 'Desain & UI/UX',
+        desc: item.description || '',
+        progress: Number(item.progress) || 0,
+        time: item.time_spent || '4 jam 00 mnt',
+        status: mapBackendStatusToFrontend(item.status),
+        challenges: item.challenges || 'Tidak ada kendala berarti.',
+        next: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
+        evidence_urls: evidenceList,
+        evidence_url: cover || undefined,
+      };
+    });
+  },
+
+  createDailyReport: async (
+    reportData: Omit<Report, 'id'>,
+    userEmail?: string,
+    userName?: string
+  ): Promise<Report> => {
+    // Format YYYY-MM-DD for report_date
+    let dateStr = new Date().toISOString().slice(0, 10);
+    if (reportData.date && reportData.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      dateStr = reportData.date;
+    }
+
+    const payload = {
+      title: reportData.task,
+      description: reportData.desc || '',
+      user_email: userEmail || '',
+      user_name: reportData.person || userName || 'Tim LaporanWee',
+      project_name: reportData.project || 'Proyek Wee Studio',
+      report_date: dateStr,
+      progress: typeof reportData.progress === 'number' ? reportData.progress : 85,
+      status: mapFrontendStatusToBackend(reportData.status),
+      cover_url:
+        reportData.evidence_urls && reportData.evidence_urls.length > 0
+          ? reportData.evidence_urls[0]
+          : reportData.evidence_url || '',
+    };
+
+    const res = await api.post('/daily-reports/create.php', payload);
+    const createdId = res?.data?.id ? String(res.data.id) : `r_${Date.now()}`;
+    return {
+      id: createdId,
+      ...reportData,
+    };
+  },
+
+  deleteDailyReport: async (id: string | number): Promise<boolean> => {
+    const numericId = Number(id);
+    const res = await api.post('/daily-reports/delete.php', {
+      id: isNaN(numericId) ? id : numericId,
+    });
+    return res && res.success !== false;
+  },
+
+  resetDailyReports: async (): Promise<boolean> => {
+    const res = await api.post('/daily-reports/reset.php', {});
+    return res && res.success !== false;
+  },
+};
+
+// Export individual helper functions for clean usage
+export const fetchDailyReports = dailyReportService.fetchDailyReports;
+export const createDailyReport = dailyReportService.createDailyReport;
+export const deleteDailyReport = dailyReportService.deleteDailyReport;
+export const resetDailyReports = dailyReportService.resetDailyReports;
+
 

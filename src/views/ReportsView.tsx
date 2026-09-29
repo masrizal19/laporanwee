@@ -4,17 +4,28 @@ import { Icon } from '../components/icons';
 
 interface ReportsViewProps {
   reports: Report[];
+  isAdmin?: boolean;
   onNavigate: (view: ViewType) => void;
   onSelectReport: (reportId: string) => void;
+  onDeleteReport?: (reportId: string) => void;
+  onResetReports?: () => void;
+  onAddToast?: (text: string) => void;
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
   reports,
+  isAdmin = false,
   onNavigate,
   onSelectReport,
+  onDeleteReport,
+  onResetReports,
+  onAddToast,
 }) => {
   const [filterTab, setFilterTab] = useState<'All' | 'In Review' | 'In Progress' | 'Completed'>('All');
   const [search, setSearch] = useState('');
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const filteredReports = reports.filter((r) => {
     if (filterTab === 'In Review' && r.status !== 'In Review') return false;
@@ -31,6 +42,33 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return true;
   });
 
+  const handleConfirmDeleteReport = async () => {
+    if (!reportToDelete) return;
+    setIsDeleting(true);
+    try {
+      if (onDeleteReport) {
+        await onDeleteReport(reportToDelete.id);
+      }
+      setReportToDelete(null);
+    } catch (_) {
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleConfirmResetReports = async () => {
+    setIsDeleting(true);
+    try {
+      if (onResetReports) {
+        await onResetReports();
+      }
+      setIsResetModalOpen(false);
+    } catch (_) {
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="view">
       <div className="page-head">
@@ -40,7 +78,29 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             Catatan progres, milestone, dan aktivitas seluruh tim kreatif Wee Studio.
           </p>
         </div>
-        <div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {isAdmin && reports.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setIsResetModalOpen(true)}
+              style={{
+                borderColor: '#fca5a5',
+                color: '#dc2626',
+                background: '#fff',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 14px',
+                fontSize: '13px',
+                fontWeight: 600,
+              }}
+              title="Hapus seluruh laporan kerja"
+            >
+              <Icon name="trash" style={{ width: 14, height: 14 }} />
+              <span>Reset Laporan</span>
+            </button>
+          )}
           <button className="btn btn-dark" onClick={() => onNavigate('create-report')}>
             <Icon name="plus" size={18} />
             <span>Buat Laporan Baru</span>
@@ -161,15 +221,53 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     <Icon name="doc" size={17} />
                   )}
                 </div>
-                <div className="rmid">
+                <div className="rmid" style={{ flex: 1 }}>
                   <b>{r.task}</b>
                   <span>
                     {r.person} &bull; {r.project} &bull; {r.date} ({r.progress}%)
                   </span>
                 </div>
-                <span className={`rstat ${r.status.replace(/\s+/g, '')}`}>
-                  {r.status}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span className={`rstat ${r.status.replace(/\s+/g, '')}`}>
+                    {r.status}
+                  </span>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      title="Hapus laporan ini"
+                      aria-label="Hapus laporan"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReportToDelete(r);
+                      }}
+                      style={{
+                        width: '28px',
+                        height: '28px',
+                        borderRadius: '6px',
+                        background: 'rgba(20, 19, 26, 0.04)',
+                        border: '1px solid var(--line-soft)',
+                        color: 'var(--muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#fee2e2';
+                        e.currentTarget.style.color = '#dc2626';
+                        e.currentTarget.style.borderColor = '#fca5a5';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(20, 19, 26, 0.04)';
+                        e.currentTarget.style.color = 'var(--muted)';
+                        e.currentTarget.style.borderColor = 'var(--line-soft)';
+                      }}
+                    >
+                      <Icon name="trash" style={{ width: 14, height: 14 }} />
+                    </button>
+                  )}
+                </div>
               </div>
             ))
           )}
@@ -227,6 +325,179 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal: Konfirmasi Hapus Laporan */}
+      {reportToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isDeleting && setReportToDelete(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Hapus Laporan Kerja?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Laporan <strong>"{reportToDelete.task}"</strong> ({reportToDelete.person} &bull; {reportToDelete.project}) akan dihapus dari database. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={isDeleting}
+                onClick={() => setReportToDelete(null)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={isDeleting}
+                onClick={handleConfirmDeleteReport}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Icon name="trash" style={{ width: 14, height: 14 }} />
+                <span>{isDeleting ? 'Menghapus...' : 'Hapus Laporan'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Konfirmasi Reset Seluruh Laporan */}
+      {isResetModalOpen && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isDeleting && setIsResetModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Reset Seluruh Laporan Kerja?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              Semua laporan kerja harian akan dihapus dari database dan tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={isDeleting}
+                onClick={() => setIsResetModalOpen(false)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                disabled={isDeleting}
+                onClick={handleConfirmResetReports}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                <Icon name="trash" style={{ width: 14, height: 14 }} />
+                <span>{isDeleting ? 'Mereset...' : 'Reset Semua Laporan'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

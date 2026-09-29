@@ -9,7 +9,7 @@ interface CreateReportViewProps {
   userName?: string;
   userEmail?: string;
   onNavigate: (view: ViewType) => void;
-  onAddReport: (report: Omit<Report, 'id'>) => string;
+  onAddReport: (report: Omit<Report, 'id'>) => Promise<string> | string;
   onSelectReport: (reportId: string) => void;
   onAddToast: (text: string) => void;
 }
@@ -37,6 +37,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
   const [challenges, setChallenges] = useState('');
   const [next, setNext] = useState('');
   const [taskErr, setTaskErr] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Evidence photos state (from gallery)
   const [evidencePreviews, setEvidencePreviews] = useState<string[]>([]);
@@ -112,7 +113,7 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
     onAddToast('Semua bukti foto telah dihapus.');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!task.trim()) {
       setTaskErr('Judul tugas atau deliverable wajib diisi.');
@@ -133,25 +134,34 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
               : 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
           ];
 
-    const newId = onAddReport({
-      person: reporterName,
-      date: '14 Okt 2026',
-      project: selectedProject,
-      task: task.trim(),
-      category,
-      desc: desc.trim() || 'Laporan kerja harian selesai.',
-      progress,
-      time: timeSpent || '4 jam 00 mnt',
-      status,
-      challenges: challenges.trim() || 'Tidak ada kendala berarti.',
-      next: next.trim() || 'Melanjutkan modul sprint berikutnya.',
-      evidence_urls: finalEvidence,
-      evidence_url: finalEvidence[0],
-    });
+    setIsSubmitting(true);
+    try {
+      const newId = await onAddReport({
+        person: reporterName,
+        date: new Date().toISOString().slice(0, 10),
+        project: selectedProject,
+        task: task.trim(),
+        category,
+        desc: desc.trim() || 'Laporan kerja harian selesai.',
+        progress,
+        time: timeSpent || '4 jam 00 mnt',
+        status,
+        challenges: challenges.trim() || 'Tidak ada kendala berarti.',
+        next: next.trim() || 'Melanjutkan modul sprint berikutnya.',
+        evidence_urls: finalEvidence,
+        evidence_url: finalEvidence[0],
+      });
 
-    onAddToast('Laporan kerja harian berhasil disubmit!');
-    onSelectReport(newId);
-    onNavigate('report-detail');
+      if (newId) {
+        onSelectReport(newId);
+        onNavigate('report-detail');
+      } else {
+        onNavigate('reports');
+      }
+    } catch (_) {
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -391,10 +401,11 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
               <button
                 type="submit"
                 className="btn btn-dark"
+                disabled={isSubmitting}
                 style={{ flex: 1, justifyContent: 'center' }}
               >
                 <Icon name="check" style={{ width: 18, height: 18 }} />
-                <span>Kirim Laporan Kerja</span>
+                <span>{isSubmitting ? 'Mengirim Laporan...' : 'Kirim Laporan Kerja'}</span>
               </button>
               <button
                 type="button"
