@@ -3,7 +3,7 @@ import { Project, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
-import { api } from '../utils/api';
+import { projectService } from '../utils/projectService';
 
 interface ProjectsViewProps {
   projects: Project[];
@@ -42,9 +42,9 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     setIsDeleting(true);
     try {
       try {
-        await api.delete(`/projects/${target.id}`);
+        await projectService.deleteProject(target.id);
       } catch (backendErr) {
-        console.warn('Backend delete project fallback:', backendErr);
+        console.warn('Backend delete project notice:', backendErr);
       }
 
       onDeleteProject(target.id);

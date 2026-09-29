@@ -3,7 +3,7 @@ import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 import { getUserFirstName } from '../utils/userUtils';
-import { api } from '../utils/api';
+import { projectService } from '../utils/projectService';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -64,9 +64,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setIsDeleting(true);
     try {
       try {
-        await api.delete(`/projects/${target.id}`);
+        await projectService.deleteProject(target.id);
       } catch (backendErr) {
-        console.warn('Backend delete project fallback:', backendErr);
+        console.warn('Backend delete project notice:', backendErr);
       }
 
       if (onDeleteProject) {

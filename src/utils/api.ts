@@ -97,4 +97,32 @@ export const api = {
     });
     return handleResponse(response);
   },
+
+  upload: async (endpoint: string, formData: FormData) => {
+    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE_URL}${formattedEndpoint}`;
+    const token = localStorage.getItem('laporanwee_token');
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+    };
+    if (token && token !== 'undefined' && token !== 'null') {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    try {
+      const storedUser = localStorage.getItem('laporanwee_user');
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed?.email) {
+          headers['X-Admin-Email'] = parsed.email.trim();
+        }
+      }
+    } catch (_) {}
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    return handleResponse(response);
+  },
 };

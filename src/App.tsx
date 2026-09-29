@@ -39,6 +39,7 @@ import { AdminUISettingsView } from './views/AdminUISettingsView';
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
 import { api } from './utils/api';
+import { projectService } from './utils/projectService';
 import {
   fetchUISettings,
   applyUISettingsToDocument,
@@ -201,6 +202,25 @@ export function App() {
   const [selectedReportId, setSelectedReportId] = useState<string>('r1');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
+  // Synchronize Projects with Backend PHP/MySQL API
+  useEffect(() => {
+    if (user) {
+      projectService
+        .fetchProjects()
+        .then((fetchedProjects) => {
+          if (fetchedProjects && fetchedProjects.length > 0) {
+            setProjects(fetchedProjects);
+            setSelectedProjectId((prev) =>
+              fetchedProjects.some((p) => p.id === prev) ? prev : fetchedProjects[0].id
+            );
+          }
+        })
+        .catch((err) => {
+          console.warn('Sync projects from API notice:', err);
+        });
+    }
+  }, [user]);
+
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     setToasts((prev) => [...prev, { id, text }]);
@@ -215,17 +235,26 @@ export function App() {
     setCurrentView(view);
   };
 
-  // Projects CRUD
-  const handleAddProject = (projectData: Omit<Project, 'id'>) => {
-    const newId = `p_${Date.now()}`;
-    const newProj: Project = { id: newId, ...projectData };
-    setProjects((prev) => [newProj, ...prev]);
+  // Projects CRUD connected to backend MySQL API
+  const handleAddProject = async (projectData: Omit<Project, 'id'>) => {
+    try {
+      const created = await projectService.createProject(projectData);
+      setProjects((prev) => [created, ...prev.filter((p) => p.id !== created.id)]);
+      setSelectedProjectId(created.id);
+      addToast(`Proyek "${created.name}" berhasil dibuat!`);
+    } catch (e: any) {
+      console.warn('API create project fallback:', e);
+      const newId = `p_${Date.now()}`;
+      const newProj: Project = { id: newId, ...projectData };
+      setProjects((prev) => [newProj, ...prev]);
+      addToast(`Proyek "${projectData.name}" berhasil dibuat!`);
+    }
 
     // Add activity
     setActivities((prev) => [
       {
         id: `act_${Date.now()}`,
-        person: 'Rangga Arya',
+        person: user?.name || 'Rangga Arya',
         action: 'membuat proyek baru',
         quote: `"${projectData.name}"`,
         time: 'Baru saja',
@@ -237,10 +266,26 @@ export function App() {
     ]);
   };
 
-  const handleDeleteProject = (projectId: string) => {
+  const handleDeleteProject = async (projectId: string) => {
+    try {
+      await projectService.deleteProject(projectId);
+    } catch (e) {
+      console.warn('API delete project fallback:', e);
+    }
     setProjects((prev) => prev.filter((p) => p.id !== projectId));
     if (selectedProjectId === projectId) {
-      setSelectedProjectId(projects[0]?.id || '');
+      const remaining = projects.filter((p) => p.id !== projectId);
+      setSelectedProjectId(remaining[0]?.id || '');
+    }
+  };
+
+  const handleUpdateProject = async (updatedProject: Project) => {
+    try {
+      const saved = await projectService.updateProject(updatedProject);
+      setProjects((prev) => prev.map((p) => (p.id === saved.id ? saved : p)));
+    } catch (e) {
+      console.warn('API update project fallback:', e);
+      setProjects((prev) => prev.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
     }
   };
 

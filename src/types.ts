@@ -40,19 +40,45 @@ export interface TeamMember {
   status: 'working' | 'break' | 'offline';
 }
 
+export interface ProjectDocument {
+  id: number | string;
+  project_id: number | string;
+  original_name: string;
+  file_name: string;
+  file_url: string;
+  mime_type: string;
+  file_type: 'image' | 'video' | string;
+  file_size?: number;
+  file_size_formatted?: string;
+  uploaded_by?: string;
+  uploader_name?: string;
+  thumbnail_url?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Project {
   id: string;
   name: string;
+  title?: string;
   cat: string;
   catLabel: string;
+  category?: string;
   desc: string;
+  description?: string;
   progress: number;
   team: string[];
   due: string;
-  status: 'Active' | 'In Review' | 'Completed';
+  deadline?: string;
+  status: 'Active' | 'In Review' | 'Completed' | string;
   illus?: string;
   thumbnail_url?: string;
+  cover_url?: string | null;
   evidence_urls?: string[];
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  documents?: ProjectDocument[];
 }
 
 export interface TaskDocument {

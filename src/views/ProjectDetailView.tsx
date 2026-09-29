@@ -1,6 +1,8 @@
-import React from 'react';
-import { Project, Task, Report, ViewType } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Project, Task, Report, ViewType, ProjectDocument } from '../types';
 import { Icon } from '../components/icons';
+import { projectService } from '../utils/projectService';
+import { MediaViewerModal } from '../components/MediaViewerModal';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -9,6 +11,7 @@ interface ProjectDetailViewProps {
   onNavigate: (view: ViewType) => void;
   onSelectReport: (reportId: string) => void;
   onAddToast: (text: string) => void;
+  onUpdateProject?: (project: Project) => void;
 }
 
 export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
@@ -19,6 +22,115 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   onSelectReport,
   onAddToast,
 }) => {
+  // Project documents state
+  const [documents, setDocuments] = useState<ProjectDocument[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+
+  // Edit document metadata state
+  const [editingDoc, setEditingDoc] = useState<ProjectDocument | null>(null);
+  const [editDocName, setEditDocName] = useState('');
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+
+  // Delete document confirmation state
+  const [docToDelete, setDocToDelete] = useState<ProjectDocument | null>(null);
+  const [isDeletingDoc, setIsDeletingDoc] = useState(false);
+
+  // Media Viewer modal state
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load documents from backend API
+  const loadDocuments = async () => {
+    setLoadingDocs(true);
+    try {
+      const docs = await projectService.fetchDocuments(project.id);
+      setDocuments(docs);
+    } catch (err) {
+      console.warn('Gagal memuat dokumentasi proyek:', err);
+    } finally {
+      setLoadingDocs(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDocuments();
+  }, [project.id]);
+
+  // Handle file upload without size restriction
+  const handleFileUpload = async (file: File) => {
+    setIsUploading(true);
+    try {
+      await projectService.uploadDocument(project.id, file);
+      await loadDocuments();
+      onAddToast(`Dokumentasi "${file.name}" berhasil diunggah.`);
+    } catch (err: any) {
+      console.error('Gagal upload dokumentasi:', err);
+      onAddToast(err?.message || 'Gagal mengunggah dokumentasi. Silakan coba lagi.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        handleFileUpload(files[i]);
+      }
+    }
+    e.target.value = '';
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        handleFileUpload(files[i]);
+      }
+    }
+  };
+
+  // Handle edit document original name
+  const handleSaveDocName = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDoc || !editDocName.trim()) return;
+    setIsSavingEdit(true);
+    try {
+      await projectService.updateDocument(editingDoc.id, editDocName.trim());
+      await loadDocuments();
+      setEditingDoc(null);
+      onAddToast('Nama dokumentasi berhasil diperbarui.');
+    } catch (err: any) {
+      console.error('Gagal update nama dokumentasi:', err);
+      onAddToast(err?.message || 'Gagal memperbarui dokumentasi.');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Handle delete document
+  const handleConfirmDeleteDoc = async () => {
+    if (!docToDelete) return;
+    setIsDeletingDoc(true);
+    try {
+      await projectService.deleteDocument(docToDelete.id);
+      await loadDocuments();
+      setDocToDelete(null);
+      onAddToast('Dokumentasi berhasil dihapus.');
+    } catch (err: any) {
+      console.error('Gagal hapus dokumentasi:', err);
+      onAddToast(err?.message || 'Gagal menghapus dokumentasi.');
+    } finally {
+      setIsDeletingDoc(false);
+    }
+  };
+
   const projectTasks = tasks.filter(
     (t) =>
       t.proj.toLowerCase().includes(project.name.toLowerCase().slice(0, 10)) ||
@@ -135,6 +247,215 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
             <div className="progress-track" style={{ maxWidth: '100%', height: '10px' }}>
               <div className="progress-fill" style={{ width: `${project.progress}%` }} />
             </div>
+          </div>
+
+          {/* DOKUMENTASI & BUKTI PEKERJAAN PROYEK */}
+          <div style={{ marginTop: '28px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 2px' }}>
+                  Dokumentasi &amp; Bukti Proyek ({documents.length})
+                </h3>
+                <span style={{ fontSize: '12.5px', color: 'var(--muted)' }}>
+                  Unggah foto &amp; video hasil pekerjaan nyata yang tersinkronisasi global ke server MySQL.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading ? (
+                  <>
+                    <Icon name="loader" className="spin" style={{ width: 14, height: 14 }} />
+                    <span>Mengunggah...</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="upload" style={{ width: 14, height: 14 }} />
+                    <span>+ Unggah Bukti</span>
+                  </>
+                )}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                style={{ display: 'none' }}
+                onChange={handleFileInputChange}
+              />
+            </div>
+
+            {/* Drag & drop zone */}
+            <div
+              className={`task-docs-dropzone ${isDragOver ? 'dragover' : ''}`}
+              style={{
+                border: '2px dashed var(--line-soft)',
+                borderRadius: '14px',
+                padding: '20px',
+                textAlign: 'center',
+                background: isDragOver ? 'rgba(74, 85, 255, 0.05)' : 'var(--paper)',
+                cursor: 'pointer',
+                marginBottom: '16px',
+                transition: 'all 0.2s ease',
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+              }}
+              onDragLeave={() => setIsDragOver(false)}
+              onDrop={handleDrop}
+            >
+              <Icon name="camera" style={{ width: 22, height: 22, margin: '0 auto 6px', color: 'var(--violet)' }} />
+              <div style={{ fontSize: '13px', fontWeight: 600 }}>
+                {isUploading ? 'Sedang memproses unggahan file...' : 'Klik atau seret foto/video bukti pekerjaan di sini'}
+              </div>
+              <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>
+                Mendukung gambar (JPG, PNG, WEBP) &amp; video (MP4, MOV, WEBM) resolusi penuh
+              </div>
+            </div>
+
+            {/* Documents Grid */}
+            {loadingDocs ? (
+              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: '13px' }}>
+                <Icon name="loader" className="spin" style={{ width: 18, height: 18, margin: '0 auto 8px' }} />
+                <span>Memuat dokumentasi dari server...</span>
+              </div>
+            ) : documents.length === 0 ? (
+              <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: '10px 0' }}>
+                Belum ada foto atau video dokumentasi yang diunggah untuk proyek ini.
+              </p>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  gap: '12px',
+                  marginTop: '10px',
+                }}
+              >
+                {documents.map((doc, idx) => {
+                  const isVid = doc.file_type === 'video' || doc.mime_type?.startsWith('video/');
+                  return (
+                    <div
+                      key={doc.id}
+                      className="task-doc-item"
+                      style={{
+                        position: 'relative',
+                        aspectRatio: '16 / 10',
+                        borderRadius: '12px',
+                        overflow: 'hidden',
+                        background: '#14131a',
+                        border: '1.5px solid var(--line-soft)',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(0, 0, 0, 0.06)',
+                      }}
+                      onClick={() => {
+                        setViewerIndex(idx);
+                        setViewerOpen(true);
+                      }}
+                    >
+                      {/* Media Thumbnail */}
+                      {isVid ? (
+                        <video
+                          src={`${doc.file_url}#t=0.5`}
+                          preload="metadata"
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                        />
+                      ) : (
+                        <img
+                          src={doc.file_url}
+                          alt={doc.original_name}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          loading="lazy"
+                        />
+                      )}
+
+                      {/* Video Center Play Badge */}
+                      {isVid && (
+                        <div className="task-doc-video-badge">
+                          <Icon name="video" style={{ width: 14, height: 14 }} />
+                        </div>
+                      )}
+
+                      {/* Top Type Pill */}
+                      <span className="task-doc-type-pill">
+                        <Icon name={isVid ? 'video' : 'image'} style={{ width: 10, height: 10 }} />
+                        <span>{isVid ? 'Video' : 'Foto'}</span>
+                      </span>
+
+                      {/* Action buttons (Edit name & Delete) */}
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '6px',
+                          right: '6px',
+                          display: 'flex',
+                          gap: '4px',
+                          zIndex: 2,
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          title="Ubah nama"
+                          onClick={() => {
+                            setEditingDoc(doc);
+                            setEditDocName(doc.original_name);
+                          }}
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '6px',
+                            background: 'rgba(20, 19, 26, 0.75)',
+                            border: '1px solid rgba(255, 255, 255, 0.25)',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            backdropFilter: 'blur(4px)',
+                          }}
+                        >
+                          <Icon name="edit" style={{ width: 11, height: 11 }} />
+                        </button>
+                        <button
+                          type="button"
+                          title="Hapus dokumentasi"
+                          onClick={() => setDocToDelete(doc)}
+                          style={{
+                            width: '24px',
+                            height: '24px',
+                            borderRadius: '6px',
+                            background: 'rgba(220, 38, 38, 0.85)',
+                            border: '1px solid rgba(255, 255, 255, 0.25)',
+                            color: '#fff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            backdropFilter: 'blur(4px)',
+                          }}
+                        >
+                          <Icon name="trash" style={{ width: 11, height: 11 }} />
+                        </button>
+                      </div>
+
+                      {/* Bottom Info Overlay */}
+                      <div className="task-doc-meta-overlay">
+                        <span className="task-doc-name-cut" title={doc.original_name}>
+                          {doc.original_name}
+                        </span>
+                        <span className="task-doc-size">{doc.file_size_formatted || ''}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Linked Tasks */}
@@ -302,7 +623,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           <div className="promo-card">
             <div>
               <h3>Sinkronisasi Tim Otomatis</h3>
-              <p>Setiap progress laporan harian langsung mengupdate persentase deliverable proyek.</p>
+              <p>Setiap progress dan file dokumentasi langsung tersimpan aman dan terupdate di backend MySQL.</p>
             </div>
             <div className="promo-badge-tag">
               <Icon name="sparkles" style={{ width: 22, height: 22 }} />
@@ -310,6 +631,187 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Media Viewer Modal (Photos & Videos) */}
+      <MediaViewerModal
+        isOpen={viewerOpen}
+        documents={documents}
+        currentIndex={viewerIndex}
+        onClose={() => setViewerOpen(false)}
+        onNavigate={(idx) => setViewerIndex(idx)}
+      />
+
+      {/* Edit Document Name Modal */}
+      {editingDoc && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isSavingEdit && setEditingDoc(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <h3 style={{ margin: '0 0 12px', fontSize: '17px', fontWeight: 700 }}>
+              Edit Nama Dokumentasi
+            </h3>
+            <form onSubmit={handleSaveDocName}>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', fontSize: '12.5px', fontWeight: 600, marginBottom: '6px', color: 'var(--muted)' }}>
+                  Nama Tampilan File
+                </label>
+                <input
+                  type="text"
+                  value={editDocName}
+                  onChange={(e) => setEditDocName(e.target.value)}
+                  placeholder="Masukkan nama baru..."
+                  required
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--line-soft)',
+                    background: 'var(--paper)',
+                    color: 'inherit',
+                    fontSize: '13.5px',
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setEditingDoc(null)}
+                  disabled={isSavingEdit}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-dark btn-sm"
+                  disabled={isSavingEdit || !editDocName.trim()}
+                >
+                  {isSavingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Document Confirmation Modal */}
+      {docToDelete && (
+        <div
+          className="doc-delete-confirm-overlay"
+          onClick={() => !isDeletingDoc && setDocToDelete(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.55)',
+            backdropFilter: 'blur(3px)',
+            zIndex: 9999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+          }}
+        >
+          <div
+            className="doc-delete-confirm-box"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: 'var(--card, #ffffff)',
+              borderRadius: '16px',
+              padding: '24px',
+              maxWidth: '420px',
+              width: '100%',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
+              border: '1px solid var(--line-soft, #e5e7eb)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+              <div
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#fee2e2',
+                  color: '#dc2626',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <Icon name="trash" style={{ width: 20, height: 20 }} />
+              </div>
+              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700 }}>
+                Hapus Dokumentasi?
+              </h3>
+            </div>
+
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', lineHeight: '1.5', margin: '0 0 20px' }}>
+              File <strong>"{docToDelete.original_name}"</strong> akan dihapus permanen dari server. Tindakan ini tidak dapat dibatalkan.
+            </p>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setDocToDelete(null)}
+                disabled={isDeletingDoc}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={handleConfirmDeleteDoc}
+                disabled={isDeletingDoc}
+                style={{
+                  background: '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                }}
+              >
+                {isDeletingDoc ? (
+                  <>
+                    <Icon name="loader" style={{ width: 14, height: 14 }} className="spin" />
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <Icon name="trash" style={{ width: 15, height: 15 }} />
+                    <span>Hapus Dokumentasi</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

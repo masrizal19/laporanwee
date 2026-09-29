@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react';
-import { TaskDocument } from '../types';
+import { TaskDocument, ProjectDocument } from '../types';
 import { Icon } from './icons';
 
 interface MediaViewerModalProps {
   isOpen: boolean;
-  documents: TaskDocument[];
+  documents: Array<TaskDocument | ProjectDocument>;
   currentIndex: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
