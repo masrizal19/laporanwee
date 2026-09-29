@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ViewType,
   Project,
@@ -13,8 +13,6 @@ import {
 import {
   INITIAL_TASKS,
   INITIAL_REPORTS,
-  INITIAL_ACTIVITIES,
-  INITIAL_EVENTS,
   INITIAL_MEMBERS,
 } from './data/initialData';
 import { Navbar } from './components/Navbar';
@@ -37,7 +35,7 @@ import { AdminUISettingsView } from './views/AdminUISettingsView';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
-import { api } from './utils/api';
+import { api, activityService, calendarService } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
   fetchUISettings,
@@ -205,20 +203,8 @@ export function App() {
     } catch (_) {}
     return INITIAL_REPORTS;
   });
-  const [activities, setActivities] = useState<Activity[]>(() => {
-    try {
-      const saved = localStorage.getItem('laporanwee_activities');
-      if (saved !== null) return JSON.parse(saved);
-    } catch (_) {}
-    return INITIAL_ACTIVITIES;
-  });
-  const [events, setEvents] = useState<CalendarEvent[]>(() => {
-    try {
-      const saved = localStorage.getItem('laporanwee_events');
-      if (saved !== null) return JSON.parse(saved);
-    } catch (_) {}
-    return INITIAL_EVENTS;
-  });
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [members] = useState<TeamMember[]>(INITIAL_MEMBERS);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
@@ -234,7 +220,7 @@ export function App() {
     (user as any)?.is_admin === true
   );
 
-  // Synchronize Tasks, Reports, Activities, and Calendar Events with localStorage for persistent state
+  // Synchronize Tasks and Reports with local storage
   useEffect(() => {
     try {
       localStorage.setItem('laporanwee_local_tasks', JSON.stringify(tasks));
@@ -247,20 +233,8 @@ export function App() {
     } catch (_) {}
   }, [reports]);
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('laporanwee_activities', JSON.stringify(activities));
-    } catch (_) {}
-  }, [activities]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('laporanwee_events', JSON.stringify(events));
-    } catch (_) {}
-  }, [events]);
-
   // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
-  const refreshProjectsFromApi = async () => {
+  const refreshProjectsFromApi = useCallback(async () => {
     try {
       const fetchedProjects = await projectService.fetchProjects();
       setProjects(fetchedProjects || []);
@@ -275,15 +249,42 @@ export function App() {
       console.warn('Sync projects from API notice:', err);
       setProjects([]);
     }
-  };
+  }, []);
 
+  // Synchronize Activities with Backend PHP/MySQL API
+  const refreshActivitiesFromApi = useCallback(async () => {
+    try {
+      const fetchedActivities = await activityService.fetchActivities();
+      setActivities(fetchedActivities || []);
+    } catch (err) {
+      console.warn('Sync activities from API notice:', err);
+      setActivities([]);
+    }
+  }, []);
+
+  // Synchronize Calendar Events with Backend PHP/MySQL API
+  const refreshEventsFromApi = useCallback(async () => {
+    try {
+      const fetchedEvents = await calendarService.fetchEvents();
+      setEvents(fetchedEvents || []);
+    } catch (err) {
+      console.warn('Sync calendar events from API notice:', err);
+      setEvents([]);
+    }
+  }, []);
+
+  // Load all server-side global data when user is authenticated
   useEffect(() => {
     if (user) {
       refreshProjectsFromApi();
+      refreshActivitiesFromApi();
+      refreshEventsFromApi();
     } else {
       setProjects([]);
+      setActivities([]);
+      setEvents([]);
     }
-  }, [user]);
+  }, [user, refreshProjectsFromApi, refreshActivitiesFromApi, refreshEventsFromApi]);
 
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -308,20 +309,16 @@ export function App() {
       setSelectedProjectId(created.id);
       addToast(`Proyek "${created.name}" berhasil dibuat!`);
 
-      // Add activity
-      setActivities((prev) => [
-        {
-          id: `act_${Date.now()}`,
-          person: user?.name || 'Rangga Arya',
-          action: 'membuat proyek baru',
-          quote: `"${created.name}"`,
-          time: 'Baru saja',
-          project: created.name,
-          kind: 'Tasks',
-          icon: 'folder',
-        },
-        ...prev,
-      ]);
+      // Log activity to backend MySQL API
+      await activityService.createActivity({
+        title: 'membuat proyek baru',
+        description: `"${created.name}"`,
+        activity_type: 'project',
+        icon_type: 'folder',
+        user_name: user?.name || 'Admin',
+        user_email: user?.email || '',
+      });
+      await refreshActivitiesFromApi();
     } catch (e: any) {
       console.error('API create project error:', e);
       addToast(e?.message || `Gagal membuat proyek "${projectData.name}".`);
@@ -335,6 +332,17 @@ export function App() {
         // Re-fetch directly from MySQL API
         await refreshProjectsFromApi();
         addToast('Project berhasil dihapus.');
+
+        // Log activity to backend MySQL API
+        await activityService.createActivity({
+          title: 'menghapus proyek',
+          description: `ID: ${projectId}`,
+          activity_type: 'project',
+          icon_type: 'trash',
+          user_name: user?.name || 'Admin',
+          user_email: user?.email || '',
+        });
+        await refreshActivitiesFromApi();
       } else {
         addToast('Project gagal dihapus. Silakan coba lagi.');
       }
@@ -349,6 +357,17 @@ export function App() {
       await projectService.updateProject(updatedProject);
       await refreshProjectsFromApi();
       addToast('Proyek berhasil diperbarui.');
+
+      // Log activity to backend MySQL API
+      await activityService.createActivity({
+        title: 'memperbarui proyek',
+        description: `"${updatedProject.name}"`,
+        activity_type: 'project',
+        icon_type: 'folder',
+        user_name: user?.name || 'Admin',
+        user_email: user?.email || '',
+      });
+      await refreshActivitiesFromApi();
     } catch (e: any) {
       console.error('API update project error:', e);
       addToast('Gagal memperbarui proyek.');
@@ -361,19 +380,15 @@ export function App() {
     const newTask: Task = { id: newId, ...taskData };
     setTasks((prev) => [newTask, ...prev]);
 
-    setActivities((prev) => [
-      {
-        id: `act_${Date.now()}`,
-        person: 'Rangga Arya',
-        action: 'menambahkan tugas baru',
-        quote: `"${taskData.title}"`,
-        time: 'Baru saja',
-        project: taskData.proj,
-        kind: 'Tasks',
-        icon: 'checksq',
-      },
-      ...prev,
-    ]);
+    // Log activity to backend MySQL API
+    activityService.createActivity({
+      title: 'menambahkan tugas baru',
+      description: `"${taskData.title}" (${taskData.proj})`,
+      activity_type: 'task',
+      icon_type: 'checksq',
+      user_name: user?.name || 'Admin',
+      user_email: user?.email || '',
+    }).then(() => refreshActivitiesFromApi()).catch(() => {});
   };
 
   const handleUpdateTask = (updatedTask: Task) => {
@@ -392,20 +407,15 @@ export function App() {
     const newReport: Report = { id: newId, ...reportData };
     setReports((prev) => [newReport, ...prev]);
 
-    // Add activity
-    setActivities((prev) => [
-      {
-        id: `act_${Date.now()}`,
-        person: reportData.person,
-        action: 'mengirim laporan kerja',
-        quote: `"${reportData.task}"`,
-        time: 'Baru saja',
-        project: reportData.project,
-        kind: 'Reports',
-        icon: 'doc',
-      },
-      ...prev,
-    ]);
+    // Log activity to backend MySQL API
+    activityService.createActivity({
+      title: 'mengirim laporan kerja',
+      description: `"${reportData.task}" (${reportData.project})`,
+      activity_type: 'report',
+      icon_type: 'doc',
+      user_name: reportData.person || user?.name || 'Tim LaporanWee',
+      user_email: user?.email || '',
+    }).then(() => refreshActivitiesFromApi()).catch(() => {});
 
     // Also bump project progress and update thumbnail/evidence if project matches
     setProjects((prev) =>
@@ -454,78 +464,104 @@ export function App() {
     );
   };
 
-  // Activities Admin CRUD
-  const handleDeleteActivity = (activityId: string) => {
+  // Activities Admin CRUD strictly connected to backend MySQL API
+  const handleDeleteActivity = async (activityId: string) => {
     if (!isAdmin) {
       addToast('Akses ditolak: Hanya Administrator yang dapat menghapus aktivitas.');
       return;
     }
-    setActivities((prev) => {
-      const updated = prev.filter((a) => a.id !== activityId);
-      try {
-        localStorage.setItem('laporanwee_activities', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-    addToast('Aktivitas berhasil dihapus.');
+    try {
+      const ok = await activityService.deleteActivity(activityId);
+      if (ok) {
+        await refreshActivitiesFromApi();
+        addToast('Aktivitas berhasil dihapus.');
+      } else {
+        addToast('Gagal menghapus aktivitas dari database.');
+      }
+    } catch (e: any) {
+      console.error('API delete activity error:', e);
+      addToast(e?.message || 'Gagal menghapus aktivitas.');
+    }
   };
 
-  const handleResetActivities = () => {
+  const handleResetActivities = async () => {
     if (!isAdmin) {
       addToast('Akses ditolak: Hanya Administrator yang dapat mereset riwayat aktivitas.');
       return;
     }
-    setActivities([]);
     try {
-      localStorage.setItem('laporanwee_activities', JSON.stringify([]));
-    } catch (_) {}
-    addToast('Seluruh riwayat aktivitas berhasil dikosongkan.');
+      const ok = await activityService.resetActivities();
+      if (ok) {
+        await refreshActivitiesFromApi();
+        addToast('Seluruh riwayat aktivitas berhasil dikosongkan.');
+      } else {
+        addToast('Gagal mereset riwayat aktivitas dari database.');
+      }
+    } catch (e: any) {
+      console.error('API reset activities error:', e);
+      addToast(e?.message || 'Gagal mereset riwayat aktivitas.');
+    }
   };
 
-  // Calendar Events Admin CRUD
-  const handleAddEvent = (eventData: Omit<CalendarEvent, 'id'>) => {
-    const newId = `ev_${Date.now()}`;
-    const newEvent: CalendarEvent = {
-      id: newId,
-      ...eventData,
-      created_by: user?.email || 'Admin',
-      created_at: new Date().toISOString(),
-    };
-    setEvents((prev) => {
-      const updated = [newEvent, ...prev];
-      try {
-        localStorage.setItem('laporanwee_events', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-    addToast(`Agenda "${eventData.title}" berhasil disimpan!`);
+  // Calendar Events Admin CRUD strictly connected to backend MySQL API
+  const handleAddEvent = async (eventData: Omit<CalendarEvent, 'id'>) => {
+    try {
+      await calendarService.createEvent(eventData);
+      await refreshEventsFromApi();
+      addToast(`Agenda "${eventData.title}" berhasil disimpan!`);
+
+      // Log activity to backend MySQL API
+      await activityService.createActivity({
+        title: 'menambahkan agenda baru',
+        description: `"${eventData.title}" (${eventData.date} ${eventData.time})`,
+        activity_type: 'calendar',
+        icon_type: 'calendar',
+        user_name: user?.name || 'Admin',
+        user_email: user?.email || '',
+      });
+      await refreshActivitiesFromApi();
+    } catch (e: any) {
+      console.error('API create event error:', e);
+      addToast(e?.message || `Gagal menyimpan agenda "${eventData.title}".`);
+    }
   };
 
-  const handleDeleteEvent = (eventId: string) => {
+  const handleDeleteEvent = async (eventId: string) => {
     if (!isAdmin) {
       addToast('Akses ditolak: Hanya Administrator yang dapat menghapus agenda.');
       return;
     }
-    setEvents((prev) => {
-      const updated = prev.filter((e) => e.id !== eventId);
-      try {
-        localStorage.setItem('laporanwee_events', JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-    addToast('Agenda berhasil dihapus dari kalender.');
+    try {
+      const ok = await calendarService.deleteEvent(eventId);
+      if (ok) {
+        await refreshEventsFromApi();
+        addToast('Agenda berhasil dihapus dari kalender.');
+      } else {
+        addToast('Gagal menghapus agenda dari database.');
+      }
+    } catch (e: any) {
+      console.error('API delete event error:', e);
+      addToast(e?.message || 'Gagal menghapus agenda.');
+    }
   };
 
-  const handleResetEvents = () => {
+  const handleResetEvents = async () => {
     if (!isAdmin) {
       addToast('Akses ditolak: Hanya Administrator yang dapat mereset kalender.');
       return;
     }
-    setEvents([]);
     try {
-      localStorage.setItem('laporanwee_events', JSON.stringify([]));
-    } catch (_) {}
-    addToast('Seluruh jadwal kalender berhasil direset.');
+      const ok = await calendarService.resetEvents();
+      if (ok) {
+        await refreshEventsFromApi();
+        addToast('Seluruh jadwal kalender berhasil direset.');
+      } else {
+        addToast('Gagal mereset kalender dari database.');
+      }
+    } catch (e: any) {
+      console.error('API reset events error:', e);
+      addToast(e?.message || 'Gagal mereset kalender.');
+    }
   };
 
   const handleLogout = () => {
