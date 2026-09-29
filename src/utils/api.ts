@@ -9,8 +9,26 @@ import {
 } from '../types';
 
 export const API_BASE_URL =
-  (import.meta.env.VITE_API_URL as string)?.replace(/\/$/, '') ||
-  'https://api-laporanwe.mkverse.my.id';
+  ((import.meta.env.VITE_API_URL as string) || 'https://api-laporanwe.mkverse.my.id')
+    .replace(/\/api\/?$/, '')
+    .replace(/\/+$/, '');
+
+/**
+ * Guarantees a clean absolute URL with exactly one /api prefix and no double /api/api/
+ */
+export const buildApiUrl = (endpoint: string): string => {
+  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
+    return endpoint.replace('/api/api/', '/api/');
+  }
+
+  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
+  if (cleanPath.startsWith('/api/')) {
+    return `${API_BASE_URL}${cleanPath}`;
+  }
+
+  return `${API_BASE_URL}/api${cleanPath}`;
+};
 
 // Helper to get authorization headers with stored token and active user email
 export const getHeaders = () => {
@@ -69,13 +87,7 @@ export const handleResponse = async (response: Response) => {
 
 export const api = {
   get: async (endpoint: string) => {
-    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : formattedEndpoint.startsWith('/api')
-      ? `${API_BASE_URL}${formattedEndpoint}`
-      : `${API_BASE_URL}/api${formattedEndpoint}`;
-
+    const url = buildApiUrl(endpoint);
     const response = await fetch(url, {
       method: 'GET',
       headers: getHeaders(),
@@ -84,13 +96,7 @@ export const api = {
   },
 
   post: async (endpoint: string, body: any) => {
-    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : formattedEndpoint.startsWith('/api')
-      ? `${API_BASE_URL}${formattedEndpoint}`
-      : `${API_BASE_URL}/api${formattedEndpoint}`;
-
+    const url = buildApiUrl(endpoint);
     const response = await fetch(url, {
       method: 'POST',
       headers: getHeaders(),
@@ -100,13 +106,7 @@ export const api = {
   },
 
   put: async (endpoint: string, body: any) => {
-    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : formattedEndpoint.startsWith('/api')
-      ? `${API_BASE_URL}${formattedEndpoint}`
-      : `${API_BASE_URL}/api${formattedEndpoint}`;
-
+    const url = buildApiUrl(endpoint);
     const response = await fetch(url, {
       method: 'PUT',
       headers: getHeaders(),
@@ -116,13 +116,7 @@ export const api = {
   },
 
   delete: async (endpoint: string) => {
-    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : formattedEndpoint.startsWith('/api')
-      ? `${API_BASE_URL}${formattedEndpoint}`
-      : `${API_BASE_URL}/api${formattedEndpoint}`;
-
+    const url = buildApiUrl(endpoint);
     const response = await fetch(url, {
       method: 'DELETE',
       headers: getHeaders(),
@@ -131,13 +125,7 @@ export const api = {
   },
 
   upload: async (endpoint: string, formData: FormData) => {
-    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = endpoint.startsWith('http')
-      ? endpoint
-      : formattedEndpoint.startsWith('/api')
-      ? `${API_BASE_URL}${formattedEndpoint}`
-      : `${API_BASE_URL}/api${formattedEndpoint}`;
-
+    const url = buildApiUrl(endpoint);
     const token = localStorage.getItem('laporanwee_token');
     const headers: Record<string, string> = {
       Accept: 'application/json',
