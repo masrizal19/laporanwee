@@ -1,6 +1,5 @@
 import { TaskDocument } from '../types';
-
-const STORAGE_KEY_PREFIX = 'laporanwee_task_docs_';
+import { api } from './api';
 
 /**
  * Helper to format file sizes nicely (e.g. "1.5 MB", "420 KB")
@@ -26,7 +25,6 @@ export const generateVideoThumbnail = (file: File): Promise<string> => {
     video.src = fileUrl;
 
     video.onloadedmetadata = () => {
-      // Seek slightly into the video to avoid a black initial frame
       video.currentTime = Math.min(0.5, video.duration / 2);
     };
 
@@ -53,7 +51,6 @@ export const generateVideoThumbnail = (file: File): Promise<string> => {
       resolve('');
     };
 
-    // Fallback timeout in case video fails to seek
     setTimeout(() => {
       resolve('');
     }, 2500);
@@ -119,38 +116,48 @@ export const validateTaskDocumentFile = (file: File): FileValidationResult => {
 };
 
 /**
- * Task Documents Service
- * Interacts with backend API endpoints if available, with structured localStorage persistence as reliable fallback
+ * Task Documents Service — Single Source of Truth from MySQL API
  */
 export const taskDocumentsService = {
-  // Fetch documents for a specific task
-  getDocuments: async (taskId: string, initialFallback: TaskDocument[] = []): Promise<TaskDocument[]> => {
+  // Fetch documents for a specific task directly from MySQL API
+  getDocuments: async (taskId: string | number, _initialFallback: TaskDocument[] = []): Promise<TaskDocument[]> => {
     try {
-      // 1. Check local storage first
-      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${taskId}`);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
-        }
+      const res = await api.get(`/task-documents/list.php?task_id=${taskId}`);
+      if (!res || !Array.isArray(res.data)) {
+        return [];
       }
-    } catch (_) {}
 
-    return initialFallback;
-  },
-
-  // Save documents for a task into persistence
-  saveDocuments: (taskId: string, docs: TaskDocument[]) => {
-    try {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${taskId}`, JSON.stringify(docs));
-    } catch (e) {
-      console.warn('Gagal menyimpan task documents ke localStorage:', e);
+      return res.data.map((item: any): TaskDocument => {
+        const fileType = item.file_type || (item.mime_type?.startsWith('video/') ? 'video' : 'image');
+        const fileUrl = item.file_url || '';
+        return {
+          id: String(item.id),
+          task_id: String(item.task_id || taskId),
+          uploader_name: item.uploaded_by || item.uploader_name || 'Tim LaporanWee',
+          file_name: item.original_name || item.file_name || 'Dokumentasi',
+          file_url: fileUrl,
+          file_type: fileType,
+          mime_type: item.mime_type || (fileType === 'video' ? 'video/mp4' : 'image/jpeg'),
+          file_size: Number(item.file_size) || 0,
+          file_size_formatted: formatFileSize(Number(item.file_size) || 0),
+          thumbnail_url: fileType === 'video' ? (item.thumbnail_url || undefined) : fileUrl,
+          created_at: item.created_at || '',
+        };
+      });
+    } catch (err) {
+      console.warn(`Sync task documents for task ${taskId} from API notice:`, err);
+      return [];
     }
   },
 
-  // Upload a document file for a task
+  // Save documents memory helper (no-op as MySQL is source of truth)
+  saveDocuments: (_taskId: string | number, _docs: TaskDocument[]) => {
+    // MySQL API is authoritative; no local storage caching needed
+  },
+
+  // Upload a document file for a task to backend MySQL API
   uploadDocument: async (
-    taskId: string,
+    taskId: string | number,
     file: File,
     uploaderName: string,
     onProgress?: (pct: number) => void
@@ -160,67 +167,49 @@ export const taskDocumentsService = {
       throw new Error(validation.error || 'File tidak valid.');
     }
 
-    // Simulate progress updates for realistic, smooth UX
-    if (onProgress) {
-      onProgress(15);
-      await new Promise((r) => setTimeout(r, 80));
-      onProgress(45);
-      await new Promise((r) => setTimeout(r, 90));
-      onProgress(80);
-      await new Promise((r) => setTimeout(r, 70));
-    }
+    if (onProgress) onProgress(25);
 
-    // Convert file to data URL
-    const fileDataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(new Error('Gagal membaca data file.'));
-      reader.readAsDataURL(file);
-    });
+    const formData = new FormData();
+    formData.append('task_id', String(taskId));
+    formData.append('file', file);
+    formData.append('uploader_name', uploaderName || 'Tim LaporanWee');
 
-    let thumbUrl = '';
-    if (validation.fileType === 'video') {
-      try {
-        thumbUrl = await generateVideoThumbnail(file);
-      } catch (_) {}
-    } else {
-      thumbUrl = fileDataUrl;
-    }
+    if (onProgress) onProgress(50);
 
-    if (onProgress) {
-      onProgress(100);
-    }
+    const res = await api.upload('/task-documents/upload.php', formData);
 
-    const now = new Date();
-    const formattedDate = `${now.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'][now.getMonth()]} ${now.getFullYear()}, ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')} WIB`;
+    if (onProgress) onProgress(100);
 
-    const newDoc: TaskDocument = {
-      id: `doc_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      task_id: taskId,
-      uploader_name: uploaderName,
-      file_name: file.name,
-      file_url: fileDataUrl,
-      file_type: validation.fileType,
-      mime_type: file.type || (validation.fileType === 'video' ? 'video/mp4' : 'image/jpeg'),
-      file_size: file.size,
-      file_size_formatted: formatFileSize(file.size),
-      thumbnail_url: thumbUrl || (validation.fileType === 'image' ? fileDataUrl : undefined),
-      created_at: formattedDate,
+    const data = res?.data || {};
+    const fileType = data.file_type || validation.fileType;
+    const fileUrl = data.file_url || '';
+
+    return {
+      id: String(data.id || Date.now()),
+      task_id: String(data.task_id || taskId),
+      uploader_name: uploaderName || data.uploaded_by || 'Tim LaporanWee',
+      file_name: data.original_name || file.name,
+      file_url: fileUrl,
+      file_type: fileType,
+      mime_type: data.mime_type || file.type || (fileType === 'video' ? 'video/mp4' : 'image/jpeg'),
+      file_size: Number(data.file_size) || file.size,
+      file_size_formatted: formatFileSize(Number(data.file_size) || file.size),
+      thumbnail_url: fileType === 'video' ? undefined : fileUrl,
+      created_at: data.created_at || new Date().toISOString(),
     };
-
-    return newDoc;
   },
 
-  // Delete document
-  deleteDocument: async (taskId: string, documentId: string): Promise<boolean> => {
+  // Delete document via MySQL API
+  deleteDocument: async (_taskId: string | number, documentId: string | number): Promise<boolean> => {
     try {
-      const stored = localStorage.getItem(`${STORAGE_KEY_PREFIX}${taskId}`);
-      if (stored) {
-        const parsed: TaskDocument[] = JSON.parse(stored);
-        const filtered = parsed.filter((d) => d.id !== documentId);
-        localStorage.setItem(`${STORAGE_KEY_PREFIX}${taskId}`, JSON.stringify(filtered));
-      }
-    } catch (_) {}
-    return true;
+      const numericId = Number(documentId);
+      const res = await api.post('/task-documents/delete.php', {
+        id: isNaN(numericId) ? documentId : numericId,
+      });
+      return Boolean(res && res.success !== false);
+    } catch (err) {
+      console.error('Delete task document API error:', err);
+      return false;
+    }
   },
 };
