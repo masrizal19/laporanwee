@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import '../auth.css';
-import { API_BASE_URL } from '../utils/api';
+import { API_BASE_URL, buildApiUrl } from '../utils/api';
 
 interface RegisterViewProps {
   onRegisterSuccess: () => void;
@@ -80,7 +80,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
 
     try {
       // 3. Absolute POST request to PHP MySQL backend
-      const response = await fetch(`${API_BASE_URL}/register.php`, {
+      const response = await fetch(buildApiUrl('/register.php'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
-import { API_BASE_URL } from '../utils/api';
+import { API_BASE_URL, buildApiUrl } from '../utils/api';
 
 interface LoginViewProps {
   onLoginSuccess: (email: string, name: string) => void;
@@ -50,7 +50,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
     try {
       // Direct POST request to PHP MySQL backend
-      const response = await fetch(`${API_BASE_URL}/login.php`, {
+      const response = await fetch(buildApiUrl('/login.php'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
