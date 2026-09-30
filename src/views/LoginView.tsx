@@ -39,9 +39,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setIsLoading(true);
     setErrorMsg('');
 
+    const loginUrl = `${API_BASE_URL}/login.php`;
+    console.log('[Login] URL Request:', loginUrl);
     // Safe debugging log (never log plain password)
     console.log('[Login] Mengirim permintaan login ke server:', {
-      url: `${API_BASE_URL}/login.php`,
+      url: loginUrl,
       payload: {
         email: trimmedEmail,
         password: '***',
@@ -49,8 +51,9 @@ export const LoginView: React.FC<LoginViewProps> = ({
     });
 
     try {
-      // Direct POST request to PHP MySQL backend
-      const response = await fetch(buildApiUrl('/login.php'), {
+      // Direct POST request to PHP MySQL backend using VITE_API_URL base
+      console.log('[API REQUEST]', { method: 'POST', url: loginUrl });
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

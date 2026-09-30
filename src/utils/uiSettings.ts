@@ -1,8 +1,8 @@
 import { UISettings } from '../types';
-import { api, getHeaders } from './api';
+import { API_BASE_URL, api, getHeaders } from './api';
 
-export const UI_SETTINGS_API = 'https://api-laporanwe.mkverse.my.id/api/ui/ui-settings.php';
-export const UI_UPLOAD_API = 'https://api-laporanwe.mkverse.my.id/api/ui/upload.php';
+export const UI_SETTINGS_API = `${API_BASE_URL}/ui-settings.php`;
+export const UI_UPLOAD_API = `${API_BASE_URL}/ui-upload.php`;
 export const ADMIN_EMAIL = 'rizalsaragih498@gmail.com';
 
 export const DEFAULT_UI_SETTINGS: UISettings = {
@@ -127,6 +127,7 @@ export const uploadUIAsset = async (
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url: UI_UPLOAD_API });
   const response = await fetch(UI_UPLOAD_API, {
     method: 'POST',
     headers,
@@ -175,36 +176,34 @@ export const fetchUISettings = async (adminEmailParam?: string): Promise<UISetti
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  console.log('[UISettings] URL Request:', UI_SETTINGS_API);
+  console.log('[API REQUEST]', { method: 'GET', url: UI_SETTINGS_API });
+  const response = await fetch(UI_SETTINGS_API, {
+    method: 'GET',
+    headers,
+  });
+  const text = await response.text();
+  let res: any = {};
   try {
-    const response = await fetch(UI_SETTINGS_API, {
-      method: 'GET',
-      headers,
-    });
-    const text = await response.text();
-    let res: any = {};
-    try {
-      res = text ? JSON.parse(text) : {};
-    } catch {
-      res = {};
-    }
-
-    if (res && res.data) {
-      return {
-        ...DEFAULT_UI_SETTINGS,
-        ...res.data,
-        menu_icon_size: Number(res.data.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
-        menu_icon_stroke: Number(res.data.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
-        signout_icon_size: Number(res.data.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
-        logo_url: res.data.logo_url ?? null,
-        menu_icon_url: res.data.menu_icon_url ?? null,
-        signout_icon_url: res.data.signout_icon_url ?? null,
-      };
-    }
-    return DEFAULT_UI_SETTINGS;
-  } catch (err) {
-    console.warn('[UISettings] Gagal mengambil settings dari API, gunakan fallback default:', err);
-    throw err;
+    res = text ? JSON.parse(text) : {};
+  } catch {
+    res = {};
   }
+
+  if (res && res.data) {
+    console.log('[UISettings] Berhasil mengambil settings dari API:', res.data);
+    return {
+      ...DEFAULT_UI_SETTINGS,
+      ...res.data,
+      menu_icon_size: Number(res.data.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
+      menu_icon_stroke: Number(res.data.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
+      signout_icon_size: Number(res.data.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
+      logo_url: res.data.logo_url ?? null,
+      menu_icon_url: res.data.menu_icon_url ?? null,
+      signout_icon_url: res.data.signout_icon_url ?? null,
+    };
+  }
+  return DEFAULT_UI_SETTINGS;
 };
 
 /**
@@ -253,6 +252,7 @@ export const saveUISettings = async (
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  console.log('[API REQUEST]', { method: 'POST', url: UI_SETTINGS_API });
   const response = await fetch(UI_SETTINGS_API, {
     method: 'POST',
     headers,

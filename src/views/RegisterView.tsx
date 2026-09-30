@@ -79,8 +79,11 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
     });
 
     try {
-      // 3. Absolute POST request to PHP MySQL backend
-      const response = await fetch(buildApiUrl('/register.php'), {
+      // 3. Absolute POST request to PHP MySQL backend using VITE_API_URL base
+      const registerUrl = `${API_BASE_URL}/register.php`;
+      console.log('[Register] URL Request:', registerUrl);
+      console.log('[API REQUEST]', { method: 'POST', url: registerUrl });
+      const response = await fetch(registerUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

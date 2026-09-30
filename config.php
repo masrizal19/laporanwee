@@ -1,13 +1,27 @@
 <?php
 // config.php
 
-// CORS Headers
-header("Access-Control-Allow-Origin: https://laporan.mkverse.my.id");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
+// Dynamic CORS handling supporting production and preview origins
+$allowed_origins = [
+    'https://laporan.mkverse.my.id',
+    'https://ais-dev-nhz6tpwkh2bcolye7wptsm-889127144996.asia-east1.run.app',
+    'https://ais-pre-nhz6tpwkh2bcolye7wptsm-889127144996.asia-east1.run.app'
+];
+
+$origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+if (in_array($origin, $allowed_origins) || preg_match('/\.run\.app$/', $origin) || preg_match('/\.ai\.studio$/', $origin)) {
+    header("Access-Control-Allow-Origin: " . $origin);
+} else {
+    header("Access-Control-Allow-Origin: https://laporan.mkverse.my.id");
+}
+
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Admin-Email");
+header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
+header("Vary: Origin");
 header("Access-Control-Max-Age: 86400");
 
-// Handle preflight OPTIONS request before login processing
+// Handle preflight OPTIONS request before processing
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();

@@ -12,8 +12,7 @@ import {
 } from '../types';
 
 export const API_BASE_URL =
-  ((import.meta.env.VITE_API_URL as string) || 'https://api-laporanwe.mkverse.my.id')
-    .replace(/\/api\/?$/, '')
+  ((import.meta.env.VITE_API_URL as string) || 'https://api-laporanwe.mkverse.my.id/api')
     .replace(/\/+$/, '');
 
 /**
@@ -27,10 +26,11 @@ export const buildApiUrl = (endpoint: string): string => {
   const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
   if (cleanPath.startsWith('/api/')) {
-    return `${API_BASE_URL}${cleanPath}`;
+    const base = API_BASE_URL.replace(/\/api$/, '');
+    return `${base}${cleanPath}`;
   }
 
-  return `${API_BASE_URL}/api${cleanPath}`;
+  return `${API_BASE_URL}${cleanPath}`;
 };
 
 // Helper to get authorization headers with stored token and active user email
@@ -65,13 +65,22 @@ export interface ApiError {
   status?: number;
 }
 
-export const handleResponse = async (response: Response) => {
+export const handleResponse = async (response: Response, customUrl?: string, customMethod?: string) => {
   const text = await response.text();
   let data: any = {};
 
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
+    const errorDetails = {
+      url: customUrl || response.url,
+      method: customMethod || 'UNKNOWN',
+      status: response.status,
+      response: text,
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      message: 'Failed to parse JSON response'
+    };
+    console.error('[API ERROR]', errorDetails);
     throw {
       message: `Server mengembalikan response tidak valid (${response.status})`,
       status: response.status,
@@ -79,6 +88,15 @@ export const handleResponse = async (response: Response) => {
   }
 
   if (!response.ok || data.success === false) {
+    const errorDetails = {
+      url: customUrl || response.url,
+      method: customMethod || 'UNKNOWN',
+      status: response.status,
+      response: data,
+      origin: typeof window !== 'undefined' ? window.location.origin : '',
+      message: data.message || data.error || `Terjadi kesalahan sistem (${response.status})`
+    };
+    console.error('[API ERROR]', errorDetails);
     throw {
       message: data.message || data.error || `Terjadi kesalahan sistem (${response.status})`,
       status: response.status,
@@ -91,45 +109,50 @@ export const handleResponse = async (response: Response) => {
 export const api = {
   get: async (endpoint: string) => {
     const url = buildApiUrl(endpoint);
+    console.log('[API REQUEST]', { method: 'GET', url });
     const response = await fetch(url, {
       method: 'GET',
       headers: getHeaders(),
       cache: 'no-store',
     });
-    return handleResponse(response);
+    return handleResponse(response, url, 'GET');
   },
 
   post: async (endpoint: string, body: any) => {
     const url = buildApiUrl(endpoint);
+    console.log('[API REQUEST]', { method: 'POST', url });
     const response = await fetch(url, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(body),
     });
-    return handleResponse(response);
+    return handleResponse(response, url, 'POST');
   },
 
   put: async (endpoint: string, body: any) => {
     const url = buildApiUrl(endpoint);
+    console.log('[API REQUEST]', { method: 'PUT', url });
     const response = await fetch(url, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(body),
     });
-    return handleResponse(response);
+    return handleResponse(response, url, 'PUT');
   },
 
   delete: async (endpoint: string) => {
     const url = buildApiUrl(endpoint);
+    console.log('[API REQUEST]', { method: 'DELETE', url });
     const response = await fetch(url, {
       method: 'DELETE',
       headers: getHeaders(),
     });
-    return handleResponse(response);
+    return handleResponse(response, url, 'DELETE');
   },
 
   upload: async (endpoint: string, formData: FormData) => {
     const url = buildApiUrl(endpoint);
+    console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url });
     const token = localStorage.getItem('laporanwee_token');
     const headers: Record<string, string> = {
       Accept: 'application/json',
@@ -152,7 +175,7 @@ export const api = {
       headers,
       body: formData,
     });
-    return handleResponse(response);
+    return handleResponse(response, url, 'POST (UPLOAD)');
   },
 };
 
