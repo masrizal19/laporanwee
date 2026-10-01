@@ -914,4 +914,25 @@ export const updateTask = taskService.updateTask;
 export const deleteTask = taskService.deleteTask;
 export const resetTasks = taskService.resetTasks;
 
+export const realtimeService = {
+  poll: async (since?: string | number, signal?: AbortSignal) => {
+    try {
+      const endpoint = since !== undefined && since !== null ? `/realtime/poll.php?since=${since}` : '/realtime/poll.php';
+      const url = buildApiUrl(endpoint);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: getHeaders(),
+        signal,
+        cache: 'no-store',
+      });
+      if (!response.ok) return null;
+      const text = await response.text();
+      return text ? JSON.parse(text) : null;
+    } catch (err: any) {
+      if (err.name === 'AbortError') return null;
+      return null;
+    }
+  },
+};
+
 

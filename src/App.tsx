@@ -40,6 +40,7 @@ import {
   teamService,
   analyticsService,
   taskService,
+  realtimeService,
 } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
@@ -399,6 +400,65 @@ export function App() {
       refreshTasksFromApi();
     }
   }, [user, currentView, refreshTasksFromApi]);
+
+  // Realtime Polling via /realtime/poll.php
+  useEffect(() => {
+    if (!user) return;
+
+    let isMounted = true;
+    let sinceCursor: string | number | undefined = undefined;
+    const abortController = new AbortController();
+
+    const runRealtimePoll = async () => {
+      if (!isMounted) return;
+      try {
+        const res = await realtimeService.poll(sinceCursor, abortController.signal);
+        if (res && isMounted) {
+          if (res.latest !== undefined) {
+            sinceCursor = res.latest;
+          }
+          if (res.changed === true) {
+            console.log('[Realtime] Database changes detected from poll.php, syncing data...');
+            refreshTasksFromApi();
+            refreshProjectsFromApi();
+            refreshActivitiesFromApi();
+            refreshEventsFromApi();
+            refreshReportsFromApi();
+            refreshTeamFromApi();
+            refreshAnalyticsFromApi();
+          }
+        }
+      } catch (_) {}
+    };
+
+    // Initial poll to set cursor
+    realtimeService.poll(undefined, abortController.signal)
+      .then((res) => {
+        if (res && res.latest !== undefined) {
+          sinceCursor = res.latest;
+        }
+      })
+      .catch(() => {});
+
+    const pollInterval = setInterval(() => {
+      runRealtimePoll();
+    }, 2500);
+
+    return () => {
+      isMounted = false;
+      abortController.abort();
+      clearInterval(pollInterval);
+    };
+  }, [
+    user,
+    refreshTasksFromApi,
+    refreshProjectsFromApi,
+    refreshActivitiesFromApi,
+    refreshEventsFromApi,
+    refreshReportsFromApi,
+    refreshTeamFromApi,
+    refreshAnalyticsFromApi,
+  ]);
 
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
