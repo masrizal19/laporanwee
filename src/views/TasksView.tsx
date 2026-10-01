@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
-import { taskDocumentsService, validateTaskDocumentFile } from '../utils/taskDocuments';
+import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
 import { MediaViewerModal } from '../components/MediaViewerModal';
 
 interface TasksViewProps {
@@ -90,8 +90,28 @@ export const TasksView: React.FC<TasksViewProps> = ({
       return;
     }
 
+    const localUrl = URL.createObjectURL(file);
+    const isVideo = validation.fileType === 'video';
+    const tempId = 'temp-' + Date.now();
+
+    const tempDoc: TaskDocument = {
+      id: tempId,
+      task_id: String(editingTask.id),
+      uploader_name: 'Tim LaporanWee',
+      file_name: file.name,
+      file_url: localUrl,
+      file_type: isVideo ? 'video' : 'image',
+      mime_type: file.type || (isVideo ? 'video/mp4' : 'image/jpeg'),
+      file_size: file.size,
+      file_size_formatted: formatFileSize(file.size),
+      thumbnail_url: isVideo ? undefined : localUrl,
+      created_at: new Date().toISOString(),
+    };
+
+    // Instant local preview without waiting for API response
+    setTaskDocs((prev) => [tempDoc, ...prev]);
     setIsUploadingDoc(true);
-    setUploadProgress(10);
+    setUploadProgress(20);
 
     try {
       // Get current logged in user name if available
@@ -113,21 +133,26 @@ export const TasksView: React.FC<TasksViewProps> = ({
         (pct) => setUploadProgress(pct)
       );
 
-      const updatedDocs = [newDoc, ...taskDocs];
-      setTaskDocs(updatedDocs);
-      taskDocumentsService.saveDocuments(editingTask.id, updatedDocs);
+      setTaskDocs((prev) => {
+        const filtered = prev.filter((d) => d.id !== tempId);
+        const updatedDocs = [newDoc, ...filtered];
+        taskDocumentsService.saveDocuments(editingTask.id, updatedDocs);
 
-      // Update parent task state immediately so upload is independent of "Simpan Perubahan"
-      const updatedTask: Task = {
-        ...editingTask,
-        documents: updatedDocs,
-      };
-      setEditingTask(updatedTask);
-      onUpdateTask(updatedTask);
+        // Update parent task state immediately so upload is independent of "Simpan Perubahan"
+        const updatedTask: Task = {
+          ...editingTask,
+          documents: updatedDocs,
+        };
+        setEditingTask(updatedTask);
+        onUpdateTask(updatedTask);
+
+        return updatedDocs;
+      });
 
       onAddToast('Dokumentasi berhasil ditambahkan.');
     } catch (err: any) {
       onAddToast(err?.message || 'Gagal mengunggah dokumentasi.');
+      // Keep preview even if upload fails as requested
     } finally {
       setIsUploadingDoc(false);
       setUploadProgress(0);
