@@ -17,8 +17,8 @@ interface TeamViewProps {
 }
 
 export const TeamView: React.FC<TeamViewProps> = ({
-  activities,
-  members,
+  activities = [],
+  members = [],
   isAdmin = false,
   onNavigate,
   onAddToast,
@@ -40,16 +40,6 @@ export const TeamView: React.FC<TeamViewProps> = ({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isResetPresenceModalOpen, setIsResetPresenceModalOpen] = useState(false);
   const [isResettingPresence, setIsResettingPresence] = useState(false);
-
-  // Poll team presence status every 15 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (onRefreshTeam) {
-        onRefreshTeam();
-      }
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [onRefreshTeam]);
 
   const handleCreateUserSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,8 +116,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
     return a.kind === filter;
   });
 
-  const workingMembers = safeMembers.filter((m) => m?.is_online || m?.status === 'working');
-  const offlineMembers = safeMembers.filter((m) => !m?.is_online && m?.status !== 'working');
+  const workingMembers = safeMembers.filter((m) => m && (m.is_online || m.status === 'working'));
+  const offlineMembers = safeMembers.filter((m) => m && (!m.is_online && m.status !== 'working'));
 
   const handleCopyInvite = () => {
     navigator.clipboard?.writeText('https://laporanwee.agency/invite/team-creative-q4');
@@ -136,11 +126,11 @@ export const TeamView: React.FC<TeamViewProps> = ({
 
   // Helper to render dynamic member avatar or clean initial badge
   const renderMemberAvatar = (m: { name?: string; img?: string }, size: string = '36px', fontSize: string = '13px') => {
-    if (m?.img && m.img.trim() !== '') {
+    if (m && m.img) {
       return (
         <img
           src={m.img}
-          alt={m?.name || 'Anggota'}
+          alt={m.name || 'Anggota'}
           style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
           onError={(e) => {
             (e.currentTarget as HTMLElement).style.display = 'none';
