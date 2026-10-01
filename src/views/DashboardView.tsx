@@ -135,7 +135,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Page Header */}
       <div className="page-head">
         <div>
-          <h1>Halo, {greetingName}! 👋</h1>
+          <h1>Halo, {greetingName}!</h1>
           <p className="sub">
             Rabu, 14 Oktober 2026 &bull; Pantau seluruh progres tim kreatif Wee Studio hari ini.
           </p>
