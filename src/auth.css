@@ -520,7 +520,418 @@
   font-weight: 600;
 }
 
+/* =========================================================
+   EMAIL VERIFICATION UI STYLES (LaporanWee Design System)
+   ========================================================= */
+
+.verify-card-container {
+  width: 500px;
+  max-width: 94vw;
+  margin: 20px auto;
+  position: relative;
+  z-index: 10;
+  animation: stageIn .6s cubic-bezier(.19, 1, .22, 1) forwards;
+}
+
+.verify-card {
+  background: var(--white);
+  border-radius: 20px;
+  box-shadow: 0 25px 60px -15px rgba(24, 26, 77, 0.2);
+  padding: 38px 34px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(227, 229, 242, 0.6);
+}
+
+.verify-card-header {
+  margin-bottom: 8px;
+}
+
+.verify-icon-badge {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  margin: 0 auto 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  transition: transform 0.3s ease;
+}
+
+.verify-icon-badge svg {
+  width: 36px;
+  height: 36px;
+}
+
+.verify-icon-badge.success {
+  background: #ecfdf5;
+  box-shadow: 0 10px 24px -6px rgba(16, 185, 129, 0.3);
+}
+
+.verify-icon-badge.info {
+  background: #eff2fe;
+  box-shadow: 0 10px 24px -6px rgba(74, 92, 245, 0.25);
+}
+
+.verify-icon-badge.warning {
+  background: #fffbeb;
+  box-shadow: 0 10px 24px -6px rgba(245, 158, 11, 0.25);
+}
+
+.verify-icon-badge.danger {
+  background: #fef2f2;
+  box-shadow: 0 10px 24px -6px rgba(239, 68, 68, 0.25);
+}
+
+.verify-title {
+  font-size: 23px;
+  font-weight: 800;
+  color: var(--ink-900);
+  margin: 0 0 10px;
+  letter-spacing: -0.3px;
+}
+
+.verify-desc {
+  font-size: 14px;
+  color: var(--ink-500);
+  line-height: 1.6;
+  margin: 0 0 18px;
+  max-width: 400px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.verify-email-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #f0f2fe;
+  color: var(--blue-700);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 30px;
+  border: 1px solid #dbe1fd;
+  margin-bottom: 22px;
+}
+
+.verify-action-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.btn-verify-primary {
+  height: 48px;
+  border-radius: 11px;
+  background: var(--blue-600);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 8px 20px -4px rgba(74, 92, 245, 0.4);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+}
+
+.btn-verify-primary:hover:not(:disabled) {
+  background: var(--blue-700);
+  transform: translateY(-1.5px);
+  box-shadow: 0 12px 24px -4px rgba(74, 92, 245, 0.5);
+}
+
+.btn-verify-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-verify-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.btn-verify-secondary {
+  height: 46px;
+  border-radius: 11px;
+  background: #f6f7fe;
+  color: var(--blue-600);
+  font-size: 13px;
+  font-weight: 700;
+  border: 1.5px solid #d9dffa;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.btn-verify-secondary:hover:not(:disabled) {
+  background: #eceffd;
+  border-color: #c9d0ff;
+  color: var(--blue-700);
+}
+
+.btn-verify-secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-verify-ghost {
+  height: 38px;
+  background: transparent;
+  border: none;
+  color: var(--ink-500);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: color 0.2s ease;
+}
+
+.btn-verify-ghost:hover {
+  color: var(--ink-900);
+}
+
+.verify-spinner-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.verify-spinner {
+  width: 52px;
+  height: 52px;
+  border: 4px solid rgba(74, 92, 245, 0.15);
+  border-top-color: var(--blue-600);
+  border-radius: 50%;
+  animation: spin-auth 0.8s linear infinite;
+}
+
+.verify-alert {
+  padding: 11px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  text-align: left;
+}
+
+.verify-alert.success {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+}
+
+.verify-alert.error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.verify-form-group {
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.verify-form-group label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-500);
+  margin-bottom: 6px;
+}
+
+.verify-input {
+  width: 100%;
+  height: 44px;
+  border-radius: 10px;
+  border: 1.5px solid var(--grey-border);
+  padding: 0 14px;
+  font-size: 14px;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.verify-input:focus {
+  border-color: var(--blue-600);
+  box-shadow: 0 0 0 3px rgba(74, 92, 245, 0.15);
+}
+
+.verify-card-footer {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--grey-border);
+  font-size: 11px;
+  color: var(--ink-500);
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease forwards;
+}
+
+/* Unverified Email Warning Box in Login Form */
+.login-unverified-box {
+  background: #fffbeb;
+  border: 1.5px solid #fcd34d;
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 16px;
+  margin-bottom: 12px;
+  text-align: left;
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.login-unverified-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #92400e;
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.login-unverified-header svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.login-unverified-desc {
+  font-size: 12px;
+  color: #78350f;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.login-unverified-btn {
+  width: 100%;
+  height: 38px;
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.2s ease;
+}
+
+.login-unverified-btn:hover:not(:disabled) {
+  background: #d97706;
+}
+
+.login-unverified-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.login-unverified-success {
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Register Verification Pending Overlay inside Stage */
+.stage.verification-pending .form-panel,
+.stage.verification-pending .illustration,
+.stage.verification-pending .sidebar {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .35s ease;
+}
+
+.stage.verification-pending .register-verify-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: scale(1);
+}
+
+.register-verify-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  background: #ffffff;
+  color: var(--ink-900);
+  padding: 40px 30px;
+  opacity: 0;
+  pointer-events: none;
+  transform: scale(1.02);
+  transition: opacity .45s ease, transform .45s cubic-bezier(.19, 1, .22, 1);
+  z-index: 25;
+}
+
+.register-verify-panel .mail-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: #eff2fe;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  box-shadow: 0 10px 24px -6px rgba(74, 92, 245, 0.25);
+  animation: checkIn .5s cubic-bezier(.34, 1.56, .64, 1) forwards;
+}
+
+.register-verify-panel .mail-icon-wrap svg {
+  width: 40px;
+  height: 40px;
+  stroke: var(--blue-600);
+}
+
+.register-verify-panel h2 {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--ink-900);
+  margin: 0 0 10px;
+  animation: riseIn .4s ease .15s forwards;
+}
+
+.register-verify-panel p {
+  font-size: 14px;
+  color: var(--ink-500);
+  line-height: 1.6;
+  max-width: 420px;
+  margin: 0 auto 16px;
+  animation: riseIn .4s ease .25s forwards;
+}
+
 @media (max-width: 760px) {
   .illustration { display: none; }
   .sidebar { width: 72px; }
+  .verify-card { padding: 28px 20px; }
+  .register-verify-panel { padding: 30px 20px; }
 }

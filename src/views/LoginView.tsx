@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
 import { API_BASE_URL, buildApiUrl } from '../utils/api';
+import { resendVerificationEmail } from '../utils/authService';
 
 interface LoginViewProps {
   onLoginSuccess: (email: string, name: string) => void;
@@ -22,8 +23,25 @@ export const LoginView: React.FC<LoginViewProps> = ({
   const [isFocusEmail, setIsFocusEmail] = useState(false);
   const [isFocusPass, setIsFocusPass] = useState(false);
 
+  // Email Unverified States
+  const [isUnverified, setIsUnverified] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+  const [resendSuccessMsg, setResendSuccessMsg] = useState('');
+  const [resendErrorMsg, setResendErrorMsg] = useState('');
+
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passInputRef = useRef<HTMLInputElement>(null);
+
+  // Countdown timer for resend button
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,8 +56,11 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
     setIsLoading(true);
     setErrorMsg('');
+    setIsUnverified(false);
+    setResendSuccessMsg('');
+    setResendErrorMsg('');
 
-    const loginUrl = `${API_BASE_URL}/login.php`;
+    const loginUrl = buildApiUrl('/login.php');
     console.log('[Login] URL Request:', loginUrl);
     // Safe debugging log (never log plain password)
     console.log('[Login] Mengirim permintaan login ke server:', {
@@ -74,6 +95,26 @@ export const LoginView: React.FC<LoginViewProps> = ({
         throw new Error(`Server mengembalikan response tidak valid (${response.status})`);
       }
 
+      const code = String(data.code || data.error_code || '').toUpperCase();
+      const rawMsg = String(data.message || data.error || '');
+      const lowerMsg = rawMsg.toLowerCase();
+
+      // Check if email is not verified (HTTP 403 or code EMAIL_NOT_VERIFIED or unverified message)
+      const isEmailNotVerified =
+        response.status === 403 ||
+        code === 'EMAIL_NOT_VERIFIED' ||
+        lowerMsg.includes('belum diverifikasi') ||
+        lowerMsg.includes('not verified') ||
+        lowerMsg.includes('verifikasi email');
+
+      if (isEmailNotVerified) {
+        setIsLoading(false);
+        setIsUnverified(true);
+        setUnverifiedEmail(trimmedEmail);
+        setErrorMsg('');
+        return;
+      }
+
       if (!response.ok || data.success === false) {
         throw new Error(data.message || data.error || 'Email atau password tidak sesuai.');
       }
@@ -85,10 +126,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       const emailVal = data.user?.email || data.data?.user?.email || trimmedEmail;
       const nameVal = data.user?.full_name || data.user?.name || data.data?.user?.full_name || data.data?.user?.name || trimmedEmail.split('@')[0];
-      const idVal = data.user?.id || data.data?.user?.id || data.id || data.user_id || '';
 
       const userObj = {
-        id: idVal,
         email: emailVal,
         name: nameVal,
       };
@@ -97,6 +136,25 @@ export const LoginView: React.FC<LoginViewProps> = ({
     } catch (err: any) {
       setIsLoading(false);
       setErrorMsg(err.message || 'Email atau password tidak sesuai.');
+    }
+  };
+
+  const handleResendVerification = async () => {
+    const targetEmail = (unverifiedEmail || email).trim().toLowerCase();
+    if (!targetEmail || resendCooldown > 0 || isResending) return;
+
+    setIsResending(true);
+    setResendSuccessMsg('');
+    setResendErrorMsg('');
+
+    try {
+      const res = await resendVerificationEmail(targetEmail);
+      setResendSuccessMsg(res.message || 'Email verifikasi telah dikirim ulang.');
+      setResendCooldown(60);
+    } catch (err: any) {
+      setResendErrorMsg(err?.message || 'Gagal mengirim ulang email verifikasi.');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -230,6 +288,58 @@ export const LoginView: React.FC<LoginViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Email Unverified Warning Box */}
+            {isUnverified && (
+              <div className="login-unverified-box">
+                <div className="login-unverified-header">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                  </svg>
+                  <span>Email Belum Diverifikasi</span>
+                </div>
+                <p className="login-unverified-desc">
+                  Silakan verifikasi email Anda terlebih dahulu sebelum masuk ke LaporanWee.
+                </p>
+
+                {resendSuccessMsg && (
+                  <div className="login-unverified-success">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                    <span>{resendSuccessMsg}</span>
+                  </div>
+                )}
+
+                {resendErrorMsg && (
+                  <div className="auth-error" style={{ marginBottom: 10 }}>
+                    {resendErrorMsg}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className="login-unverified-btn"
+                  onClick={handleResendVerification}
+                  disabled={isResending || resendCooldown > 0}
+                  style={{ marginTop: resendSuccessMsg ? '10px' : '0' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                  <span>
+                    {isResending
+                      ? 'Mengirim ulang...'
+                      : resendCooldown > 0
+                      ? `Kirim ulang dalam ${resendCooldown} detik`
+                      : 'Kirim Ulang Email Verifikasi'}
+                  </span>
+                </button>
+              </div>
+            )}
 
             {errorMsg && <div className="auth-error">{errorMsg}</div>}
 

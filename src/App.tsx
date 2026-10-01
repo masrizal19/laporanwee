@@ -32,6 +32,7 @@ import { AdminUISettingsView } from './views/AdminUISettingsView';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
+import { VerifyEmailView } from './views/VerifyEmailView';
 import {
   api,
   activityService,
@@ -93,10 +94,11 @@ export function App() {
   }, [user?.email]);
 
   const getPathFromLocation = (): string => {
-    const hashPath = window.location.hash.replace('#', '');
+    const hashPart = window.location.hash.replace('#', '').split('?')[0];
     const validPaths = [
       '/login',
       '/register',
+      '/verify-email',
       '/dashboard',
       '/proyek',
       '/laporan',
@@ -107,10 +109,10 @@ export function App() {
       '/admin/ui-settings',
       '/ui-settings'
     ];
-    if (validPaths.includes(hashPath)) {
-      return hashPath;
+    if (validPaths.includes(hashPart)) {
+      return hashPart;
     }
-    const path = window.location.pathname;
+    const path = window.location.pathname.split('?')[0];
     for (const validPath of validPaths) {
       if (path.endsWith(validPath)) {
         return validPath;
@@ -142,7 +144,7 @@ export function App() {
 
   const navigateToPath = (path: string) => {
     window.history.pushState({}, '', path);
-    setCurrentPath(path);
+    setCurrentPath(path.split('?')[0]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -157,7 +159,7 @@ export function App() {
   // Sync protected routes
   useEffect(() => {
     if (!user) {
-      if (currentPath !== '/register') {
+      if (currentPath !== '/register' && currentPath !== '/verify-email') {
         navigateToPath('/login');
       }
     } else {
@@ -859,6 +861,18 @@ export function App() {
     reports.find((r) => r.id === selectedReportId) || reports[0];
 
   // Conditional Rendering for Auth Flows
+  if (currentPath === '/verify-email') {
+    return (
+      <>
+        <VerifyEmailView
+          onNavigateToLogin={() => navigateToPath('/login')}
+          onAddToast={addToast}
+        />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
+
   if (!user && currentPath === '/register') {
     return (
       <>

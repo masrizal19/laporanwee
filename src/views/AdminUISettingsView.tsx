@@ -158,13 +158,14 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
 
     try {
       const res = await uploadUIAsset(file, assetType, adminEmail);
+      const resAny = res as any;
       const uploadedUrl =
-        res.data?.logo_url ||
         res.data?.url ||
-        res.data?.asset_url ||
-        res.logo_url ||
-        res.url ||
-        res.asset_url;
+        resAny.data?.logo_url ||
+        resAny.data?.asset_url ||
+        resAny.logo_url ||
+        resAny.url ||
+        resAny.asset_url;
 
       if (!uploadedUrl) {
         throw new Error('URL aset tidak ditemukan pada response server.');

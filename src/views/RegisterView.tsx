@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import '../auth.css';
 import { API_BASE_URL, buildApiUrl } from '../utils/api';
+import { maskEmail, openWebmail, resendVerificationEmail } from '../utils/authService';
 
 interface RegisterViewProps {
   onRegisterSuccess: () => void;
@@ -19,12 +20,28 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  
+  // Verification Pending UI States
+  const [isVerificationPending, setIsVerificationPending] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+  const [resendSuccessMsg, setResendSuccessMsg] = useState('');
+  const [resendErrorMsg, setResendErrorMsg] = useState('');
 
   const [isFocusName, setIsFocusName] = useState(false);
   const [isFocusEmail, setIsFocusEmail] = useState(false);
   const [isFocusPass, setIsFocusPass] = useState(false);
   const [isFocusConfirm, setIsFocusConfirm] = useState(false);
+
+  // Countdown timer for resend verification
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => (prev > 1 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +97,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
 
     try {
       // 3. Absolute POST request to PHP MySQL backend using VITE_API_URL base
-      const registerUrl = `${API_BASE_URL}/register.php`;
+      const registerUrl = buildApiUrl('/register.php');
       console.log('[Register] URL Request:', registerUrl);
       console.log('[API REQUEST]', { method: 'POST', url: registerUrl });
       const response = await fetch(registerUrl, {
@@ -109,7 +126,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
         throw new Error(data.message || data.error || 'Registrasi gagal. Silakan coba lagi.');
       }
 
-      // 5. On success: clear passwords, retain email, trigger success UI
+      // 5. On success: clear sensitive fields, retain registered email, and show "Verifikasi Email Anda" step
       setIsLoading(false);
       setPassword('');
       setConfirmPassword('');
@@ -118,20 +135,35 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
       } catch (_) {
         // Ignore storage exceptions if in private mode
       }
-      setIsSuccess(true);
+      setRegisteredEmail(trimmedEmail);
+      setIsVerificationPending(true);
     } catch (err: any) {
       setIsLoading(false);
       setErrorMsg(err.message || 'Gagal mendaftarkan akun. Silakan coba lagi.');
     }
   };
 
-  const handleProceed = () => {
-    onRegisterSuccess();
+  const handleResend = async () => {
+    if (!registeredEmail || resendCooldown > 0 || isResending) return;
+
+    setIsResending(true);
+    setResendSuccessMsg('');
+    setResendErrorMsg('');
+
+    try {
+      const res = await resendVerificationEmail(registeredEmail);
+      setResendSuccessMsg(res.message || 'Email verifikasi telah dikirim ulang.');
+      setResendCooldown(60);
+    } catch (err: any) {
+      setResendErrorMsg(err?.message || 'Gagal mengirim ulang email verifikasi.');
+    } finally {
+      setIsResending(false);
+    }
   };
 
   return (
     <div className="auth-body">
-      <div className={`stage ${isSuccess ? 'success' : ''}`} id="stage">
+      <div className={`stage ${isVerificationPending ? 'verification-pending' : ''}`} id="stage">
         {/* Left Sidebar */}
         <div className="sidebar">
           <div className="logo-auth"></div>
@@ -319,21 +351,92 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
           </p>
         </div>
 
-        {/* Success Overlay View */}
-        <div className="success-panel">
-          <h2>Akun Berhasil Dibuat!</h2>
-          <svg className="check" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 12l5 5L20 6" />
-          </svg>
-          <p>
-            Akun Anda dengan email <strong>{email}</strong> telah berhasil didaftarkan.
-            Silakan lanjut untuk masuk ke LaporanWee.
-          </p>
-          <button className="proceed" type="button" onClick={handleProceed}>
-            Lanjut ke Login
-          </button>
+        {/* Dedicated "Verifikasi Email Anda" Panel on Successful Registration */}
+        <div className="register-verify-panel">
+          <div className="mail-icon-wrap">
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="3" />
+              <path d="M22 6l-10 7L2 6" />
+            </svg>
+          </div>
+
+          <h2>Verifikasi Email Anda</h2>
+          <p>Kami telah mengirimkan link verifikasi ke email Anda.</p>
+
+          <div className="verify-email-chip">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 14, height: 14 }}>
+              <rect x="3" y="5" width="18" height="14" rx="2" />
+              <path d="M3 7l9 6 9-6" />
+            </svg>
+            <span>{maskEmail(registeredEmail || email)}</span>
+          </div>
+
+          {resendSuccessMsg && (
+            <div className="verify-alert success" style={{ maxWidth: 360, width: '100%' }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                <path d="M20 6L9 17l-5-5" />
+              </svg>
+              <span>{resendSuccessMsg}</span>
+            </div>
+          )}
+
+          {resendErrorMsg && (
+            <div className="verify-alert error" style={{ maxWidth: 360, width: '100%' }}>
+              <span>{resendErrorMsg}</span>
+            </div>
+          )}
+
+          <div className="verify-action-stack" style={{ width: '100%', maxWidth: 360 }}>
+            {/* Tombol Utama: Buka Email */}
+            <button
+              type="button"
+              className="btn-verify-primary"
+              onClick={() => openWebmail(registeredEmail || email)}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 16, height: 16 }}>
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                <polyline points="15 3 21 3 21 9" />
+                <line x1="10" y1="14" x2="21" y2="3" />
+              </svg>
+              <span>Buka Email</span>
+            </button>
+
+            {/* Tombol Sekunder: Kirim Ulang Email */}
+            <button
+              type="button"
+              className="btn-verify-secondary"
+              onClick={handleResend}
+              disabled={isResending || resendCooldown > 0}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 15, height: 15 }}>
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              <span>
+                {isResending
+                  ? 'Mengirim ulang...'
+                  : resendCooldown > 0
+                  ? `Kirim ulang dalam ${resendCooldown} detik`
+                  : 'Kirim Ulang Email'}
+              </span>
+            </button>
+
+            {/* Tombol: Kembali ke Login */}
+            <button
+              type="button"
+              className="btn-verify-ghost"
+              onClick={onNavigateToLogin}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                <line x1="19" y1="12" x2="5" y2="12" />
+                <polyline points="12 19 5 12 12 5" />
+              </svg>
+              <span>Kembali ke Login</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
