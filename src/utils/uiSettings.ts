@@ -1,7 +1,7 @@
 import { UISettings } from '../types';
 import { API_BASE_URL, api, getHeaders } from './api';
 
-export const UI_SETTINGS_API = `${API_BASE_URL}/ui-settings.php`;
+export const UI_SETTINGS_API = `${API_BASE_URL}/ui/ui-settings.php`;
 export const UI_UPLOAD_API = `${API_BASE_URL}/ui/ui-upload.php`;
 export const ADMIN_EMAIL = 'rizalsaragih498@gmail.com';
 
@@ -127,6 +127,7 @@ export const uploadUIAsset = async (
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  console.log('[UI API] POST', UI_UPLOAD_API);
   console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url: UI_UPLOAD_API });
   const response = await fetch(UI_UPLOAD_API, {
     method: 'POST',
@@ -176,7 +177,7 @@ export const fetchUISettings = async (adminEmailParam?: string): Promise<UISetti
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  console.log('[UISettings] URL Request:', UI_SETTINGS_API);
+  console.log('[UI API] GET', UI_SETTINGS_API);
   console.log('[API REQUEST]', { method: 'GET', url: UI_SETTINGS_API });
   const response = await fetch(UI_SETTINGS_API, {
     method: 'GET',
@@ -252,6 +253,7 @@ export const saveUISettings = async (
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  console.log('[UI API] POST', UI_SETTINGS_API);
   console.log('[API REQUEST]', { method: 'POST', url: UI_SETTINGS_API });
   const response = await fetch(UI_SETTINGS_API, {
     method: 'POST',
