@@ -585,6 +585,9 @@ export const getAbsoluteAvatarUrl = (img?: string | null, userName?: string): st
     if (finalUrl.includes('https://api-laporanwe.mkverse.my.id/https://')) {
       finalUrl = finalUrl.substring(finalUrl.indexOf('https://', 8));
     }
+    if (finalUrl.includes('laporanwe.mkverse.my.id') && !finalUrl.includes('api-laporanwe.mkverse.my.id')) {
+      finalUrl = finalUrl.replace('laporanwe.mkverse.my.id', 'api-laporanwe.mkverse.my.id');
+    }
   } else if (finalUrl.startsWith('/')) {
     finalUrl = `https://api-laporanwe.mkverse.my.id${finalUrl}`;
   } else {
@@ -610,7 +613,7 @@ export const teamService = {
       let onlineCount = 0;
       try {
         const response = await api.get('/presence/online.php');
-        console.log('[Presence] API response:', response);
+        console.log('[Presence] response:', response);
 
         onlineUsers = Array.isArray(response?.users)
           ? response.users
@@ -620,9 +623,10 @@ export const teamService = {
 
         onlineCount = Number(response?.online_count ?? response?.data?.online_count ?? onlineUsers.length);
 
-        console.log('[Presence] Online users:', onlineUsers);
-        console.log('[Presence] Online count:', onlineCount);
+        console.log('[Presence] onlineUsers:', onlineUsers);
+        console.log('[Presence] onlineCount:', onlineCount);
       } catch (error) {
+        console.error('[TIM PAGE ERROR]', error);
         console.error('[Presence] Render/API error:', error);
       }
 
