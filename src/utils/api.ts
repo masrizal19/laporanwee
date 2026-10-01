@@ -708,6 +708,16 @@ export const teamService = {
     }
   },
 
+  sendHeartbeat: async (): Promise<boolean> => {
+    try {
+      const res = await api.post('/presence/heartbeat.php', {});
+      return Boolean(res && res.success !== false);
+    } catch (err) {
+      console.warn('[API ERROR] Heartbeat failed:', err);
+      return false;
+    }
+  },
+
   resetPresence: async (): Promise<boolean> => {
     try {
       const res = await api.post('/team/reset.php', {});

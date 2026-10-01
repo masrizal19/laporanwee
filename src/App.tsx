@@ -351,6 +351,16 @@ export function App() {
         });
       }
 
+      // Send initial heartbeat and setup periodic heartbeat (every 30s) + periodic presence sync (every 20s)
+      teamService.sendHeartbeat();
+      const heartbeatInterval = setInterval(() => {
+        teamService.sendHeartbeat();
+      }, 30000);
+
+      const presenceInterval = setInterval(() => {
+        refreshTeamFromApi();
+      }, 20000);
+
       // Handle window beforeunload to mark offline
       const handleBeforeUnload = () => {
         if (user?.email) {
@@ -359,6 +369,8 @@ export function App() {
       };
       window.addEventListener('beforeunload', handleBeforeUnload);
       return () => {
+        clearInterval(heartbeatInterval);
+        clearInterval(presenceInterval);
         window.removeEventListener('beforeunload', handleBeforeUnload);
       };
     } else {
