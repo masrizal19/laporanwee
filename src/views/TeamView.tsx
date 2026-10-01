@@ -41,6 +41,16 @@ export const TeamView: React.FC<TeamViewProps> = ({
   const [isResetPresenceModalOpen, setIsResetPresenceModalOpen] = useState(false);
   const [isResettingPresence, setIsResettingPresence] = useState(false);
 
+  // Poll team presence status every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (onRefreshTeam) {
+        onRefreshTeam();
+      }
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [onRefreshTeam]);
+
   const handleCreateUserSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !password.trim()) {

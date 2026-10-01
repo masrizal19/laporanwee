@@ -609,7 +609,6 @@ export const teamService = {
       let onlineData: { online_count: number; users: any[] } = { online_count: 0, users: [] };
       try {
         const presenceRes = await api.get('/presence/online.php');
-        console.log('[Presence API] Response from /presence/online.php:', presenceRes);
         if (presenceRes) {
           onlineData.online_count = typeof presenceRes.online_count === 'number'
             ? presenceRes.online_count
@@ -621,6 +620,8 @@ export const teamService = {
               ? presenceRes.data.users
               : (Array.isArray(presenceRes.data) ? presenceRes.data : []));
         }
+        console.log('[Presence] Online count:', onlineData.online_count);
+        console.log('[Presence] Online users:', onlineData.users);
       } catch (presErr) {
         console.error('[API ERROR] Failed to fetch /presence/online.php:', presErr);
       }
