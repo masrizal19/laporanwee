@@ -24,15 +24,21 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   onResetEvents,
   onAddToast,
 }) => {
+  const now = new Date();
+  const todayYear = now.getFullYear();
+  const todayMonth = now.getMonth();
+  const todayDay = now.getDate();
+  const todayDateStr = `${todayYear}-${String(todayMonth + 1).padStart(2, '0')}-${String(todayDay).padStart(2, '0')}`;
+
   const [viewMode, setViewMode] = useState<'month' | 'week' | 'day'>('month');
-  const [currentYear, setCurrentYear] = useState(2026);
-  const [currentMonth, setCurrentMonth] = useState(9); // 0-indexed: 9 = October
-  const [selectedDate, setSelectedDate] = useState<string | null>('2026-10-14');
+  const [currentYear, setCurrentYear] = useState(todayYear);
+  const [currentMonth, setCurrentMonth] = useState(todayMonth);
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayDateStr);
 
   // Modal State for New Event
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newDate, setNewDate] = useState('2026-10-15');
+  const [newDate, setNewDate] = useState(todayDateStr);
   const [newTime, setNewTime] = useState('14:00');
   const [newCat, setNewCat] = useState('cat-meeting');
   const [newDesc, setNewDesc] = useState('');
@@ -192,7 +198,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <button
             className="btn btn-dark btn-add-agenda"
             onClick={() => {
-              setNewDate(selectedDate || '2026-10-15');
+              setNewDate(selectedDate || todayDateStr);
               setIsAddOpen(true);
             }}
           >
@@ -267,7 +273,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     {calendarCells
                       .slice(rowIdx * 7, rowIdx * 7 + 7)
                       .map((cell) => {
-                        const isToday = cell.dateStr === '2026-10-14';
+                        const isToday = cell.dateStr === todayDateStr;
                         const isSelected = cell.dateStr === selectedDate;
                         const cellEvents = events.filter(
                           (e) => e.date === cell.dateStr
@@ -358,14 +364,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       className="upc-badge"
                       style={{
                         background:
-                          ev.date.includes('14')
+                          ev.date === todayDateStr
                             ? 'var(--lime)'
-                            : ev.date.includes('15') || ev.date.includes('16')
-                            ? 'var(--lavender)'
-                            : 'var(--peach)',
+                            : 'var(--lavender)',
                       }}
                     >
-                      {ev.date.includes('14') ? 'Hari Ini' : ev.date.slice(5)}
+                      {ev.date === todayDateStr ? 'Hari Ini' : ev.date.slice(5)}
                     </div>
                     <div className="upc-mid" style={{ flex: 1 }}>
                       <b>{ev.title}</b>
