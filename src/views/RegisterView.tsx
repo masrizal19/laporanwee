@@ -50,6 +50,9 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
     const trimmedName = name.trim();
     const trimmedEmail = email.trim().toLowerCase();
 
+    const rawPassword = password;
+    const rawConfirmPassword = confirmPassword;
+
     // 1. Strict frontend validations
     if (!trimmedName) {
       setErrorMsg('Nama lengkap tidak boleh kosong.');
@@ -67,18 +70,18 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
       return;
     }
 
-    if (!password) {
+    if (!rawPassword) {
       setErrorMsg('Password tidak boleh kosong.');
       return;
     }
 
-    if (password.length < 6) {
+    if (rawPassword.length < 6) {
       setErrorMsg('Password minimal 6 karakter.');
       return;
     }
 
-    if (password !== confirmPassword) {
-      setErrorMsg('Password dan konfirmasi password tidak cocok.');
+    if (rawPassword !== rawConfirmPassword) {
+      setErrorMsg('Konfirmasi password tidak sama.');
       return;
     }
 
@@ -89,9 +92,10 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
     console.log('[Register] Mengirim data pendaftaran ke server:', {
       url: `${API_BASE_URL}/register.php`,
       payload: {
-        name: trimmedName,
+        full_name: trimmedName,
         email: trimmedEmail,
         password: '***',
+        password_confirmation: '***',
       },
     });
 
@@ -107,9 +111,11 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
           'Accept': 'application/json',
         },
         body: JSON.stringify({
+          full_name: trimmedName,
           name: trimmedName,
           email: trimmedEmail,
-          password: password,
+          password: rawPassword,
+          password_confirmation: rawConfirmPassword,
         }),
       });
 
@@ -122,11 +128,42 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
         throw new Error(`Server mengembalikan response tidak valid (${response.status})`);
       }
 
+      const code = String(data.code || data.error_code || '').toUpperCase();
+      const rawMsg = String(data.message || data.error || '');
+      const lowerMsg = rawMsg.toLowerCase();
+
       if (!response.ok || data.success === false) {
-        throw new Error(data.message || data.error || 'Registrasi gagal. Silakan coba lagi.');
+        if (
+          code === 'PASSWORD_MISMATCH' ||
+          lowerMsg.includes('password_confirmation') ||
+          lowerMsg.includes('konfirmasi password') ||
+          lowerMsg.includes('password confirmation') ||
+          lowerMsg.includes('tidak sama') ||
+          lowerMsg.includes('mismatch')
+        ) {
+          throw new Error('Konfirmasi password tidak sama dengan password.');
+        }
+
+        if (
+          code === 'EMAIL_EXISTS' ||
+          lowerMsg.includes('email sudah terdaftar') ||
+          lowerMsg.includes('email exists') ||
+          lowerMsg.includes('already exists')
+        ) {
+          throw new Error('Alamat email sudah terdaftar. Silakan gunakan email lain atau masuk ke akun Anda.');
+        }
+
+        if (code === 'EMAIL_NOT_VERIFIED') {
+          setRegisteredEmail(trimmedEmail);
+          setIsVerificationPending(true);
+          setIsLoading(false);
+          return;
+        }
+
+        throw new Error(rawMsg || 'Registrasi gagal. Silakan periksa kembali data Anda.');
       }
 
-      // 5. On success: clear sensitive fields, retain registered email, and show "Verifikasi Email Anda" step
+      // 5. On success: clear sensitive fields, retain registered email, and show "Pendaftaran Berhasil" step
       setIsLoading(false);
       setPassword('');
       setConfirmPassword('');
@@ -360,8 +397,13 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
             </svg>
           </div>
 
-          <h2>Verifikasi Email Anda</h2>
-          <p>Kami telah mengirimkan link verifikasi ke email Anda.</p>
+          <h2>Pendaftaran Berhasil</h2>
+          <p style={{ fontWeight: 700, color: 'var(--ink-900)', margin: '0 0 4px', fontSize: '15px' }}>
+            Verifikasi Email Anda
+          </p>
+          <p>
+            Akun Anda berhasil didaftarkan dan berstatus nonaktif sementara. Kami telah mengirimkan link aktivasi ke email Anda. Silakan verifikasi email Anda terlebih dahulu sebelum masuk ke LaporanWee.
+          </p>
 
           <div className="verify-email-chip">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 14, height: 14 }}>
