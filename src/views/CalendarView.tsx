@@ -221,7 +221,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 onClick={handleNextMonth}
                 aria-label="Bulan berikutnya"
               >
-                <Icon name="chevRt" />
+                <Icon name="chevR" />
               </button>
             </div>
 
@@ -421,13 +421,55 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                 <span style={{ fontSize: '12px', color: 'var(--muted)' }}>6 Orang</span>
               </div>
               <div className="team-strip">
-                {members.map((m) => (
-                  <div key={m.id} className="team-mini">
-                    <img src={m.img} alt={m.name} />
-                    <b>{m.name.split(' ')[0]}</b>
-                    <span>{m.role.split(' ')[0]}</span>
-                  </div>
-                ))}
+                {members.map((m) => {
+                  const getAbsoluteAvatarUrl = (img?: string | null): string => {
+                    if (!img || typeof img !== 'string' || img.trim() === '' || img === 'null' || img === 'undefined') {
+                      console.log('[CalendarAvatar] URL kosong atau null untuk member:', m.name, img);
+                      return '';
+                    }
+                    let finalUrl = img.trim();
+                    if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
+                      // already absolute
+                    } else if (finalUrl.startsWith('/')) {
+                      finalUrl = `https://api-laporanwe.mkverse.my.id${finalUrl}`;
+                    } else {
+                      finalUrl = `https://api-laporanwe.mkverse.my.id/${finalUrl}`;
+                    }
+                    finalUrl = finalUrl.replace(/([^:]\/)\/+/g, '$1');
+                    console.log('[CalendarAvatar] Final avatar URL debug:', { name: m.name, original: img, resolved: finalUrl });
+                    return finalUrl;
+                  };
+
+                  const avatarUrl = getAbsoluteAvatarUrl(m.img);
+
+                  return (
+                    <div key={m.id} className="team-mini">
+                      {avatarUrl ? (
+                        <img
+                          src={avatarUrl}
+                          alt={m.name}
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                            const parent = (e.currentTarget as HTMLElement).parentElement;
+                            if (parent && !parent.querySelector('.fallback-avatar')) {
+                              const fallback = document.createElement('div');
+                              fallback.className = 'fallback-avatar';
+                              fallback.style.cssText = 'width: 36px; height: 36px; border-radius: 50%; background: var(--primary-color, #4A55FF); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin: 0 auto;';
+                              fallback.innerText = (m.name || 'U').slice(0, 2).toUpperCase();
+                              parent.insertBefore(fallback, parent.firstChild);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <div style={{ width: 36, height: 36, borderRadius: '50%', background: 'var(--primary-color, #4A55FF)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 13, margin: '0 auto' }}>
+                          {(m.name || 'U').slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <b>{m.name.split(' ')[0]}</b>
+                      <span>{m.role.split(' ')[0]}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

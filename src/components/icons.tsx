@@ -195,11 +195,16 @@ export const Icon: React.FC<{
         2
       );
     case 'chevL':
+    case 'chevron-left':
+    case 'ChevronLeft':
       return renderStroke(
         <path d="M15 18l-6-6 6-6" />,
         2.2
       );
     case 'chevR':
+    case 'chevRt':
+    case 'chevron-right':
+    case 'ChevronRight':
       return renderStroke(
         <path d="M9 18l6-6-6-6" />,
         2.2
