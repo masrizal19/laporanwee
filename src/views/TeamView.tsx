@@ -118,13 +118,16 @@ export const TeamView: React.FC<TeamViewProps> = ({
     }
   };
 
-  const filteredActivities = activities.filter((a) => {
+  const safeActivities = Array.isArray(activities) ? activities : [];
+  const safeMembers = Array.isArray(members) ? members : [];
+
+  const filteredActivities = safeActivities.filter((a) => {
     if (filter === 'All') return true;
     return a.kind === filter;
   });
 
-  const workingMembers = members.filter((m) => m.is_online || m.status === 'working');
-  const offlineMembers = members.filter((m) => !m.is_online && m.status !== 'working');
+  const workingMembers = safeMembers.filter((m) => m?.is_online || m?.status === 'working');
+  const offlineMembers = safeMembers.filter((m) => !m?.is_online && m?.status !== 'working');
 
   const handleCopyInvite = () => {
     navigator.clipboard?.writeText('https://laporanwee.agency/invite/team-creative-q4');
@@ -133,16 +136,19 @@ export const TeamView: React.FC<TeamViewProps> = ({
 
   // Helper to render dynamic member avatar or clean initial badge
   const renderMemberAvatar = (m: { name?: string; img?: string }, size: string = '36px', fontSize: string = '13px') => {
-    if (m.img) {
+    if (m?.img && m.img.trim() !== '') {
       return (
         <img
           src={m.img}
-          alt={m.name || 'Anggota'}
+          alt={m?.name || 'Anggota'}
           style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
         />
       );
     }
-    const initial = (m.name || 'U').trim().charAt(0).toUpperCase();
+    const initial = (m?.name || 'U').trim().charAt(0).toUpperCase();
     return (
       <div
         style={{
@@ -159,7 +165,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
           border: '1px solid rgba(0,0,0,0.06)',
           flexShrink: 0,
         }}
-        title={m.name || 'Anggota'}
+        title={m?.name || 'Anggota'}
       >
         {initial}
       </div>
