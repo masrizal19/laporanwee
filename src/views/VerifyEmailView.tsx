@@ -24,21 +24,55 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
   const [resendSuccessMsg, setResendSuccessMsg] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  // Extract token from query params or hash
+  // Extract email and token from query params or hash
   useEffect(() => {
+    let email = '';
     let token = '';
 
-    // 1. Search in URL query string
+    // 1. Search in URL query string (window.location.search)
     if (window.location.search) {
       const params = new URLSearchParams(window.location.search);
+      email = params.get('email') || '';
       token = params.get('token') || '';
     }
 
-    // 2. Fallback: Search in hash if using hash routing
-    if (!token && window.location.hash.includes('?')) {
+    // 2. Fallback: Search in hash if using hash routing or query parameters in hash
+    if ((!email || !token) && window.location.hash.includes('?')) {
       const hashQuery = window.location.hash.split('?')[1];
       const params = new URLSearchParams(hashQuery);
-      token = params.get('token') || '';
+      if (!email) email = params.get('email') || '';
+      if (!token) token = params.get('token') || '';
+    }
+
+    // 3. Fallback: Parse whole href if needed
+    if (!email || !token) {
+      try {
+        const fullUrl = new URL(window.location.href);
+        if (!email) email = fullUrl.searchParams.get('email') || '';
+        if (!token) token = fullUrl.searchParams.get('token') || '';
+      } catch {
+        // ignore
+      }
+    }
+
+    email = email.trim();
+    token = token.trim();
+
+    if (email) {
+      setUserEmail(email);
+      setCustomResendEmail(email);
+    }
+
+    if (!email && !token) {
+      setStatus('invalid');
+      setErrorMessage('Parameter email dan token verifikasi tidak ditemukan dalam URL.');
+      return;
+    }
+
+    if (!email) {
+      setStatus('invalid');
+      setErrorMessage('Parameter email verifikasi tidak ditemukan dalam URL.');
+      return;
     }
 
     if (!token) {
@@ -50,13 +84,19 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
     let isMounted = true;
     setStatus('loading');
 
-    verifyEmailToken(token)
+    verifyEmailToken(email, token)
       .then((res) => {
         if (!isMounted) return;
         setStatus(res.status);
-        if (res.email) {
-          setUserEmail(res.email);
-          setCustomResendEmail(res.email);
+        const resolvedEmail = res.email || email;
+        if (resolvedEmail) {
+          setUserEmail(resolvedEmail);
+          setCustomResendEmail(resolvedEmail);
+        }
+        if (res.status === 'success' || res.status === 'already_verified') {
+          if (resolvedEmail) {
+            localStorage.setItem('laporanwee_registered_email', resolvedEmail);
+          }
         }
         if (res.message) {
           setErrorMessage(res.message);
@@ -65,7 +105,11 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
       .catch((err) => {
         if (!isMounted) return;
         setStatus('error');
-        setErrorMessage(err?.message || 'Gagal memverifikasi token.');
+        setErrorMessage(
+          typeof err?.message === 'string'
+            ? err.message
+            : 'Terjadi kendala saat memverifikasi akun Anda.'
+        );
       });
 
     return () => {
@@ -141,7 +185,7 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
               </div>
               <h2 className="verify-title">Email Berhasil Diverifikasi</h2>
               <p className="verify-desc">
-                Email Anda telah berhasil diverifikasi. Akun LaporanWee Anda sekarang sudah aktif.
+                Email Anda telah berhasil diverifikasi dan akun sudah dapat digunakan untuk login.
               </p>
               {userEmail && (
                 <div className="verify-email-chip">
@@ -158,7 +202,7 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
                   className="btn-verify-primary"
                   onClick={onNavigateToLogin}
                 >
-                  Masuk ke LaporanWee
+                  Login
                 </button>
               </div>
             </div>
@@ -175,15 +219,24 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
               </div>
               <h2 className="verify-title">Email Sudah Diverifikasi</h2>
               <p className="verify-desc">
-                Akun LaporanWee Anda sudah terverifikasi sebelumnya. Anda dapat langsung masuk untuk mengakses workspace tim.
+                Email Anda sudah terverifikasi sebelumnya dan akun sudah dapat digunakan untuk login.
               </p>
+              {userEmail && (
+                <div className="verify-email-chip">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" style={{ width: 14, height: 14 }}>
+                    <rect x="3" y="5" width="18" height="14" rx="2" />
+                    <path d="M3 7l9 6 9-6" />
+                  </svg>
+                  <span>{maskEmail(userEmail)}</span>
+                </div>
+              )}
               <div className="verify-action-stack">
                 <button
                   type="button"
                   className="btn-verify-primary"
                   onClick={onNavigateToLogin}
                 >
-                  Masuk ke LaporanWee
+                  Login
                 </button>
               </div>
             </div>

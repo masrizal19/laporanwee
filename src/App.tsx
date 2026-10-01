@@ -115,8 +115,9 @@ export function App() {
       return hashPart;
     }
     const path = window.location.pathname.split('?')[0];
+    const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
-      if (path.endsWith(validPath)) {
+      if (cleanPath === validPath || cleanPath.endsWith(validPath)) {
         return validPath;
       }
     }
@@ -867,7 +868,12 @@ export function App() {
     return (
       <>
         <VerifyEmailView
-          onNavigateToLogin={() => navigateToPath('/login')}
+          onNavigateToLogin={() => {
+            localStorage.removeItem('laporanwee_user');
+            localStorage.removeItem('laporanwee_token');
+            setUser(null);
+            navigateToPath('/login');
+          }}
           onAddToast={addToast}
         />
         <ToastContainer toasts={toasts} />

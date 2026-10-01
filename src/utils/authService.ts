@@ -97,45 +97,92 @@ export interface VerifyEmailResult {
 }
 
 /**
- * Verify email token with backend
- * GET ${VITE_API_URL}/email/verify-email.php?token=TOKEN
+ * Verify email with backend
+ * POST https://api-laporanwe.mkverse.my.id/api/email/verify-email.php
+ * Body: { email: "...", token: "..." }
  */
 export const verifyEmailToken = async (
-  token: string
+  emailOrToken: string,
+  maybeToken?: string
 ): Promise<VerifyEmailResult> => {
-  const cleanToken = token.trim();
-  if (!cleanToken) {
+  let email = '';
+  let token = '';
+
+  if (typeof maybeToken === 'string') {
+    email = emailOrToken.trim();
+    token = maybeToken.trim();
+  } else {
+    // If only one parameter passed, detect if it has @
+    if (emailOrToken.includes('@')) {
+      email = emailOrToken.trim();
+    } else {
+      token = emailOrToken.trim();
+    }
+  }
+
+  if (!email || !token) {
     return {
       status: 'invalid',
-      message: 'Token verifikasi tidak ditemukan.',
+      message:
+        !email && !token
+          ? 'Email dan token verifikasi tidak ditemukan dalam URL.'
+          : !token
+          ? 'Token verifikasi tidak ditemukan dalam URL.'
+          : 'Alamat email verifikasi tidak ditemukan dalam URL.',
+      email: email || undefined,
     };
   }
 
-  const url = buildApiUrl(`/email/verify-email.php?token=${encodeURIComponent(cleanToken)}`);
-  console.log('[API REQUEST]', { method: 'GET', url });
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanToken = token.trim();
+  const url = buildApiUrl('/email/verify-email.php');
+  console.log('[API REQUEST]', { method: 'POST', url, email: cleanEmail, tokenLength: cleanToken.length });
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        email: cleanEmail,
+        token: cleanToken,
+      }),
+    });
+  } catch (err: any) {
+    return {
+      status: 'error',
+      message: 'Tidak dapat terhubung ke server verifikasi. Periksa koneksi internet Anda.',
+      email: cleanEmail,
+    };
+  }
 
   const text = await response.text();
   let data: any = {};
   try {
     data = text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(`Server mengembalikan response tidak valid (${response.status})`);
+    return {
+      status: 'error',
+      message: `Server mengembalikan response tidak valid (${response.status})`,
+      email: cleanEmail,
+    };
   }
 
   const code = String(data.code || data.error_code || '').toUpperCase();
-  const rawMsg = String(data.message || data.error || '');
+  const rawMsg =
+    typeof data.message === 'string'
+      ? data.message
+      : typeof data.error === 'string'
+      ? data.error
+      : '';
   const lowerMsg = rawMsg.toLowerCase();
-  const userEmail = data.email || data.user?.email || data.data?.email;
+  const userEmail = data.email || data.user?.email || data.data?.email || cleanEmail;
 
   // 1. Success check
-  if (response.ok && data.success !== false) {
+  if (response.ok && data.success === true) {
     if (
       code === 'ALREADY_VERIFIED' ||
       lowerMsg.includes('sudah diverifikasi') ||
@@ -143,18 +190,18 @@ export const verifyEmailToken = async (
     ) {
       return {
         status: 'already_verified',
-        message: rawMsg || 'Email Sudah Diverifikasi',
+        message: rawMsg || 'Email sudah diverifikasi sebelumnya. Akun sudah dapat digunakan untuk login.',
         email: userEmail,
       };
     }
     return {
       status: 'success',
-      message: rawMsg || 'Email Berhasil Diverifikasi',
+      message: rawMsg || 'Email berhasil diverifikasi dan akun sudah dapat digunakan untuk login.',
       email: userEmail,
     };
   }
 
-  // 2. Specific failure states
+  // 2. Specific failure states based on backend response
   if (
     response.status === 410 ||
     code === 'TOKEN_EXPIRED' ||
@@ -164,7 +211,7 @@ export const verifyEmailToken = async (
   ) {
     return {
       status: 'expired',
-      message: rawMsg || 'Link verifikasi ini sudah tidak berlaku. Silakan kirim ulang email verifikasi.',
+      message: rawMsg || 'Token verifikasi telah kedaluwarsa. Silakan kirim ulang email verifikasi.',
       email: userEmail,
     };
   }
@@ -176,21 +223,23 @@ export const verifyEmailToken = async (
   ) {
     return {
       status: 'already_verified',
-      message: rawMsg || 'Email Sudah Diverifikasi',
+      message: rawMsg || 'Email sudah diverifikasi sebelumnya. Akun sudah dapat digunakan untuk login.',
       email: userEmail,
     };
   }
 
   if (
     response.status === 400 ||
+    response.status === 422 ||
     code === 'TOKEN_INVALID' ||
     code === 'INVALID' ||
     lowerMsg.includes('tidak valid') ||
-    lowerMsg.includes('invalid')
+    lowerMsg.includes('invalid') ||
+    lowerMsg.includes('tidak sesuai')
   ) {
     return {
       status: 'invalid',
-      message: rawMsg || 'Link verifikasi tidak valid atau sudah tidak dapat digunakan.',
+      message: rawMsg || 'Token verifikasi tidak valid atau sudah tidak berlaku.',
       email: userEmail,
     };
   }
