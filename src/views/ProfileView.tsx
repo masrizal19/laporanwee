@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
-import { API_BASE_URL, getHeaders, api } from '../utils/api';
+import { API_BASE_URL, api } from '../utils/api';
 
 interface ProfileViewProps {
   projects: Project[];
@@ -13,6 +13,7 @@ interface ProfileViewProps {
   onAddToast: (text: string) => void;
   userEmail: string;
   userName: string;
+  avatarUrl?: string | null;
   onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string }) => void;
 }
 
@@ -25,16 +26,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onAddToast,
   userEmail,
   userName,
+  avatarUrl: initialAvatarUrl,
   onUpdateUser,
 }) => {
   const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna LaporanWee');
   const [role, setRole] = useState('Anggota Tim Kreatif');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
+  
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Cropper states
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
+  const [croppedPreviewUrl, setCroppedPreviewUrl] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<number>(1);
+  const [panX, setPanX] = useState<number>(0);
+  const [panY, setPanY] = useState<number>(0);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
   // Fetch profile from backend on mount
   useEffect(() => {
@@ -47,7 +58,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           if (res.data.full_name) setName(res.data.full_name);
           if (res.data.email) setEmail(res.data.email);
           if (res.data.role) setRole(res.data.role);
-          if (res.data.avatar_url) setAvatarUrl(res.data.avatar_url);
+          if (res.data.avatar_url) {
+            const avatarWithCache = `${res.data.avatar_url}?t=${Date.now()}`;
+            setAvatarUrl(avatarWithCache);
+          }
         }
       } catch (err) {
         console.warn('Gagal memuat profil dari API:', err);
@@ -60,22 +74,92 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       
-      // Validate type
       const ext = file.name.split('.').pop()?.toLowerCase();
       if (!['jpg', 'jpeg', 'png', 'webp'].includes(ext || '')) {
         onAddToast('Format file foto harus JPG, PNG, atau WEBP.');
         return;
       }
 
-      // Validate size (10MB)
       if (file.size > 10 * 1024 * 1024) {
         onAddToast('Ukuran file foto maksimal 10 MB.');
         return;
       }
 
-      setSelectedFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setRawImageSrc(event.target.result as string);
+          setZoom(1);
+          setPanX(0);
+          setPanY(0);
+        }
+      };
+      reader.readAsDataURL(file);
     }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+    setIsDragging(true);
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    dragStartRef.current = { x: clientX - panX, y: clientY - panY };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!isDragging) return;
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    setPanX(clientX - dragStartRef.current.x);
+    setPanY(clientY - dragStartRef.current.y);
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  const handleResetCrop = () => {
+    setZoom(1);
+    setPanX(0);
+    setPanY(0);
+  };
+
+  const handleGenerateCrop = () => {
+    if (!rawImageSrc) return;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const size = 300;
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, size, size);
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+      ctx.clip();
+
+      const hRatio = size / img.width;
+      const vRatio = size / img.height;
+      const ratio = Math.max(hRatio, vRatio) * zoom;
+      const centerShiftX = (size - img.width * ratio) / 2 + panX;
+      const centerShiftY = (size - img.height * ratio) / 2 + panY;
+
+      ctx.drawImage(img, 0, 0, img.width, img.height, centerShiftX, centerShiftY, img.width * ratio, img.height * ratio);
+      ctx.restore();
+
+      canvas.toBlob((blob) => {
+        if (blob) {
+          setCroppedBlob(blob);
+          setCroppedPreviewUrl(URL.createObjectURL(blob));
+          setRawImageSrc(null);
+          onAddToast('Crop foto berhasil diatur!');
+        }
+      }, 'image/jpeg', 0.92);
+    };
+    img.src = rawImageSrc;
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -86,8 +170,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     try {
       const formData = new FormData();
       formData.append('full_name', name);
-      if (selectedFile) {
-        formData.append('avatar', selectedFile);
+      if (croppedBlob) {
+        formData.append('avatar', croppedBlob, 'profile_cropped.jpg');
       }
 
       const uploadUrl = `${API_BASE_URL}/profile.php`;
@@ -97,8 +181,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       if (res && res.success) {
         onAddToast('Profil berhasil diperbarui!');
-        if (res.data?.avatar_url) {
-          setAvatarUrl(res.data.avatar_url);
+        const finalAvatar = res.data?.avatar_url ? `${res.data.avatar_url}?t=${Date.now()}` : null;
+        if (finalAvatar) {
+          setAvatarUrl(finalAvatar);
         }
         if (res.data?.full_name) {
           setName(res.data.full_name);
@@ -107,10 +192,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           onUpdateUser({
             email: email,
             name: res.data?.full_name || name,
-            avatar_url: res.data?.avatar_url || avatarUrl || undefined,
+            avatar_url: finalAvatar || undefined,
           });
         }
         setIsEditOpen(false);
+        setCroppedBlob(null);
+        setCroppedPreviewUrl(null);
       } else {
         throw new Error(res?.message || 'Gagal memperbarui profil.');
       }
@@ -134,7 +221,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       <div className="card profile-hero" style={{ marginBottom: '22px' }}>
         <div className="profile-avatar-lg">
           <img
-            src={previewUrl || avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"}
+            src={croppedPreviewUrl || avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"}
             alt={name}
           />
         </div>
@@ -371,68 +458,175 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       {/* Edit Profile Modal */}
       <Modal
         isOpen={isEditOpen}
-        onClose={() => setIsEditOpen(false)}
+        onClose={() => {
+          setIsEditOpen(false);
+          setRawImageSrc(null);
+        }}
         title="Ubah Profil Pengguna"
       >
-        <form onSubmit={handleSaveProfile}>
-          <div className="field">
-            <label htmlFor="avatar-file-input">Foto Profil (JPG, PNG, WEBP, Maks 10MB)</label>
-            <input
-              id="avatar-file-input"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              style={{ padding: '8px 0' }}
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="user-name-input">Nama Lengkap</label>
-            <input
-              id="user-name-input"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="user-role-input">Jabatan &amp; Peran</label>
-            <input
-              id="user-role-input"
-              type="text"
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="user-email-input">Alamat Email Perusahaan</label>
-            <input
-              id="user-email-input"
-              type="email"
-              value={email}
-              disabled
-              style={{ opacity: 0.7, cursor: 'not-allowed' }}
-            />
-          </div>
-
-          <div className="modal-foot">
-            <button
-              type="button"
-              className="btn btn-outline"
-              onClick={() => setIsEditOpen(false)}
-              disabled={isSubmitting}
+        {rawImageSrc ? (
+          <div style={{ textAlign: 'center' }}>
+            <p style={{ fontSize: '13.5px', color: 'var(--muted)', marginBottom: '12px' }}>
+              Geser (drag) foto dan atur zoom untuk menyesuaikan crop melingkar:
+            </p>
+            <div
+              style={{
+                width: '240px',
+                height: '240px',
+                margin: '0 auto 16px',
+                borderRadius: '50%',
+                overflow: 'hidden',
+                position: 'relative',
+                background: '#111',
+                cursor: isDragging ? 'grabbing' : 'grab',
+                border: '3px solid var(--primary-color, #4A55FF)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+              }}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
+              onTouchStart={handleMouseDown}
+              onTouchMove={handleMouseMove}
+              onTouchEnd={handleMouseUp}
             >
-              Batal
-            </button>
-            <button type="submit" className="btn btn-dark" disabled={isSubmitting}>
-              {isSubmitting ? 'Menyimpan...' : 'Simpan Profil'}
-            </button>
+              <img
+                src={rawImageSrc}
+                alt="Crop preview"
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: `translate(-50%, -50%) translate(${panX}px, ${panY}px) scale(${zoom})`,
+                  maxWidth: 'none',
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                  transition: isDragging ? 'none' : 'transform 0.05s ease-out',
+                }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setZoom((z) => Math.max(1, z - 0.1))}
+              >
+                -
+              </button>
+              <input
+                type="range"
+                min="1"
+                max="3"
+                step="0.05"
+                value={zoom}
+                onChange={(e) => setZoom(parseFloat(e.target.value))}
+                style={{ width: '120px', accentColor: 'var(--primary-color)' }}
+              />
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setZoom((z) => Math.min(3, z + 0.1))}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={handleResetCrop}
+                style={{ fontSize: '12px', marginLeft: '6px' }}
+              >
+                Reset
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setRawImageSrc(null)}
+              >
+                Batal / Pilih Ulang
+              </button>
+              <button
+                type="button"
+                className="btn btn-dark"
+                onClick={handleGenerateCrop}
+              >
+                Terapkan Crop
+              </button>
+            </div>
           </div>
-        </form>
+        ) : (
+          <form onSubmit={handleSaveProfile}>
+            <div className="field" style={{ textAlign: 'center', marginBottom: '16px' }}>
+              <div style={{ margin: '0 auto 10px', width: '80px', height: '80px', borderRadius: '50%', overflow: 'hidden', background: '#eee' }}>
+                <img
+                  src={croppedPreviewUrl || avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"}
+                  alt="Avatar"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              </div>
+              <label htmlFor="avatar-file-input" className="btn btn-outline btn-sm" style={{ display: 'inline-block', cursor: 'pointer' }}>
+                Pilih &amp; Crop Foto Baru
+              </label>
+              <input
+                id="avatar-file-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="user-name-input">Nama Lengkap</label>
+              <input
+                id="user-name-input"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="user-role-input">Jabatan &amp; Peran</label>
+              <input
+                id="user-role-input"
+                type="text"
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label htmlFor="user-email-input">Alamat Email Perusahaan</label>
+              <input
+                id="user-email-input"
+                type="email"
+                value={email}
+                disabled
+                style={{ opacity: 0.7, cursor: 'not-allowed' }}
+              />
+            </div>
+
+            <div className="modal-foot">
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setIsEditOpen(false)}
+                disabled={isSubmitting}
+              >
+                Batal
+              </button>
+              <button type="submit" className="btn btn-dark" disabled={isSubmitting}>
+                {isSubmitting ? 'Menyimpan...' : 'Simpan Profil'}
+              </button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );

@@ -9,6 +9,7 @@ interface NavbarProps {
   onLogout?: () => void;
   userEmail?: string;
   userName?: string;
+  avatarUrl?: string | null;
   logoUrl?: string | null;
   menuIconUrl?: string | null;
   signoutIconUrl?: string | null;
@@ -21,6 +22,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   userEmail,
   userName,
+  avatarUrl,
   logoUrl,
   menuIconUrl,
   signoutIconUrl,
@@ -190,6 +192,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   width: '32px',
                   height: '32px',
                   borderRadius: '50%',
+                  overflow: 'hidden',
                   background: 'var(--primary-color, #4A55FF)',
                   color: '#fff',
                   display: 'flex',
@@ -200,7 +203,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   flexShrink: 0,
                 }}
               >
-                {(userName || userEmail || 'U').trim().charAt(0).toUpperCase()}
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  (userName || userEmail || 'U').trim().charAt(0).toUpperCase()
+                )}
               </div>
               <div className="meta">
                 <div className="hi">{userName || userEmail?.split('@')[0] || 'Anggota Tim'}</div>

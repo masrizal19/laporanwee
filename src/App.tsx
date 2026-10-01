@@ -813,6 +813,7 @@ export function App() {
         onLogout={handleLogout}
         userEmail={user.email}
         userName={user.name}
+        avatarUrl={(user as any)?.avatar_url}
         logoUrl={uiSettings?.logo_url}
         menuIconUrl={uiSettings?.menu_icon_url}
         signoutIconUrl={uiSettings?.signout_icon_url}
@@ -962,6 +963,7 @@ export function App() {
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}
+            avatarUrl={(user as any)?.avatar_url}
             onUpdateUser={(updated) => {
               const updatedUser = {
                 ...user,

@@ -2,7 +2,7 @@ import { UISettings } from '../types';
 import { API_BASE_URL, api, getHeaders } from './api';
 
 export const UI_SETTINGS_API = `${API_BASE_URL}/ui-settings.php`;
-export const UI_UPLOAD_API = `${API_BASE_URL}/ui-upload.php`;
+export const UI_UPLOAD_API = `${API_BASE_URL}/ui/ui-upload.php`;
 export const ADMIN_EMAIL = 'rizalsaragih498@gmail.com';
 
 export const DEFAULT_UI_SETTINGS: UISettings = {
