@@ -98,11 +98,14 @@ export const LoginView: React.FC<LoginViewProps> = ({
       const code = String(data.code || data.error_code || '').toUpperCase();
       const rawMsg = String(data.message || data.error || '');
       const lowerMsg = rawMsg.toLowerCase();
+      const isEmailVerified = data.email_verified !== false && data.user?.email_verified !== false;
 
-      // Check if email is not verified (HTTP 403 or code EMAIL_NOT_VERIFIED or unverified message)
+      // Check if backend returned EMAIL_NOT_VERIFIED or email_verified === false or HTTP 403
       const isEmailNotVerified =
-        response.status === 403 ||
         code === 'EMAIL_NOT_VERIFIED' ||
+        data.email_verified === false ||
+        data.user?.email_verified === false ||
+        response.status === 403 ||
         lowerMsg.includes('belum diverifikasi') ||
         lowerMsg.includes('not verified') ||
         lowerMsg.includes('verifikasi email');
@@ -125,18 +128,22 @@ export const LoginView: React.FC<LoginViewProps> = ({
       localStorage.setItem('laporanwee_token', token);
 
       const rawUser = data.user || data.data?.user || data.data || {};
-      const idVal = rawUser.id || rawUser.user_id || '';
+      const idVal = rawUser.id || rawUser.user_id || 1;
       const emailVal = rawUser.email || trimmedEmail;
       const nameVal = rawUser.full_name || rawUser.name || trimmedEmail.split('@')[0];
       const roleVal = rawUser.role || 'team';
+      const statusVal = rawUser.status || 'active';
       const avatarVal = rawUser.avatar_url || rawUser.profile_photo || '';
 
       const userObj = {
         id: idVal,
-        email: emailVal,
+        full_name: rawUser.full_name || nameVal,
         name: nameVal,
+        email: emailVal,
         role: roleVal,
+        status: statusVal,
         avatar_url: avatarVal,
+        email_verified: isEmailVerified,
       };
       localStorage.setItem('laporanwee_user', JSON.stringify(userObj));
       setIsSuccess(true);

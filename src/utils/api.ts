@@ -11,26 +11,58 @@ import {
   PriorityLevel,
 } from '../types';
 
-export const API_BASE_URL =
-  ((import.meta.env.VITE_API_URL as string) || 'https://api-laporanwe.mkverse.my.id/api')
-    .replace(/\/+$/, '');
+const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
+let baseApi = rawEnvUrl.trim().replace(/\/+$/, '');
+
+// Ensure strictly official backend HTTPS host with /api
+if (!baseApi || !baseApi.startsWith('https://api-laporanwe.mkverse.my.id')) {
+  baseApi = 'https://api-laporanwe.mkverse.my.id/api';
+}
+if (!baseApi.endsWith('/api')) {
+  baseApi = `${baseApi}/api`;
+}
+
+export const API_BASE_URL = baseApi;
 
 /**
- * Guarantees a clean absolute URL with exactly one /api prefix and no double /api/api/
+ * Guarantees a clean absolute HTTPS URL to the official backend:
+ * https://api-laporanwe.mkverse.my.id/api/...
  */
 export const buildApiUrl = (endpoint: string): string => {
-  if (endpoint.startsWith('http://') || endpoint.startsWith('https://')) {
-    return endpoint.replace('/api/api/', '/api/');
+  let clean = (endpoint || '').trim();
+
+  // If already pointing to the official backend API
+  if (clean.startsWith('https://api-laporanwe.mkverse.my.id/api/')) {
+    return clean.replace('/api/api/', '/api/');
   }
 
-  const cleanPath = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-
-  if (cleanPath.startsWith('/api/')) {
-    const base = API_BASE_URL.replace(/\/api$/, '');
-    return `${base}${cleanPath}`;
+  // If pointing to a frontend or wrong domain (e.g. http://laporan.mkverse.my.id)
+  if (clean.startsWith('http://') || clean.startsWith('https://')) {
+    try {
+      const u = new URL(clean);
+      clean = u.pathname + u.search;
+    } catch (_) {}
   }
 
-  return `${API_BASE_URL}${cleanPath}`;
+  if (!clean.startsWith('/')) {
+    clean = `/${clean}`;
+  }
+
+  // Normalize aliases so frontend routes or legacy endpoints never leak
+  if (clean === '/login') clean = '/login.php';
+  if (clean === '/api/login') clean = '/login.php';
+  if (clean === '/resend-verification.php' || clean === '/api/resend-verification.php') {
+    clean = '/email/resend-verification.php';
+  }
+  if (clean === '/verify-email.php' || clean === '/api/verify-email.php') {
+    clean = '/email/verify-email.php';
+  }
+
+  if (clean.startsWith('/api/')) {
+    clean = clean.substring(4); // strip leading /api
+  }
+
+  return `${API_BASE_URL}${clean}`.replace('/api/api/', '/api/');
 };
 
 // Helper to get authorization headers with stored token and active user email
