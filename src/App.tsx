@@ -142,11 +142,11 @@ export function App() {
     }
     const path = window.location.pathname;
     for (const validPath of validPaths) {
-      if (path.endsWith(validPath)) {
+      if (path === validPath || path.endsWith(validPath) || path.includes(validPath)) {
         return validPath;
       }
     }
-    if (path === '/' || path.endsWith('/')) {
+    if (path === '/' || path === '') {
       return '/dashboard';
     }
     return '/dashboard';
