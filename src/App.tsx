@@ -149,6 +149,9 @@ export function App() {
     window.history.pushState({}, '', path);
     setCurrentPath(path.split('?')[0]);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (typeof (window as any).LWMotion?.enterView === 'function') {
+      setTimeout(() => (window as any).LWMotion.enterView(), 40);
+    }
   };
 
   useEffect(() => {
