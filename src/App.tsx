@@ -962,6 +962,18 @@ export function App() {
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}
+            onUpdateUser={(updated) => {
+              const updatedUser = {
+                ...user,
+                email: updated.email,
+                name: updated.name,
+                avatar_url: updated.avatar_url,
+              };
+              setUser(updatedUser);
+              try {
+                localStorage.setItem('laporanwee_user', JSON.stringify(updatedUser));
+              } catch (_) {}
+            }}
           />
         )}
 

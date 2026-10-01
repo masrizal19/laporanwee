@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
+import { API_BASE_URL, getHeaders, api } from '../utils/api';
 
 interface ProfileViewProps {
   projects: Project[];
@@ -12,6 +13,7 @@ interface ProfileViewProps {
   onAddToast: (text: string) => void;
   userEmail: string;
   userName: string;
+  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string }) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -23,11 +25,102 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onAddToast,
   userEmail,
   userName,
+  onUpdateUser,
 }) => {
   const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna LaporanWee');
   const [role, setRole] = useState('Anggota Tim Kreatif');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Fetch profile from backend on mount
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const profileUrl = `${API_BASE_URL}/profile.php`;
+        console.log('[API REQUEST]', { method: 'GET', url: profileUrl });
+        const res = await api.get('/profile.php');
+        if (res && res.success && res.data) {
+          if (res.data.full_name) setName(res.data.full_name);
+          if (res.data.email) setEmail(res.data.email);
+          if (res.data.role) setRole(res.data.role);
+          if (res.data.avatar_url) setAvatarUrl(res.data.avatar_url);
+        }
+      } catch (err) {
+        console.warn('Gagal memuat profil dari API:', err);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      
+      // Validate type
+      const ext = file.name.split('.').pop()?.toLowerCase();
+      if (!['jpg', 'jpeg', 'png', 'webp'].includes(ext || '')) {
+        onAddToast('Format file foto harus JPG, PNG, atau WEBP.');
+        return;
+      }
+
+      // Validate size (10MB)
+      if (file.size > 10 * 1024 * 1024) {
+        onAddToast('Ukuran file foto maksimal 10 MB.');
+        return;
+      }
+
+      setSelectedFile(file);
+      setPreviewUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      formData.append('full_name', name);
+      if (selectedFile) {
+        formData.append('avatar', selectedFile);
+      }
+
+      const uploadUrl = `${API_BASE_URL}/profile.php`;
+      console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url: uploadUrl });
+
+      const res = await api.upload('/profile.php', formData);
+
+      if (res && res.success) {
+        onAddToast('Profil berhasil diperbarui!');
+        if (res.data?.avatar_url) {
+          setAvatarUrl(res.data.avatar_url);
+        }
+        if (res.data?.full_name) {
+          setName(res.data.full_name);
+        }
+        if (onUpdateUser) {
+          onUpdateUser({
+            email: email,
+            name: res.data?.full_name || name,
+            avatar_url: res.data?.avatar_url || avatarUrl || undefined,
+          });
+        }
+        setIsEditOpen(false);
+      } else {
+        throw new Error(res?.message || 'Gagal memperbarui profil.');
+      }
+    } catch (err: any) {
+      console.error('[API ERROR] Update profile error:', err);
+      onAddToast(err?.message || 'Terjadi kesalahan saat memperbarui profil.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const myReports = reports.filter(
     (r) =>
@@ -35,19 +128,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       (userName && r.person.toLowerCase().includes(userName.toLowerCase()))
   );
 
-  const handleSaveProfile = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsEditOpen(false);
-    onAddToast('Profil berhasil diperbarui!');
-  };
-
   return (
     <div className="view">
       {/* Profile Hero Card */}
       <div className="card profile-hero" style={{ marginBottom: '22px' }}>
         <div className="profile-avatar-lg">
           <img
-            src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"
+            src={previewUrl || avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"}
             alt={name}
           />
         </div>
@@ -289,6 +376,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       >
         <form onSubmit={handleSaveProfile}>
           <div className="field">
+            <label htmlFor="avatar-file-input">Foto Profil (JPG, PNG, WEBP, Maks 10MB)</label>
+            <input
+              id="avatar-file-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              style={{ padding: '8px 0' }}
+            />
+          </div>
+
+          <div className="field">
             <label htmlFor="user-name-input">Nama Lengkap</label>
             <input
               id="user-name-input"
@@ -316,8 +414,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               id="user-email-input"
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              disabled
+              style={{ opacity: 0.7, cursor: 'not-allowed' }}
             />
           </div>
 
@@ -326,11 +424,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               type="button"
               className="btn btn-outline"
               onClick={() => setIsEditOpen(false)}
+              disabled={isSubmitting}
             >
               Batal
             </button>
-            <button type="submit" className="btn btn-dark">
-              Simpan Profil
+            <button type="submit" className="btn btn-dark" disabled={isSubmitting}>
+              {isSubmitting ? 'Menyimpan...' : 'Simpan Profil'}
             </button>
           </div>
         </form>
