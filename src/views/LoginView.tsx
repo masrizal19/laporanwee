@@ -4,7 +4,7 @@ import { API_BASE_URL, buildApiUrl } from '../utils/api';
 import { resendVerificationEmail } from '../utils/authService';
 
 interface LoginViewProps {
-  onLoginSuccess: (email: string, name: string) => void;
+  onLoginSuccess: (email: string, name: string, fullUser?: any) => void;
   onNavigateToRegister: () => void;
 }
 
@@ -124,12 +124,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
       const token = data.token || data.data?.token || 'session-active-token';
       localStorage.setItem('laporanwee_token', token);
 
-      const emailVal = data.user?.email || data.data?.user?.email || trimmedEmail;
-      const nameVal = data.user?.full_name || data.user?.name || data.data?.user?.full_name || data.data?.user?.name || trimmedEmail.split('@')[0];
+      const rawUser = data.user || data.data?.user || data.data || {};
+      const idVal = rawUser.id || rawUser.user_id || '';
+      const emailVal = rawUser.email || trimmedEmail;
+      const nameVal = rawUser.full_name || rawUser.name || trimmedEmail.split('@')[0];
+      const roleVal = rawUser.role || 'team';
+      const avatarVal = rawUser.avatar_url || rawUser.profile_photo || '';
 
       const userObj = {
+        id: idVal,
         email: emailVal,
         name: nameVal,
+        role: roleVal,
+        avatar_url: avatarVal,
       };
       localStorage.setItem('laporanwee_user', JSON.stringify(userObj));
       setIsSuccess(true);
@@ -163,7 +170,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
     if (storedUser) {
       try {
         const parsed = JSON.parse(storedUser);
-        onLoginSuccess(parsed.email, parsed.name);
+        onLoginSuccess(parsed.email, parsed.name, parsed);
         return;
       } catch (_) {}
     }

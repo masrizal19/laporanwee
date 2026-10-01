@@ -76,7 +76,7 @@ export function App() {
     }
   }, []);
 
-  // Fetch user profile from MySQL database on load to sync avatar_url and name
+  // Fetch user profile from MySQL database on load to sync avatar_url, role, id and name
   useEffect(() => {
     if (user) {
       api.get('/profile.php')
@@ -84,7 +84,9 @@ export function App() {
           if (res && res.success && res.data) {
             setUser((prev) => prev ? {
               ...prev,
+              id: res.data.id || (prev as any).id,
               name: res.data.full_name || prev.name,
+              role: res.data.role || (prev as any).role,
               avatar_url: res.data.avatar_url || (prev as any).avatar_url,
             } : null);
           }
@@ -355,9 +357,9 @@ export function App() {
       }
 
       // Send initial heartbeat and setup periodic heartbeat (every 30s) + periodic presence sync (every 20s)
-      teamService.sendHeartbeat();
+      teamService.sendHeartbeat((user as any).id, user.email);
       const heartbeatInterval = setInterval(() => {
-        teamService.sendHeartbeat();
+        teamService.sendHeartbeat((user as any).id, user.email);
       }, 30000);
 
       const presenceInterval = setInterval(() => {
@@ -892,8 +894,8 @@ export function App() {
     return (
       <>
         <LoginView
-          onLoginSuccess={(email, name) => {
-            const loggedInUser = { email, name };
+          onLoginSuccess={(email, name, fullUser) => {
+            const loggedInUser = fullUser || { email, name };
             localStorage.setItem('laporanwee_user', JSON.stringify(loggedInUser));
             setUser(loggedInUser);
             addToast(`Selamat datang kembali, ${name}!`);

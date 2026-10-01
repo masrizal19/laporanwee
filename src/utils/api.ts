@@ -708,9 +708,29 @@ export const teamService = {
     }
   },
 
-  sendHeartbeat: async (): Promise<boolean> => {
+  sendHeartbeat: async (userId?: string | number, userEmail?: string): Promise<boolean> => {
     try {
-      const res = await api.post('/presence/heartbeat.php', {});
+      let uid = userId;
+      let email = userEmail;
+      if (!uid || !email) {
+        try {
+          const stored = localStorage.getItem('laporanwee_user');
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            if (!uid) uid = parsed.id || parsed.user_id;
+            if (!email) email = parsed.email;
+          }
+        } catch (_) {}
+      }
+      const payload: Record<string, any> = {};
+      if (uid) {
+        payload.user_id = uid;
+        payload.id = uid;
+      }
+      if (email) {
+        payload.email = email;
+      }
+      const res = await api.post('/presence/heartbeat.php', payload);
       return Boolean(res && res.success !== false);
     } catch (err) {
       console.warn('[API ERROR] Heartbeat failed:', err);
