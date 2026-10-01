@@ -1,18 +1,18 @@
 import { API_BASE_URL, buildApiUrl } from './api';
 
 /**
- * Mask email address for privacy (e.g. rizal****@gmail.com)
+ * Mask email address for privacy (e.g. riza****@gmail.com)
  */
 export const maskEmail = (email: string): string => {
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return email || '';
   }
   const [local, domain] = email.split('@');
-  if (local.length <= 2) {
-    return `${local}****@${domain}`;
+  if (local.length <= 4) {
+    const visiblePrefix = local.slice(0, Math.max(1, local.length - 1));
+    return `${visiblePrefix}****@${domain}`;
   }
-  const visibleLen = Math.min(4, Math.max(2, Math.floor(local.length / 2)));
-  const visible = local.slice(0, visibleLen);
+  const visible = local.slice(0, 4);
   return `${visible}****@${domain}`;
 };
 
@@ -50,7 +50,7 @@ export const openWebmail = (email: string) => {
 export const resendVerificationEmail = async (
   email: string
 ): Promise<{ success: boolean; message: string }> => {
-  const url = buildApiUrl('/resend-verification.php');
+  const url = buildApiUrl('/email/resend-verification.php');
   console.log('[API REQUEST]', { method: 'POST', url, email: maskEmail(email) });
 
   const response = await fetch(url, {
@@ -78,7 +78,7 @@ export const resendVerificationEmail = async (
 
   return {
     success: true,
-    message: data.message || 'Email verifikasi telah dikirim ulang.',
+    message: data.message || 'Email verifikasi berhasil dikirim ulang.',
   };
 };
 
@@ -98,7 +98,7 @@ export interface VerifyEmailResult {
 
 /**
  * Verify email token with backend
- * GET ${VITE_API_URL}/verify-email.php?token=TOKEN
+ * GET ${VITE_API_URL}/email/verify-email.php?token=TOKEN
  */
 export const verifyEmailToken = async (
   token: string
@@ -111,7 +111,7 @@ export const verifyEmailToken = async (
     };
   }
 
-  const url = buildApiUrl(`/verify-email.php?token=${encodeURIComponent(cleanToken)}`);
+  const url = buildApiUrl(`/email/verify-email.php?token=${encodeURIComponent(cleanToken)}`);
   console.log('[API REQUEST]', { method: 'GET', url });
 
   const response = await fetch(url, {

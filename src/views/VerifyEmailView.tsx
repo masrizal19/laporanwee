@@ -99,9 +99,9 @@ export const VerifyEmailView: React.FC<VerifyEmailViewProps> = ({
 
     try {
       await resendVerificationEmail(targetEmail);
-      setResendSuccessMsg('Email verifikasi telah dikirim ulang.');
+      setResendSuccessMsg('Email verifikasi berhasil dikirim ulang.');
       setResendCooldown(60);
-      if (onAddToast) onAddToast('Email verifikasi telah dikirim ulang.');
+      if (onAddToast) onAddToast('Email verifikasi berhasil dikirim ulang.');
     } catch (err: any) {
       setErrorMessage(err?.message || 'Gagal mengirim ulang email verifikasi.');
     } finally {

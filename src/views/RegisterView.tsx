@@ -189,7 +189,7 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
 
     try {
       const res = await resendVerificationEmail(registeredEmail);
-      setResendSuccessMsg(res.message || 'Email verifikasi telah dikirim ulang.');
+      setResendSuccessMsg(res.message || 'Email verifikasi berhasil dikirim ulang.');
       setResendCooldown(60);
     } catch (err: any) {
       setResendErrorMsg(err?.message || 'Gagal mengirim ulang email verifikasi.');
