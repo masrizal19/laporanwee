@@ -74,6 +74,23 @@ export function App() {
     }
   }, []);
 
+  // Fetch user profile from MySQL database on load to sync avatar_url and name
+  useEffect(() => {
+    if (user) {
+      api.get('/profile.php')
+        .then((res) => {
+          if (res && res.success && res.data) {
+            setUser((prev) => prev ? {
+              ...prev,
+              name: res.data.full_name || prev.name,
+              avatar_url: res.data.avatar_url || (prev as any).avatar_url,
+            } : null);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user?.email]);
+
   const getPathFromLocation = (): string => {
     const hashPath = window.location.hash.replace('#', '');
     const validPaths = [

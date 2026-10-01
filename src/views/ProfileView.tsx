@@ -44,6 +44,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [zoom, setZoom] = useState<number>(1);
   const [panX, setPanX] = useState<number>(0);
   const [panY, setPanY] = useState<number>(0);
+  const [imageDims, setImageDims] = useState<{ width: number; height: number; baseScale: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -88,10 +89,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          setRawImageSrc(event.target.result as string);
-          setZoom(1);
-          setPanX(0);
-          setPanY(0);
+          const src = event.target.result as string;
+          const img = new Image();
+          img.onload = () => {
+            const containerSize = 240;
+            const scaleX = containerSize / img.width;
+            const scaleY = containerSize / img.height;
+            const baseScale = Math.min(scaleX, scaleY);
+            setImageDims({ width: img.width, height: img.height, baseScale });
+            setZoom(1); // 1 = fit contain, entire image visible
+            setPanX(0);
+            setPanY(0);
+            setRawImageSrc(src);
+          };
+          img.src = src;
         }
       };
       reader.readAsDataURL(file);
@@ -124,7 +135,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const handleGenerateCrop = () => {
-    if (!rawImageSrc) return;
+    if (!rawImageSrc || !imageDims) return;
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = () => {
@@ -141,13 +152,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
       ctx.clip();
 
-      const hRatio = size / img.width;
-      const vRatio = size / img.height;
-      const ratio = Math.max(hRatio, vRatio) * zoom;
-      const centerShiftX = (size - img.width * ratio) / 2 + panX;
-      const centerShiftY = (size - img.height * ratio) / 2 + panY;
+      const previewContainerSize = 240;
+      const canvasScale = size / previewContainerSize;
 
-      ctx.drawImage(img, 0, 0, img.width, img.height, centerShiftX, centerShiftY, img.width * ratio, img.height * ratio);
+      const displayedWidth = imageDims.width * imageDims.baseScale * zoom * canvasScale;
+      const displayedHeight = imageDims.height * imageDims.baseScale * zoom * canvasScale;
+
+      const centerX = size / 2 + panX * canvasScale;
+      const centerY = size / 2 + panY * canvasScale;
+
+      const drawX = centerX - displayedWidth / 2;
+      const drawY = centerY - displayedHeight / 2;
+
+      ctx.drawImage(img, 0, 0, img.width, img.height, drawX, drawY, displayedWidth, displayedHeight);
       ctx.restore();
 
       canvas.toBlob((blob) => {
@@ -497,8 +514,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   position: 'absolute',
                   top: '50%',
                   left: '50%',
+                  width: imageDims ? `${imageDims.width * imageDims.baseScale}px` : 'auto',
+                  height: imageDims ? `${imageDims.height * imageDims.baseScale}px` : 'auto',
                   transform: `translate(-50%, -50%) translate(${panX}px, ${panY}px) scale(${zoom})`,
                   maxWidth: 'none',
+                  maxHeight: 'none',
                   pointerEvents: 'none',
                   userSelect: 'none',
                   transition: isDragging ? 'none' : 'transform 0.05s ease-out',
@@ -510,13 +530,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
-                onClick={() => setZoom((z) => Math.max(1, z - 0.1))}
+                onClick={() => setZoom((z) => Math.max(0.2, z - 0.1))}
               >
                 -
               </button>
               <input
                 type="range"
-                min="1"
+                min="0.2"
                 max="3"
                 step="0.05"
                 value={zoom}
