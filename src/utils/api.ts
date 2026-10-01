@@ -602,20 +602,56 @@ export const teamService = {
     online_count: number;
   }> => {
     try {
-      const res = await api.get('/team/list.php');
-      if (!res || !Array.isArray(res.data)) {
-        return { members: [], total_users: 0, online_count: 0 };
+      // 1. Fetch team members list
+      const teamRes = await api.get('/team/list.php');
+
+      // 2. Fetch online presence from /presence/online.php
+      let onlineData: { online_count: number; users: any[] } = { online_count: 0, users: [] };
+      try {
+        const presenceRes = await api.get('/presence/online.php');
+        console.log('[Presence API] Response from /presence/online.php:', presenceRes);
+        if (presenceRes) {
+          onlineData.online_count = typeof presenceRes.online_count === 'number'
+            ? presenceRes.online_count
+            : (presenceRes.data?.online_count || 0);
+
+          onlineData.users = Array.isArray(presenceRes.users)
+            ? presenceRes.users
+            : (Array.isArray(presenceRes.data?.users)
+              ? presenceRes.data.users
+              : (Array.isArray(presenceRes.data) ? presenceRes.data : []));
+        }
+      } catch (presErr) {
+        console.error('[API ERROR] Failed to fetch /presence/online.php:', presErr);
       }
 
-      const members: TeamMember[] = res.data
+      if (!teamRes || !Array.isArray(teamRes.data)) {
+        return { members: [], total_users: 0, online_count: onlineData.online_count };
+      }
+
+      // Build Set of online user IDs or emails from presence response
+      const onlineUserIdentifiers = new Set<string>();
+      onlineData.users.forEach((u: any) => {
+        if (u.id) onlineUserIdentifiers.add(String(u.id));
+        if (u.user_id) onlineUserIdentifiers.add(String(u.user_id));
+        if (u.email) onlineUserIdentifiers.add(String(u.email).toLowerCase().trim());
+      });
+
+      const members: TeamMember[] = teamRes.data
         .filter((item: any) => item.status === 'active' || item.status === undefined)
         .map((item: any): TeamMember => {
-          const isOnline = Boolean(
+          const itemId = String(item.id || '');
+          const itemEmail = String(item.email || '').toLowerCase().trim();
+          
+          const isOnlineFromPresence = onlineUserIdentifiers.has(itemId) || onlineUserIdentifiers.has(itemEmail);
+          const isOnlineFallback = Boolean(
             item.is_online === true ||
               item.is_online === 1 ||
               item.is_online === '1' ||
               item.is_online === 'true'
           );
+          const isOnline = isOnlineFromPresence || isOnlineFallback;
+
           const roleLabel =
             item.role === 'admin'
               ? 'Administrator'
@@ -644,16 +680,17 @@ export const teamService = {
           };
         });
 
+      const activeOnlineCount = onlineData.online_count > 0 
+        ? onlineData.online_count 
+        : members.filter((m) => m.is_online).length;
+
       return {
         members,
-        total_users: typeof res.total_users === 'number' ? res.total_users : members.length,
-        online_count:
-          typeof res.online_count === 'number'
-            ? res.online_count
-            : members.filter((m) => m.is_online).length,
+        total_users: typeof teamRes.total_users === 'number' ? teamRes.total_users : members.length,
+        online_count: activeOnlineCount,
       };
     } catch (err) {
-      console.warn('Sync team members from API notice:', err);
+      console.error('[API ERROR] fetchTeamMembers error:', err);
       return { members: [], total_users: 0, online_count: 0 };
     }
   },
