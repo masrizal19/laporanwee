@@ -82,7 +82,6 @@ export function App() {
           if (res && res.success && res.data) {
             setUser((prev) => prev ? {
               ...prev,
-              id: res.data.id ? String(res.data.id) : (prev as any).id,
               name: res.data.full_name || prev.name,
               avatar_url: res.data.avatar_url || (prev as any).avatar_url,
             } : null);
@@ -91,36 +90,6 @@ export function App() {
         .catch(() => {});
     }
   }, [user?.email]);
-
-  // Heartbeat effect (every 30 seconds)
-  useEffect(() => {
-    if (!user) return;
-
-    const userId = (user as any).id;
-    const userEmail = user.email;
-    console.log('[Presence] Current user:', { email: userEmail, id: userId });
-
-    const sendHeartbeat = async () => {
-      try {
-        const payload = userId ? { user_id: userId } : { email: userEmail };
-        console.log('[Presence] Heartbeat: sending...', payload);
-        const res = await api.post('/presence/heartbeat.php', payload);
-        console.log('[Presence] Heartbeat: success', res);
-      } catch (err) {
-        console.error('[API ERROR] Heartbeat failed:', err);
-      }
-    };
-
-    // First heartbeat immediately
-    sendHeartbeat();
-
-    // Repeat every 30 seconds
-    const interval = setInterval(sendHeartbeat, 30000);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, [user]);
 
   const getPathFromLocation = (): string => {
     const hashPath = window.location.hash.replace('#', '');
@@ -142,11 +111,11 @@ export function App() {
     }
     const path = window.location.pathname;
     for (const validPath of validPaths) {
-      if (path === validPath || path.endsWith(validPath) || path.includes(validPath)) {
+      if (path.endsWith(validPath)) {
         return validPath;
       }
     }
-    if (path === '/' || path === '') {
+    if (path === '/' || path.endsWith('/')) {
       return '/dashboard';
     }
     return '/dashboard';

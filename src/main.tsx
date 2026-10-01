@@ -1,7 +1,6 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
-import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
 console.log('[APP ORIGIN]', typeof window !== 'undefined' ? window.location.origin : '');
@@ -9,8 +8,6 @@ console.log('[API BASE URL]', (import.meta.env.VITE_API_URL as string) || 'https
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ErrorBoundary>
-      <App />
-    </ErrorBoundary>
+    <App />
   </StrictMode>,
 );

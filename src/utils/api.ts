@@ -585,9 +585,6 @@ export const getAbsoluteAvatarUrl = (img?: string | null, userName?: string): st
     if (finalUrl.includes('https://api-laporanwe.mkverse.my.id/https://')) {
       finalUrl = finalUrl.substring(finalUrl.indexOf('https://', 8));
     }
-    if (finalUrl.includes('laporanwe.mkverse.my.id') && !finalUrl.includes('api-laporanwe.mkverse.my.id')) {
-      finalUrl = finalUrl.replace('laporanwe.mkverse.my.id', 'api-laporanwe.mkverse.my.id');
-    }
   } else if (finalUrl.startsWith('/')) {
     finalUrl = `https://api-laporanwe.mkverse.my.id${finalUrl}`;
   } else {
@@ -609,47 +606,44 @@ export const teamService = {
       const teamRes = await api.get('/team/list.php');
 
       // 2. Fetch online presence from /presence/online.php
-      let onlineUsers: any[] = [];
-      let onlineCount = 0;
+      let onlineData: { online_count: number; users: any[] } = { online_count: 0, users: [] };
       try {
-        const response = await api.get('/presence/online.php');
-        console.log('[Presence] response:', response);
+        const presenceRes = await api.get('/presence/online.php');
+        console.log('[Presence API] Response from /presence/online.php:', presenceRes);
+        if (presenceRes) {
+          onlineData.online_count = typeof presenceRes.online_count === 'number'
+            ? presenceRes.online_count
+            : (presenceRes.data?.online_count || 0);
 
-        onlineUsers = Array.isArray(response?.users)
-          ? response.users
-          : (Array.isArray(response?.data?.users)
-            ? response.data.users
-            : (Array.isArray(response?.data) ? response.data : []));
-
-        onlineCount = Number(response?.online_count ?? response?.data?.online_count ?? onlineUsers.length);
-
-        console.log('[Presence] onlineUsers:', onlineUsers);
-        console.log('[Presence] onlineCount:', onlineCount);
-      } catch (error) {
-        console.error('[TIM PAGE ERROR]', error);
-        console.error('[Presence] Render/API error:', error);
+          onlineData.users = Array.isArray(presenceRes.users)
+            ? presenceRes.users
+            : (Array.isArray(presenceRes.data?.users)
+              ? presenceRes.data.users
+              : (Array.isArray(presenceRes.data) ? presenceRes.data : []));
+        }
+      } catch (presErr) {
+        console.error('[API ERROR] Failed to fetch /presence/online.php:', presErr);
       }
 
       if (!teamRes || !Array.isArray(teamRes.data)) {
-        return { members: [], total_users: 0, online_count: onlineCount };
+        return { members: [], total_users: 0, online_count: onlineData.online_count };
       }
 
       // Build Set of online user IDs or emails from presence response
       const onlineUserIdentifiers = new Set<string>();
-      onlineUsers.forEach((u: any) => {
-        if (u?.id !== undefined && u?.id !== null) onlineUserIdentifiers.add(String(u.id));
-        if (u?.email) onlineUserIdentifiers.add(String(u.email).toLowerCase().trim());
-        if (u?.full_name) onlineUserIdentifiers.add(String(u.full_name).toLowerCase().trim());
+      onlineData.users.forEach((u: any) => {
+        if (u.id) onlineUserIdentifiers.add(String(u.id));
+        if (u.user_id) onlineUserIdentifiers.add(String(u.user_id));
+        if (u.email) onlineUserIdentifiers.add(String(u.email).toLowerCase().trim());
       });
 
       const members: TeamMember[] = teamRes.data
-        .filter((item: any) => item && (item.status === 'active' || item.status === undefined))
+        .filter((item: any) => item.status === 'active' || item.status === undefined)
         .map((item: any): TeamMember => {
           const itemId = String(item.id || '');
           const itemEmail = String(item.email || '').toLowerCase().trim();
-          const itemName = String(item.full_name || item.name || '').toLowerCase().trim();
           
-          const isOnlineFromPresence = onlineUserIdentifiers.has(itemId) || onlineUserIdentifiers.has(itemEmail) || onlineUserIdentifiers.has(itemName);
+          const isOnlineFromPresence = onlineUserIdentifiers.has(itemId) || onlineUserIdentifiers.has(itemEmail);
           const isOnlineFallback = Boolean(
             item.is_online === true ||
               item.is_online === 1 ||
@@ -674,26 +668,26 @@ export const teamService = {
           const resolvedImg = getAbsoluteAvatarUrl(rawImg, memberName);
 
           return {
-            id: String(item.id || ''),
+            id: String(item.id),
             name: memberName,
-            full_name: item.full_name || memberName,
+            full_name: item.full_name,
             email: item.email || '',
             role: roleLabel,
             img: resolvedImg,
             status: isOnline ? 'working' : 'offline',
             is_online: isOnline,
-            last_seen: item.last_seen_at || item.last_seen || null,
+            last_seen: item.last_seen || null,
           };
         });
 
-      const finalOnlineCount = onlineCount > 0 
-        ? onlineCount 
+      const activeOnlineCount = onlineData.online_count > 0 
+        ? onlineData.online_count 
         : members.filter((m) => m.is_online).length;
 
       return {
         members,
-        total_users: typeof teamRes?.total_users === 'number' ? teamRes.total_users : members.length,
-        online_count: finalOnlineCount,
+        total_users: typeof teamRes.total_users === 'number' ? teamRes.total_users : members.length,
+        online_count: activeOnlineCount,
       };
     } catch (err) {
       console.error('[API ERROR] fetchTeamMembers error:', err);

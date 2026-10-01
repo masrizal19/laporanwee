@@ -85,10 +85,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       const emailVal = data.user?.email || data.data?.user?.email || trimmedEmail;
       const nameVal = data.user?.full_name || data.user?.name || data.data?.user?.full_name || data.data?.user?.name || trimmedEmail.split('@')[0];
-      const idVal = data.user?.id || data.data?.user?.id || data.id || data.user_id || '';
 
       const userObj = {
-        id: idVal,
         email: emailVal,
         name: nameVal,
       };
