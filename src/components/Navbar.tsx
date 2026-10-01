@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ViewType } from '../types';
 import { Icon } from './icons';
+import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface NavbarProps {
   currentView: ViewType;
@@ -203,11 +204,21 @@ export const Navbar: React.FC<NavbarProps> = ({
                   flexShrink: 0,
                 }}
               >
-                {avatarUrl ? (
-                  <img src={avatarUrl} alt="Avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  (userName || userEmail || 'U').trim().charAt(0).toUpperCase()
-                )}
+                {(() => {
+                  const finalAvatar = getAbsoluteAvatarUrl(avatarUrl, userName || userEmail);
+                  return finalAvatar ? (
+                    <img
+                      src={finalAvatar}
+                      alt="Avatar"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    (userName || userEmail || 'U').trim().charAt(0).toUpperCase()
+                  );
+                })()}
               </div>
               <div className="meta">
                 <div className="hi">{userName || userEmail?.split('@')[0] || 'Anggota Tim'}</div>

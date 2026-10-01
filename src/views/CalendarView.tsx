@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { CalendarEvent, TeamMember } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
+import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface CalendarViewProps {
   events: CalendarEvent[];
@@ -422,25 +423,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </div>
               <div className="team-strip">
                 {members.map((m) => {
-                  const getAbsoluteAvatarUrl = (img?: string | null): string => {
-                    if (!img || typeof img !== 'string' || img.trim() === '' || img === 'null' || img === 'undefined') {
-                      console.log('[CalendarAvatar] URL kosong atau null untuk member:', m.name, img);
-                      return '';
-                    }
-                    let finalUrl = img.trim();
-                    if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
-                      // already absolute
-                    } else if (finalUrl.startsWith('/')) {
-                      finalUrl = `https://api-laporanwe.mkverse.my.id${finalUrl}`;
-                    } else {
-                      finalUrl = `https://api-laporanwe.mkverse.my.id/${finalUrl}`;
-                    }
-                    finalUrl = finalUrl.replace(/([^:]\/)\/+/g, '$1');
-                    console.log('[CalendarAvatar] Final avatar URL debug:', { name: m.name, original: img, resolved: finalUrl });
-                    return finalUrl;
-                  };
-
-                  const avatarUrl = getAbsoluteAvatarUrl(m.img);
+                  const avatarUrl = getAbsoluteAvatarUrl(m.img, m.name);
 
                   return (
                     <div key={m.id} className="team-mini">

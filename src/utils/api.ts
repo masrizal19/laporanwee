@@ -575,6 +575,26 @@ export const resetDailyReports = dailyReportService.resetDailyReports;
 // 6. TEAM & PRESENCE SERVICE
 // ==========================================
 
+export const getAbsoluteAvatarUrl = (img?: string | null, userName?: string): string => {
+  if (!img || typeof img !== 'string' || img.trim() === '' || img === 'null' || img === 'undefined' || img.includes('placeholder')) {
+    console.log(`[PROFILE PHOTO] ${userName || 'User'} -> (No valid avatar)`);
+    return '';
+  }
+  let finalUrl = img.trim();
+  if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
+    if (finalUrl.includes('https://api-laporanwe.mkverse.my.id/https://')) {
+      finalUrl = finalUrl.substring(finalUrl.indexOf('https://', 8));
+    }
+  } else if (finalUrl.startsWith('/')) {
+    finalUrl = `https://api-laporanwe.mkverse.my.id${finalUrl}`;
+  } else {
+    finalUrl = `https://api-laporanwe.mkverse.my.id/${finalUrl}`;
+  }
+  finalUrl = finalUrl.replace(/([^:]\/)\/+/g, '$1');
+  console.log(`[PROFILE PHOTO] ${userName || 'User'} -> ${finalUrl}`);
+  return finalUrl;
+};
+
 export const teamService = {
   fetchTeamMembers: async (): Promise<{
     members: TeamMember[];
@@ -607,13 +627,17 @@ export const teamService = {
               ? 'Frontend Dev'
               : 'Anggota Tim';
 
+          const memberName = item.full_name || item.name || item.email?.split('@')[0] || 'Anggota Tim';
+          const rawImg = item.avatar_url || item.profile_photo || item.img || '';
+          const resolvedImg = getAbsoluteAvatarUrl(rawImg, memberName);
+
           return {
             id: String(item.id),
-            name: item.full_name || item.name || item.email?.split('@')[0] || 'Anggota Tim',
+            name: memberName,
             full_name: item.full_name,
             email: item.email || '',
             role: roleLabel,
-            img: item.avatar_url || item.img || '',
+            img: resolvedImg,
             status: isOnline ? 'working' : 'offline',
             is_online: isOnline,
             last_seen: item.last_seen || null,
