@@ -1,9 +1,6 @@
 /* ==========================================================================
    LaporanWee — Motion Layer (CSS)
    Lapisan animasi non-invasif: tidak mengubah layout/warna yang sudah ada.
-   Memakai properti individual `translate` & `scale` supaya tidak bentrok
-   dengan `transform` milik desain asli. Semua selector bawaan memakai
-   :where() (specificity 0) sehingga CSS asli Anda selalu menang.
    ========================================================================== */
 
 /* ---------- 1. Font POPFUN ---------- */
@@ -23,7 +20,7 @@
   /* Easing */
   --lw-ease-out: cubic-bezier(.22, 1, .36, 1);      /* masuk: cepat lalu mengendap halus */
   --lw-ease-in-out: cubic-bezier(.65, 0, .35, 1);   /* transisi halaman */
-  --lw-ease-spring: cubic-bezier(.34, 1.56, .64, 1);/* feedback klik: sedikit memantul */
+  --lw-ease-spring: cubic-bezier(.34, 1.56, .64, 1);/* feedback klik */
 
   --lw-fast: 160ms;
   --lw-base: 260ms;
@@ -49,13 +46,13 @@ html {
   html { scroll-behavior: smooth; }
 
   :where(a, button, [role="button"], [role="tab"], [role="menuitem"], summary, label,
-         input, select, textarea, [class*="btn"], [class*="card"], [class*="item"]) {
-    transition-property: color, background-color, border-color, box-shadow, opacity, translate, scale, filter;
+         input, select, textarea, [class*="btn"], [class*="card"]:not([role="dialog"] *), [class*="item"]:not([role="dialog"] *)) {
+    transition-property: color, background-color, border-color, box-shadow, opacity, translate, scale;
     transition-duration: var(--lw-base);
     transition-timing-function: var(--lw-ease-out);
   }
 
-  /* Press feedback (dimensionality): menekan terasa fisik */
+  /* Press feedback */
   :where(button, [role="button"], [role="tab"], a[class*="btn"], a[class*="button"], [class*="btn"], summary):active {
     scale: .98;
     transition-duration: var(--lw-fast);
@@ -66,33 +63,33 @@ html {
   /* Kartu yang bisa diklik: sedikit terangkat saat hover */
   @media (hover: hover) {
     :where(a[class*="card"], button[class*="card"], [class*="card"][tabindex], [class*="card"][onclick],
-           [data-motion~="lift"]):hover {
+           [data-motion~="lift"]):not([role="dialog"] *):hover {
       translate: 0 -2px;
     }
     :where(a[class*="card"], button[class*="card"], [class*="card"][tabindex], [class*="card"][onclick],
-           [data-motion~="lift"]):active {
+           [data-motion~="lift"]):not([role="dialog"] *):active {
       translate: 0 -1px;
       scale: .995;
     }
   }
 
-  /* Bar progres: berubah nilai dengan mulus */
+  /* Bar progres */
   :where([role="progressbar"] > *, progress, [class*="progress"] > [style*="width"], [class*="bar-fill"], [class*="progress-fill"]) {
     transition: width .8s var(--lw-ease-out), inline-size .8s var(--lw-ease-out);
   }
 }
 
-/* ---------- 3. Keyframes (offset & delay, overlay, obscuration, value change) ---------- */
+/* ---------- 3. Keyframes ---------- */
 @keyframes lw-reveal {
-  from { opacity: 0; translate: 0 18px; }
+  from { opacity: 0; translate: 0 16px; }
   to   { opacity: 1; translate: 0 0; }
 }
 @keyframes lw-view-in {
-  from { opacity: 0; translate: 0 8px; scale: .99; }
+  from { opacity: 0; translate: 0 6px; scale: .994; }
   to   { opacity: 1; translate: 0 0; scale: 1; }
 }
 @keyframes lw-pop {
-  from { opacity: 0; translate: 0 10px; scale: .96; }
+  from { opacity: 0; translate: 0 8px; scale: .98; }
   to   { opacity: 1; translate: 0 0;   scale: 1; }
 }
 @keyframes lw-fade {
@@ -108,21 +105,16 @@ html {
   60%  { scale: .85 1; opacity: 1; }
   100% { scale: 1 1;   opacity: 0; }
 }
-@keyframes lw-bar-grow {
-  from { scale: 0 1; }
-  to   { scale: 1 1; }
-}
 
 /* ---------- 4. Kelas yang dipasang oleh laporanwe-motion.js ---------- */
-/* Keadaan awal hanya ada jika JS sudah menandai elemen -> tanpa JS konten tetap terlihat. */
-.lw-reveal { opacity: 0; translate: 0 18px; }
+.lw-reveal { opacity: 0; translate: 0 16px; }
 .lw-reveal.lw-in {
-  animation: lw-reveal 520ms var(--lw-ease-out) var(--lw-d, 0ms) both;
+  animation: lw-reveal 480ms var(--lw-ease-out) var(--lw-d, 0ms) both;
 }
 
-.lw-view-in { animation: lw-view-in 320ms var(--lw-ease-out) backwards; }
-.lw-pop     { animation: lw-pop 260ms var(--lw-ease-out) backwards; transform-origin: 50% 0; }
-.lw-fade    { animation: lw-fade 240ms var(--lw-ease-out) backwards; }
+.lw-view-in { animation: lw-view-in 300ms var(--lw-ease-out) both; }
+.lw-pop     { animation: lw-pop 250ms var(--lw-ease-out) both; transform-origin: 50% 50%; }
+.lw-fade    { animation: lw-fade 220ms var(--lw-ease-out) both; }
 
 /* Bar progres tipis saat pindah halaman/dashboard */
 .lw-bar {
@@ -131,35 +123,35 @@ html {
   background: var(--violet, #6a54f0);
   scale: 0 1; opacity: 0;
 }
-.lw-bar.run { animation: lw-bar 700ms var(--lw-ease-out) forwards; }
+.lw-bar.run { animation: lw-bar 650ms var(--lw-ease-out) forwards; }
 
-/* Ripple klik (di-clip persis seperti bentuk tombolnya) */
+/* Ripple klik */
 .lw-ripple {
   position: fixed; overflow: hidden; pointer-events: none; z-index: 2147483000;
 }
 .lw-ripple > i {
   position: absolute; border-radius: 50%; background: currentColor;
   opacity: 0; scale: 0;
-  animation: lw-ripple 520ms var(--lw-ease-out) forwards;
+  animation: lw-ripple 500ms var(--lw-ease-out) forwards;
 }
 
-/* <dialog> bawaan browser */
-dialog[open]            { animation: lw-pop 260ms var(--lw-ease-out) backwards; }
-dialog[open]::backdrop  { animation: lw-fade 240ms var(--lw-ease-out) backwards; }
+/* Parallax opsional */
+[data-parallax]:not([role="dialog"] *) { translate: 0 var(--lw-py, 0px); will-change: translate; }
 
-/* Parallax opsional: <div data-parallax="0.12"> */
-[data-parallax] { translate: 0 var(--lw-py, 0px); will-change: translate; }
-
-/* Transisi antar-halaman untuk situs multi-page (Chrome/Edge/Safari terbaru) */
-@media (prefers-reduced-motion: no-preference) {
-  @view-transition { navigation: auto; }
-  ::view-transition-old(root) { animation: lw-fade 180ms var(--lw-ease-in-out) reverse both; }
-  ::view-transition-new(root) { animation: lw-fade 320ms var(--lw-ease-out) both; }
+/* CRITICAL: Strict modal and image preview isolation against flicker and blur */
+[data-motion="none"],
+[data-motion="none"] *,
+[role="dialog"] img,
+[class*="lightbox"] img,
+[class*="viewer"] img,
+.lightbox-img,
+.media-image-display {
+  transform: none !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+  animation-name: none !important;
 }
 
-/* ---------- 5. Aksesibilitas ---------- */
-/* Jika pengguna memilih "kurangi gerakan", JS tidak aktif dan kelas animasi tidak pernah dipasang;
-   aturan di bawah hanya jaring pengaman. */
 @media (prefers-reduced-motion: reduce) {
   .lw-reveal, .lw-reveal.lw-in { opacity: 1 !important; translate: none !important; animation: none !important; }
   .lw-view-in, .lw-pop, .lw-fade { animation: none !important; }

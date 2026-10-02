@@ -26,16 +26,17 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
   const [imgError, setImgError] = useState(false);
 
   // Compile list of unique valid image URLs
+  // Original evidence URLs must always take precedence over compressed thumbnails
   const allImages: string[] = [];
-  if (thumbnailUrl && !allImages.includes(thumbnailUrl)) {
-    allImages.push(thumbnailUrl);
-  }
   if (evidenceUrls && evidenceUrls.length > 0) {
     evidenceUrls.forEach((url) => {
       if (url && !allImages.includes(url)) {
         allImages.push(url);
       }
     });
+  }
+  if (thumbnailUrl && !allImages.includes(thumbnailUrl)) {
+    allImages.push(thumbnailUrl);
   }
 
   const hasEvidence = allImages.length > 0 && !imgError;

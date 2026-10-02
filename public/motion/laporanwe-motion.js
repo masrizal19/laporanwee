@@ -1,12 +1,7 @@
 /* ==========================================================================
    LaporanWee — Motion Layer (JS)
-   Menambahkan animasi halus tanpa mengubah kode aplikasi:
-   - transisi masuk saat pindah halaman / dashboard / tab
-   - reveal bertahap (stagger) untuk kartu, panel, grafik
-   - pop untuk modal, dropdown, toast + fade untuk backdrop
-   - ripple klik, count-up angka, bar progres saat navigasi
-   Semua selector bisa diganti lewat window.LW_MOTION (sebelum script ini).
-   Tandai elemen yang tidak ingin dianimasikan dengan data-motion="none".
+   Clean, smooth, non-invasive motion system with strict modal isolation
+   and zero re-animation flicker.
    ========================================================================== */
 (() => {
   'use strict';
@@ -14,33 +9,37 @@
   window.__lwMotion = true;
 
   const mq = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)');
-  if (mq && mq.matches) return; // hormati preferensi pengguna
+  if (mq && mq.matches) return;
 
   const cfg = Object.assign({
-    // elemen yang di-reveal bertahap saat muncul
-    reveal: '[data-motion~="reveal"], [class*="card"], [class*="panel"], [class*="widget"], [class*="tile"], ' +
-            '[class*="kpi"], [class*="metric"], [class*="stat-"], [class*="-stat"], [class*="chart"], ' +
-            '[class*="hero"] > *, [class*="grid"] > *, table, form',
-    // container halaman/dashboard (dipakai saat URL berubah). Grup pertama yang cocok dipakai.
-    viewRoots: ['[data-view]', 'main', '[role="main"]', '.page', '.view', '.main-content', '.content'],
-    // panel yang tampil/sembunyi (tab, dashboard bergantian)
+    reveal: '[data-motion~="reveal"], [class*="card"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="panel"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="widget"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="tile"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="kpi"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="metric"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="stat-"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="-stat"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="chart"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="hero"] > *, [class*="grid"]:not([data-motion="none"]):not([role="dialog"] *) > *, ' +
+            'table:not([data-motion="none"]):not([role="dialog"] *), form:not([data-motion="none"]):not([role="dialog"] *)',
+    viewRoots: ['[data-view]', 'main', '[role="main"]', '.page', '.view', '.main-content'],
     panels: '[role="tabpanel"], .tab-pane, [data-view], [data-page], [data-panel], .page, .view, .screen',
-    // induk tempat halaman baru biasanya dipasang oleh router
     swapParents: '#app, #root, #__next, main, [role="main"], [data-view]',
     overlays: '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"], [role="listbox"], ' +
-              '[role="tooltip"], [class*="modal"], [class*="popover"], [class*="dropdown-menu"], ' +
-              '[class*="dropdown-content"], [class*="toast"], [class*="snackbar"]',
-    backdrops: '[class*="backdrop"], [class*="overlay"], [class*="scrim"]',
+              '[role="tooltip"], [class*="modal"], [class*="lightbox"], [class*="popover"], ' +
+              '[class*="dropdown-menu"], [class*="dropdown-content"], [class*="toast"], [class*="snackbar"]',
+    backdrops: '[class*="backdrop"], [class*="overlay"]:not(.evidence-badge-overlay):not(.thumb-zoom-overlay):not(.task-doc-meta-overlay), [class*="scrim"]',
     counters: '[data-countup], [class*="stat"] [class*="value"], [class*="metric"] [class*="value"], ' +
               '[class*="kpi"] [class*="value"], [class*="stat"] [class*="number"], [class*="kpi"] [class*="number"], ' +
               '[class*="stat-chip"] .num, [class*="stat"] .num, [class*="kpi"] .num',
     rippleTargets: 'button, [role="button"], [role="tab"], [role="menuitem"], [class*="btn"], summary, ' +
                    'nav a, aside a, [class*="sidebar"] a, [class*="nav"] a',
-    exclude: '[data-motion~="none"]',
-    rippleMax: [420, 96],     // ripple tidak dipasang pada elemen yang lebih besar dari ini
-    stagger: 50,              // ms antar elemen (30-70ms)
-    maxSteps: 8,              // batas jumlah langkah stagger (max around 8 items)
-    intentWindow: 2500,       // ms setelah aksi pengguna/halaman dimuat di mana elemen baru dianimasikan
+    exclude: '[data-motion~="none"], [data-motion="none"], [role="dialog"], [role="dialog"] *',
+    rippleMax: [420, 96],
+    stagger: 50,
+    maxSteps: 8,
+    intentWindow: 2000,
     ripple: true, progressBar: true, countUp: true
   }, window.LW_MOTION || {});
 
@@ -48,25 +47,38 @@
   const qsa = (n, s) => (n && n.querySelectorAll ? Array.from(n.querySelectorAll(s)) : []);
   const now = () => performance.now();
 
-  /* ---------- "Intent": animasikan hanya perubahan yang dipicu pengguna ----------
-     Update latar belakang (polling, realtime, mengetik) tidak akan berkedip. */
   let intentAt = now();
   const markIntent = () => { intentAt = now(); };
   const hasIntent = () => now() - intentAt < cfg.intentWindow;
   const isTyping = (t) => t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
-  /* ---------- Util animasi sekali jalan ---------- */
-  const ownAnimation = (el) => {
-    const n = getComputedStyle(el).animationName;
-    return n && n !== 'none' && !/(^|,\s*)lw-/.test(n);
+  const animatedOverlays = new WeakSet();
+
+  const isModalActive = () => {
+    return Boolean(
+      document.querySelector('[role="dialog"]') ||
+      document.querySelector('[aria-modal="true"]') ||
+      document.querySelector('.evidence-lightbox-overlay') ||
+      document.querySelector('.media-viewer-overlay')
+    );
   };
+
+  const ownAnimation = (el) => {
+    if (!el || el.nodeType !== 1) return false;
+    const n = getComputedStyle(el).animationName;
+    return Boolean(n && n !== 'none' && !/(^|,\s*)lw-/.test(n));
+  };
+
   function play(el, cls, ms = 800) {
-    if (!el || el.nodeType !== 1 || el.closest(cfg.exclude)) return;
-    if (el.classList.contains(cls)) { el.classList.remove(cls); void el.offsetWidth; }
-    else if (ownAnimation(el)) return; // jangan menimpa animasi bawaan situs
+    if (!el || el.nodeType !== 1 || el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
+    if (el.classList.contains(cls)) return;
+    if (ownAnimation(el)) return;
     el.classList.add(cls);
-    setTimeout(() => el && el.classList && el.classList.remove(cls), ms);
+    setTimeout(() => {
+      if (el && el.classList) el.classList.remove(cls);
+    }, ms);
   }
+
   const isVisible = (el) => {
     if (!el) return false;
     return el.checkVisibility
@@ -74,7 +86,6 @@
       : !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
   };
 
-  /* ---------- Reveal bertahap (offset & delay + parenting) ---------- */
   const revealIO = new IntersectionObserver((entries) => {
     let i = 0;
     entries.filter((e) => e.isIntersecting)
@@ -99,9 +110,10 @@
 
   function prepare(el) {
     if (!el || el.nodeType !== 1 || el.classList.contains('lw-reveal') || !el.matches(cfg.reveal)) return;
-    if (el.closest(cfg.exclude)) return;
+    if (el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
+    if (el.closest('[role="dialog"]') || el.closest('[aria-modal="true"]') || el.closest('[class*="lightbox"]') || el.closest('[class*="viewer"]')) return;
     const p = el.parentElement;
-    if (p && (p.closest('.lw-reveal') || p.closest(cfg.overlays))) return; // hanya elemen terluar
+    if (p && (p.closest('.lw-reveal') || p.closest(cfg.overlays))) return;
     const cs = getComputedStyle(el);
     if (cs.position === 'fixed' || cs.display === 'inline' || (cs.animationName && cs.animationName !== 'none')) return;
     el.classList.add('lw-reveal');
@@ -110,13 +122,14 @@
 
   function scan(node) {
     if (!node || node.nodeType !== 1) return;
+    if (node.closest(cfg.exclude) || node.closest('[data-motion="none"]')) return;
+    if (node.closest('[role="dialog"]') || node.closest('[aria-modal="true"]') || node.closest('[class*="lightbox"]') || node.closest('[class*="viewer"]')) return;
     prepare(node);
     qsa(node, cfg.reveal).forEach(prepare);
     if (cfg.countUp) { prepareCounter(node); qsa(node, cfg.counters).forEach(prepareCounter); }
   }
   const replay = (node) => { if (node) { scan(node); } };
 
-  /* ---------- Count-up angka (value change) ---------- */
   const running = new WeakSet();
   const counterIO = new IntersectionObserver((entries) => {
     entries.forEach((e) => {
@@ -130,7 +143,6 @@
     if (!txt) return null;
     txt = txt.trim();
     if (txt.length > 20) return null;
-    // Don't animate dates, times, ids, phone numbers, or pagination
     if (/[\/-]/.test(txt) && /\d/.test(txt)) return null;
     if (/(jan|feb|mar|apr|mei|jun|jul|agu|sep|okt|nov|des|oct|aug|rabu|kamis|jumat|sabtu|minggu|senin|selasa|wib|gmt)/i.test(txt)) return null;
     const m = txt.match(/^([^\d]*?)(\d[\d.,]*)([^\d]*)$/);
@@ -153,7 +165,8 @@
   }
 
   function prepareCounter(el) {
-    if (!el || el.nodeType !== 1 || !el.matches(cfg.counters) || el.children.length || el.closest(cfg.exclude)) return;
+    if (!el || el.nodeType !== 1 || !el.matches(cfg.counters) || el.children.length || el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
+    if (el.closest('[role="dialog"]') || el.closest('[aria-modal="true"]')) return;
     if (running.has(el) || !parseNum(el.textContent)) return;
     counterIO.observe(el);
   }
@@ -170,7 +183,7 @@
       return spec.pre + grouped + (d ? (spec.dec || '.') + d : '') + spec.suf;
     };
     const dur = 850, t0 = now();
-    const ease = (t) => (t === 1 ? 1 : 1 - Math.pow(2, -10 * t)); // easeOutExpo
+    const ease = (t) => (t === 1 ? 1 : 1 - Math.pow(2, -10 * t));
     (function tick() {
       if (!el.isConnected) { running.delete(el); return; }
       const t = Math.min((now() - t0) / dur, 1);
@@ -179,37 +192,42 @@
     })();
   }
 
-  /* ---------- Overlay: modal, dropdown, toast (overlay + obscuration) ---------- */
   function playOverlay(el) {
-    if (!el || el.nodeType !== 1) return;
+    if (!el || el.nodeType !== 1 || animatedOverlays.has(el)) return;
+    animatedOverlays.add(el);
+
+    if (ownAnimation(el)) return;
+
     if (el.matches(cfg.backdrops)) {
-      play(el, 'lw-fade');
-      const inner = el.querySelector(cfg.overlays);
-      if (inner) play(inner, 'lw-pop');
+      play(el, 'lw-fade', 300);
+      const inner = el.querySelector(cfg.overlays) || el.firstElementChild;
+      if (inner && !inner.closest(cfg.exclude) && !ownAnimation(inner)) {
+        play(inner, 'lw-pop', 300);
+      }
     } else if (el.matches(cfg.overlays)) {
       const outer = el.parentElement && el.parentElement.closest(cfg.overlays);
-      if (outer && !outer.matches(cfg.backdrops)) return; // hanya modal terluar
-      play(el, 'lw-pop');
+      if (outer && !outer.matches(cfg.backdrops)) return;
+      play(el, 'lw-pop', 300);
     }
   }
 
-  /* ---------- Pindah halaman / dashboard (dolly & zoom halus) ---------- */
   function pickViews() {
     for (const sel of cfg.viewRoots) {
-      const els = qsa(document, sel).filter((e) => isVisible(e) && !e.parentElement.closest(sel));
+      const els = qsa(document, sel).filter((e) => isVisible(e) && !e.parentElement.closest(sel) && !e.closest('[role="dialog"]'));
       if (els.length) return els;
     }
     return [];
   }
 
   function bar() {
-    if (!cfg.progressBar) return;
+    if (!cfg.progressBar || isModalActive()) return;
     let b = document.querySelector('.lw-bar');
     if (!b) { b = document.createElement('div'); b.className = 'lw-bar'; document.body.appendChild(b); }
     b.classList.remove('run'); void b.offsetWidth; b.classList.add('run');
   }
 
   function enterView() {
+    if (isModalActive()) return;
     pickViews().forEach((v) => { play(v, 'lw-view-in'); replay(v); });
     bar();
   }
@@ -229,7 +247,6 @@
   addEventListener('popstate', routeChanged);
   addEventListener('hashchange', routeChanged);
 
-  /* ---------- Panel/tab/modal yang hanya di-toggle (tanpa menambah node) ---------- */
   const seen = new WeakMap();
   const toggleSel = [cfg.panels, cfg.overlays, cfg.backdrops].join(',');
   function seed(node) {
@@ -237,38 +254,62 @@
     if (node.matches(toggleSel)) seen.set(node, isVisible(node));
     qsa(node, toggleSel).forEach((e) => seen.set(e, isVisible(e)));
   }
+
   function checkToggle(el) {
-    if (!el.isConnected || !el.matches(toggleSel)) return;
+    if (!el.isConnected || !el.matches(toggleSel) || el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
     const vis = isVisible(el), was = seen.get(el);
     seen.set(el, vis);
     if (!vis || was !== false) return;
-    if (el.matches(cfg.overlays) || el.matches(cfg.backdrops)) playOverlay(el);
-    else { play(el, 'lw-view-in'); replay(el); }
+    if (el.matches(cfg.overlays) || el.matches(cfg.backdrops) || el.getAttribute('role') === 'dialog') {
+      playOverlay(el);
+    } else if (!isModalActive()) {
+      play(el, 'lw-view-in'); replay(el);
+    }
   }
 
-  /* ---------- Observer DOM ---------- */
   const mo = new MutationObserver((muts) => {
     const toggled = new Set();
+    const modalActive = isModalActive();
+
     for (const m of muts) {
-      if (m.type === 'attributes') { toggled.add(m.target); continue; }
+      if (m.type === 'attributes') {
+        if (!m.target.closest || !m.target.closest(cfg.overlays)) {
+          toggled.add(m.target);
+        }
+        continue;
+      }
       for (const n of m.addedNodes) {
         if (n.nodeType !== 1 || /^(SCRIPT|STYLE|LINK|META)$/.test(n.tagName)) continue;
         if (n.classList.contains('lw-ripple') || n.classList.contains('lw-bar')) continue;
-        if (n.matches(cfg.overlays) || n.matches(cfg.backdrops)) playOverlay(n);
-        else if (hasIntent() && m.target.matches && m.target.matches(cfg.swapParents) &&
-                 !n.matches(cfg.reveal) && n.offsetWidth > 240 && n.offsetHeight > 120) play(n, 'lw-view-in');
+
+        const isOverlay = n.matches(cfg.overlays) || n.matches(cfg.backdrops) || (n.getAttribute && n.getAttribute('role') === 'dialog');
+        const insideOverlay = n.closest && (n.closest(cfg.overlays) || n.closest(cfg.backdrops) || n.closest('[role="dialog"]'));
+
+        if (isOverlay) {
+          playOverlay(n);
+          continue;
+        }
+
+        if (insideOverlay) {
+          continue;
+        }
+
+        if (!modalActive && hasIntent() && m.target.matches && m.target.matches(cfg.swapParents) &&
+            !n.matches(cfg.reveal) && n.offsetWidth > 240 && n.offsetHeight > 120) {
+          play(n, 'lw-view-in');
+        }
+
         seed(n);
-        if (hasIntent()) scan(n);
+        if (hasIntent() && !modalActive) scan(n);
       }
     }
     if (toggled.size) requestAnimationFrame(() => toggled.forEach(checkToggle));
   });
 
-  /* ---------- Ripple klik ---------- */
   function ripple(e) {
     if (!cfg.ripple || e.button > 0) return;
     const t = e.target.closest && e.target.closest(cfg.rippleTargets);
-    if (!t || t.disabled || t.closest(cfg.exclude) || t.matches('[aria-disabled="true"]')) return;
+    if (!t || t.disabled || t.closest(cfg.exclude) || t.closest('[data-motion="none"]') || t.matches('[aria-disabled="true"]')) return;
     const r = t.getBoundingClientRect();
     if (r.width < 8 || r.width > cfg.rippleMax[0] || r.height > cfg.rippleMax[1]) return;
     const cs = getComputedStyle(t);
@@ -293,14 +334,13 @@
   addEventListener('keydown', (e) => { if (e.key === 'Enter' && !isTyping(e.target)) markIntent(); }, true);
   addEventListener('load', markIntent);
 
-  /* ---------- Parallax opsional: data-parallax="0.10" ---------- */
   let ticking = false;
   addEventListener('scroll', () => {
-    if (ticking) return;
+    if (ticking || isModalActive()) return;
     ticking = true;
     requestAnimationFrame(() => {
       ticking = false;
-      document.querySelectorAll('[data-parallax]').forEach((el) => {
+      document.querySelectorAll('[data-parallax]:not([role="dialog"] *)').forEach((el) => {
         const k = parseFloat(el.dataset.parallax) || 0.08;
         const r = el.getBoundingClientRect();
         el.style.setProperty('--lw-py', ((innerHeight / 2 - (r.top + r.height / 2)) * k).toFixed(1) + 'px');
@@ -308,17 +348,13 @@
     });
   }, { passive: true });
 
-  /* ---------- Start ---------- */
-  function init() {
-    root.classList.add('lw-motion');
-    scan(document.body);
-    seed(document.body);
-    mo.observe(root, {
-      childList: true, subtree: true, attributes: true,
-      attributeFilter: ['class', 'hidden', 'style', 'aria-hidden', 'open']
-    });
-  }
-  if (document.body) init(); else document.addEventListener('DOMContentLoaded', init, { once: true });
+  root.classList.add('lw-motion');
+  scan(document.body);
+  seed(document.body);
+  mo.observe(root, {
+    childList: true, subtree: true, attributes: true,
+    attributeFilter: ['class', 'hidden', 'style', 'aria-hidden', 'open']
+  });
 
   window.LWMotion = {
     replay: (t) => replay(typeof t === 'string' ? document.querySelector(t) : t || document.body),

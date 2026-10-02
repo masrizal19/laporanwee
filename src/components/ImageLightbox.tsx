@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Icon } from './icons';
 
 interface ImageLightboxProps {
@@ -10,6 +10,22 @@ interface ImageLightboxProps {
   onNavigate?: (index: number) => void;
 }
 
+/**
+ * Returns original full-resolution image URL, stripping any thumbnail downscaling parameters
+ */
+const getOriginalImageUrl = (url?: string): string => {
+  if (!url || typeof url !== 'string') return '';
+  const clean = url.trim();
+
+  // If it's an Unsplash placeholder with small width parameter, request high resolution
+  if (clean.includes('images.unsplash.com') && (clean.includes('w=100') || clean.includes('w=400') || clean.includes('w=600'))) {
+    return clean.replace(/w=\d+/, 'w=1920').replace(/q=\d+/, 'q=95');
+  }
+
+  // Backend uploads or direct URLs: return pristine original file URL
+  return clean;
+};
+
 export const ImageLightbox: React.FC<ImageLightboxProps> = ({
   isOpen,
   images,
@@ -18,6 +34,56 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
   onClose,
   onNavigate,
 }) => {
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [loadedUrl, setLoadedUrl] = useState('');
+
+  const rawImage = images[currentIndex] || images[0] || '';
+  const originalImage = getOriginalImageUrl(rawImage);
+
+  // Preload and decode original image before displaying to prevent blur/layout jumps
+  useEffect(() => {
+    if (!isOpen || !originalImage) return;
+
+    let isMounted = true;
+    setImageLoaded(false);
+
+    const img = new Image();
+    img.src = originalImage;
+
+    if (typeof (img as any).decode === 'function') {
+      (img as HTMLImageElement).decode()
+        .then(() => {
+          if (isMounted) {
+            setLoadedUrl(originalImage);
+            setImageLoaded(true);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setLoadedUrl(originalImage);
+            setImageLoaded(true);
+          }
+        });
+    } else {
+      img.onload = () => {
+        if (isMounted) {
+          setLoadedUrl(originalImage);
+          setImageLoaded(true);
+        }
+      };
+      img.onerror = () => {
+        if (isMounted) {
+          setLoadedUrl(originalImage);
+          setImageLoaded(true);
+        }
+      };
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, originalImage]);
+
   useEffect(() => {
     if (!isOpen) return;
 
@@ -37,8 +103,6 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
 
   if (!isOpen || images.length === 0) return null;
 
-  const currentImage = images[currentIndex] || images[0];
-
   return (
     <div
       className="evidence-lightbox-overlay"
@@ -46,10 +110,12 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Pratinjau Bukti Pekerjaan"
+      data-motion="none"
     >
       <div
         className="evidence-lightbox-content"
         onClick={(e) => e.stopPropagation()}
+        data-motion="none"
       >
         {/* Lightbox Header Bar */}
         <div className="evidence-lightbox-header">
@@ -77,7 +143,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
         </div>
 
         {/* Lightbox Image Container */}
-        <div className="evidence-lightbox-image-wrap">
+        <div className="evidence-lightbox-image-wrap" data-motion="none">
           {images.length > 1 && onNavigate && (
             <button
               type="button"
@@ -91,10 +157,30 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
             </button>
           )}
 
+          {/* Loading Indicator */}
+          {!imageLoaded && (
+            <div className="lightbox-image-loading" data-motion="none">
+              <div className="lightbox-spinner" />
+            </div>
+          )}
+
           <img
-            src={currentImage}
+            key={loadedUrl || originalImage}
+            src={loadedUrl || originalImage}
             alt={title || 'Bukti pekerjaan'}
             className="lightbox-img"
+            data-motion="none"
+            style={{
+              opacity: imageLoaded ? 1 : 0,
+              transition: 'opacity 0.2s ease',
+              width: 'auto',
+              height: 'auto',
+              maxWidth: '100%',
+              maxHeight: 'calc(100vh - 220px)',
+              objectFit: 'contain',
+              imageRendering: 'auto',
+              transform: 'none',
+            }}
           />
 
           {images.length > 1 && onNavigate && (
@@ -113,7 +199,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
 
         {/* Thumbnail strip for multiple images */}
         {images.length > 1 && onNavigate && (
-          <div className="evidence-lightbox-strip">
+          <div className="evidence-lightbox-strip" data-motion="none">
             {images.map((img, idx) => (
               <button
                 key={idx}
@@ -121,8 +207,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
                 className={`lightbox-strip-item ${idx === currentIndex ? 'active' : ''}`}
                 onClick={() => onNavigate(idx)}
                 aria-label={`Lihat foto ${idx + 1}`}
+                data-motion="none"
               >
-                <img src={img} alt={`Thumbnail ${idx + 1}`} />
+                <img src={img} alt={`Thumbnail ${idx + 1}`} data-motion="none" />
               </button>
             ))}
           </div>

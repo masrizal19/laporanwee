@@ -40,6 +40,18 @@ export const mapBackendProject = (item: any): Project => {
   const due = item.deadline || item.due || '31 Okt 2026';
   const thumbnail_url = item.cover_url || item.thumbnail_url || undefined;
 
+  let evidence_urls: string[] = [];
+  if (Array.isArray(item.evidence_urls)) {
+    evidence_urls = item.evidence_urls;
+  } else if (typeof item.evidence_urls === 'string' && item.evidence_urls.startsWith('[')) {
+    try {
+      evidence_urls = JSON.parse(item.evidence_urls);
+    } catch (_) {}
+  }
+  if (evidence_urls.length === 0 && item.cover_url) {
+    evidence_urls = [item.cover_url];
+  }
+
   return {
     id: String(item.id),
     name,
@@ -56,7 +68,7 @@ export const mapBackendProject = (item: any): Project => {
     status,
     thumbnail_url,
     cover_url: item.cover_url || null,
-    evidence_urls: item.evidence_urls || [],
+    evidence_urls,
     created_by: item.created_by,
     created_at: item.created_at,
     updated_at: item.updated_at,

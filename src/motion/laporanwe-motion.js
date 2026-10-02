@@ -1,5 +1,7 @@
 /* ==========================================================================
    LaporanWee — Motion Layer (JS)
+   Clean, smooth, non-invasive motion system with strict modal isolation
+   and zero re-animation flicker.
    ========================================================================== */
 export const initMotion = () => {
   if (typeof window === 'undefined' || window.__lwMotion) return;
@@ -9,26 +11,34 @@ export const initMotion = () => {
   if (mq && mq.matches) return;
 
   const cfg = Object.assign({
-    reveal: '[data-motion~="reveal"], [class*="card"], [class*="panel"], [class*="widget"], [class*="tile"], ' +
-            '[class*="kpi"], [class*="metric"], [class*="stat-"], [class*="-stat"], [class*="chart"], ' +
-            '[class*="hero"] > *, [class*="grid"] > *, table, form',
-    viewRoots: ['[data-view]', 'main', '[role="main"]', '.page', '.view', '.main-content', '.content'],
+    reveal: '[data-motion~="reveal"], [class*="card"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="panel"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="widget"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="tile"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="kpi"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="metric"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="stat-"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="-stat"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="chart"]:not([data-motion="none"]):not([role="dialog"] *), ' +
+            '[class*="hero"] > *, [class*="grid"]:not([data-motion="none"]):not([role="dialog"] *) > *, ' +
+            'table:not([data-motion="none"]):not([role="dialog"] *), form:not([data-motion="none"]):not([role="dialog"] *)',
+    viewRoots: ['[data-view]', 'main', '[role="main"]', '.page', '.view', '.main-content'],
     panels: '[role="tabpanel"], .tab-pane, [data-view], [data-page], [data-panel], .page, .view, .screen',
     swapParents: '#app, #root, #__next, main, [role="main"], [data-view]',
     overlays: '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"], [role="listbox"], ' +
-              '[role="tooltip"], [class*="modal"], [class*="popover"], [class*="dropdown-menu"], ' +
-              '[class*="dropdown-content"], [class*="toast"], [class*="snackbar"]',
-    backdrops: '[class*="backdrop"], [class*="overlay"], [class*="scrim"]',
+              '[role="tooltip"], [class*="modal"], [class*="lightbox"], [class*="popover"], ' +
+              '[class*="dropdown-menu"], [class*="dropdown-content"], [class*="toast"], [class*="snackbar"]',
+    backdrops: '[class*="backdrop"], [class*="overlay"]:not(.evidence-badge-overlay):not(.thumb-zoom-overlay):not(.task-doc-meta-overlay), [class*="scrim"]',
     counters: '[data-countup], [class*="stat"] [class*="value"], [class*="metric"] [class*="value"], ' +
               '[class*="kpi"] [class*="value"], [class*="stat"] [class*="number"], [class*="kpi"] [class*="number"], ' +
               '[class*="stat-chip"] .num, [class*="stat"] .num, [class*="kpi"] .num',
     rippleTargets: 'button, [role="button"], [role="tab"], [role="menuitem"], [class*="btn"], summary, ' +
                    'nav a, aside a, [class*="sidebar"] a, [class*="nav"] a',
-    exclude: '[data-motion~="none"]',
+    exclude: '[data-motion~="none"], [data-motion="none"], [role="dialog"], [role="dialog"] *',
     rippleMax: [420, 96],
     stagger: 50,
     maxSteps: 8,
-    intentWindow: 2500,
+    intentWindow: 2000,
     ripple: true, progressBar: true, countUp: true
   }, window.LW_MOTION || {});
 
@@ -41,17 +51,35 @@ export const initMotion = () => {
   const hasIntent = () => now() - intentAt < cfg.intentWindow;
   const isTyping = (t) => t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName));
 
-  const ownAnimation = (el) => {
-    const n = getComputedStyle(el).animationName;
-    return n && n !== 'none' && !/(^|,\s*)lw-/.test(n);
+  // Set of elements currently animated or excluded to prevent duplicate triggers
+  const animatedOverlays = new WeakSet();
+
+  const isModalActive = () => {
+    return Boolean(
+      document.querySelector('[role="dialog"]') ||
+      document.querySelector('[aria-modal="true"]') ||
+      document.querySelector('.evidence-lightbox-overlay') ||
+      document.querySelector('.media-viewer-overlay')
+    );
   };
+
+  const ownAnimation = (el) => {
+    if (!el || el.nodeType !== 1) return false;
+    const n = getComputedStyle(el).animationName;
+    return Boolean(n && n !== 'none' && !/(^|,\s*)lw-/.test(n));
+  };
+
   function play(el, cls, ms = 800) {
-    if (!el || el.nodeType !== 1 || el.closest(cfg.exclude)) return;
-    if (el.classList.contains(cls)) { el.classList.remove(cls); void el.offsetWidth; }
-    else if (ownAnimation(el)) return;
+    if (!el || el.nodeType !== 1 || el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
+    // If element is already animating this class, do NOT remove and force reflow (which causes flash!)
+    if (el.classList.contains(cls)) return;
+    if (ownAnimation(el)) return;
     el.classList.add(cls);
-    setTimeout(() => el && el.classList && el.classList.remove(cls), ms);
+    setTimeout(() => {
+      if (el && el.classList) el.classList.remove(cls);
+    }, ms);
   }
+
   const isVisible = (el) => {
     if (!el) return false;
     return el.checkVisibility
@@ -83,7 +111,9 @@ export const initMotion = () => {
 
   function prepare(el) {
     if (!el || el.nodeType !== 1 || el.classList.contains('lw-reveal') || !el.matches(cfg.reveal)) return;
-    if (el.closest(cfg.exclude)) return;
+    if (el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
+    // CRITICAL: NEVER apply reveal animation inside dialogs, modals, or lightboxes!
+    if (el.closest('[role="dialog"]') || el.closest('[aria-modal="true"]') || el.closest('[class*="lightbox"]') || el.closest('[class*="viewer"]')) return;
     const p = el.parentElement;
     if (p && (p.closest('.lw-reveal') || p.closest(cfg.overlays))) return;
     const cs = getComputedStyle(el);
@@ -94,6 +124,8 @@ export const initMotion = () => {
 
   function scan(node) {
     if (!node || node.nodeType !== 1) return;
+    if (node.closest(cfg.exclude) || node.closest('[data-motion="none"]')) return;
+    if (node.closest('[role="dialog"]') || node.closest('[aria-modal="true"]') || node.closest('[class*="lightbox"]') || node.closest('[class*="viewer"]')) return;
     prepare(node);
     qsa(node, cfg.reveal).forEach(prepare);
     if (cfg.countUp) { prepareCounter(node); qsa(node, cfg.counters).forEach(prepareCounter); }
@@ -135,7 +167,8 @@ export const initMotion = () => {
   }
 
   function prepareCounter(el) {
-    if (!el || el.nodeType !== 1 || !el.matches(cfg.counters) || el.children.length || el.closest(cfg.exclude)) return;
+    if (!el || el.nodeType !== 1 || !el.matches(cfg.counters) || el.children.length || el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
+    if (el.closest('[role="dialog"]') || el.closest('[aria-modal="true"]')) return;
     if (running.has(el) || !parseNum(el.textContent)) return;
     counterIO.observe(el);
   }
@@ -161,35 +194,45 @@ export const initMotion = () => {
     })();
   }
 
+  /* Overlay: modal, dropdown, toast — animates exactly ONCE without duplicate flash */
   function playOverlay(el) {
-    if (!el || el.nodeType !== 1) return;
+    if (!el || el.nodeType !== 1 || animatedOverlays.has(el)) return;
+    animatedOverlays.add(el);
+
+    // If the overlay already has native CSS transition/animation (e.g. fadeIn), don't clash with it
+    if (ownAnimation(el)) return;
+
     if (el.matches(cfg.backdrops)) {
-      play(el, 'lw-fade');
-      const inner = el.querySelector(cfg.overlays);
-      if (inner) play(inner, 'lw-pop');
+      play(el, 'lw-fade', 300);
+      const inner = el.querySelector(cfg.overlays) || el.firstElementChild;
+      if (inner && !inner.closest(cfg.exclude) && !ownAnimation(inner)) {
+        play(inner, 'lw-pop', 300);
+      }
     } else if (el.matches(cfg.overlays)) {
       const outer = el.parentElement && el.parentElement.closest(cfg.overlays);
       if (outer && !outer.matches(cfg.backdrops)) return;
-      play(el, 'lw-pop');
+      play(el, 'lw-pop', 300);
     }
   }
 
   function pickViews() {
     for (const sel of cfg.viewRoots) {
-      const els = qsa(document, sel).filter((e) => isVisible(e) && !e.parentElement.closest(sel));
+      const els = qsa(document, sel).filter((e) => isVisible(e) && !e.parentElement.closest(sel) && !e.closest('[role="dialog"]'));
       if (els.length) return els;
     }
     return [];
   }
 
   function bar() {
-    if (!cfg.progressBar) return;
+    if (!cfg.progressBar || isModalActive()) return;
     let b = document.querySelector('.lw-bar');
     if (!b) { b = document.createElement('div'); b.className = 'lw-bar'; document.body.appendChild(b); }
     b.classList.remove('run'); void b.offsetWidth; b.classList.add('run');
   }
 
   function enterView() {
+    // Never animate background page if a modal is currently open
+    if (isModalActive()) return;
     pickViews().forEach((v) => { play(v, 'lw-view-in'); replay(v); });
     bar();
   }
@@ -216,27 +259,58 @@ export const initMotion = () => {
     if (node.matches(toggleSel)) seen.set(node, isVisible(node));
     qsa(node, toggleSel).forEach((e) => seen.set(e, isVisible(e)));
   }
+
   function checkToggle(el) {
-    if (!el.isConnected || !el.matches(toggleSel)) return;
+    if (!el.isConnected || !el.matches(toggleSel) || el.closest(cfg.exclude) || el.closest('[data-motion="none"]')) return;
     const vis = isVisible(el), was = seen.get(el);
     seen.set(el, vis);
     if (!vis || was !== false) return;
-    if (el.matches(cfg.overlays) || el.matches(cfg.backdrops)) playOverlay(el);
-    else { play(el, 'lw-view-in'); replay(el); }
+    if (el.matches(cfg.overlays) || el.matches(cfg.backdrops) || el.getAttribute('role') === 'dialog') {
+      playOverlay(el);
+    } else if (!isModalActive()) {
+      play(el, 'lw-view-in'); replay(el);
+    }
   }
 
+  /* MutationObserver: strict modal isolation to prevent page flicker */
   const mo = new MutationObserver((muts) => {
     const toggled = new Set();
+    const modalActive = isModalActive();
+
     for (const m of muts) {
-      if (m.type === 'attributes') { toggled.add(m.target); continue; }
+      if (m.type === 'attributes') {
+        // Do NOT track attributes inside dialogs or image previews
+        if (!m.target.closest || !m.target.closest(cfg.overlays)) {
+          toggled.add(m.target);
+        }
+        continue;
+      }
       for (const n of m.addedNodes) {
         if (n.nodeType !== 1 || /^(SCRIPT|STYLE|LINK|META)$/.test(n.tagName)) continue;
         if (n.classList.contains('lw-ripple') || n.classList.contains('lw-bar')) continue;
-        if (n.matches(cfg.overlays) || n.matches(cfg.backdrops)) playOverlay(n);
-        else if (hasIntent() && m.target.matches && m.target.matches(cfg.swapParents) &&
-                 !n.matches(cfg.reveal) && n.offsetWidth > 240 && n.offsetHeight > 120) play(n, 'lw-view-in');
+
+        const isOverlay = n.matches(cfg.overlays) || n.matches(cfg.backdrops) || (n.getAttribute && n.getAttribute('role') === 'dialog');
+        const insideOverlay = n.closest && (n.closest(cfg.overlays) || n.closest(cfg.backdrops) || n.closest('[role="dialog"]'));
+
+        if (isOverlay) {
+          playOverlay(n);
+          // Overlays must NOT trigger view-in or generic reveal!
+          continue;
+        }
+
+        if (insideOverlay) {
+          // Inner updates in dialogs (e.g. image carousel navigation): do NOT re-trigger animations
+          continue;
+        }
+
+        // View swapping: ONLY run if no modal is active and target matches major swap parent
+        if (!modalActive && hasIntent() && m.target.matches && m.target.matches(cfg.swapParents) &&
+            !n.matches(cfg.reveal) && n.offsetWidth > 240 && n.offsetHeight > 120) {
+          play(n, 'lw-view-in');
+        }
+
         seed(n);
-        if (hasIntent()) scan(n);
+        if (hasIntent() && !modalActive) scan(n);
       }
     }
     if (toggled.size) requestAnimationFrame(() => toggled.forEach(checkToggle));
@@ -245,7 +319,7 @@ export const initMotion = () => {
   function ripple(e) {
     if (!cfg.ripple || e.button > 0) return;
     const t = e.target.closest && e.target.closest(cfg.rippleTargets);
-    if (!t || t.disabled || t.closest(cfg.exclude) || t.matches('[aria-disabled="true"]')) return;
+    if (!t || t.disabled || t.closest(cfg.exclude) || t.closest('[data-motion="none"]') || t.matches('[aria-disabled="true"]')) return;
     const r = t.getBoundingClientRect();
     if (r.width < 8 || r.width > cfg.rippleMax[0] || r.height > cfg.rippleMax[1]) return;
     const cs = getComputedStyle(t);
@@ -272,11 +346,11 @@ export const initMotion = () => {
 
   let ticking = false;
   addEventListener('scroll', () => {
-    if (ticking) return;
+    if (ticking || isModalActive()) return;
     ticking = true;
     requestAnimationFrame(() => {
       ticking = false;
-      document.querySelectorAll('[data-parallax]').forEach((el) => {
+      document.querySelectorAll('[data-parallax]:not([role="dialog"] *)').forEach((el) => {
         const k = parseFloat(el.dataset.parallax) || 0.08;
         const r = el.getBoundingClientRect();
         el.style.setProperty('--lw-py', ((innerHeight / 2 - (r.top + r.height / 2)) * k).toFixed(1) + 'px');

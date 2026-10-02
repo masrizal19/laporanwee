@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TaskDocument, ProjectDocument } from '../types';
 import { Icon } from './icons';
 
@@ -18,6 +18,8 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
   onNavigate,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [loadedUrl, setLoadedUrl] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -43,10 +45,55 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
     }
   }, [currentIndex, isOpen]);
 
-  if (!isOpen || documents.length === 0) return null;
-
   const currentDoc = documents[currentIndex] || documents[0];
-  const isVideo = currentDoc.file_type === 'video';
+  const isVideo = currentDoc?.file_type === 'video';
+  const originalFileUrl = currentDoc?.file_url || '';
+
+  // Preload and decode images before showing
+  useEffect(() => {
+    if (!isOpen || isVideo || !originalFileUrl) return;
+
+    let isMounted = true;
+    setImageLoaded(false);
+
+    const img = new Image();
+    img.src = originalFileUrl;
+
+    if (typeof (img as any).decode === 'function') {
+      (img as HTMLImageElement).decode()
+        .then(() => {
+          if (isMounted) {
+            setLoadedUrl(originalFileUrl);
+            setImageLoaded(true);
+          }
+        })
+        .catch(() => {
+          if (isMounted) {
+            setLoadedUrl(originalFileUrl);
+            setImageLoaded(true);
+          }
+        });
+    } else {
+      img.onload = () => {
+        if (isMounted) {
+          setLoadedUrl(originalFileUrl);
+          setImageLoaded(true);
+        }
+      };
+      img.onerror = () => {
+        if (isMounted) {
+          setLoadedUrl(originalFileUrl);
+          setImageLoaded(true);
+        }
+      };
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, isVideo, originalFileUrl]);
+
+  if (!isOpen || documents.length === 0) return null;
 
   return (
     <div
@@ -55,10 +102,12 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-label="Pratinjau Dokumentasi Pekerjaan"
+      data-motion="none"
     >
       <div
         className="media-viewer-content"
         onClick={(e) => e.stopPropagation()}
+        data-motion="none"
       >
         {/* Header Bar */}
         <div className="media-viewer-header">
@@ -122,7 +171,7 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
             </button>
           )}
 
-          <div className="media-display-container">
+          <div className="media-display-container" data-motion="none">
             {isVideo ? (
               <video
                 ref={videoRef}
@@ -133,15 +182,36 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
                 autoPlay={false}
                 muted={true}
                 className="media-video-player"
+                data-motion="none"
               >
                 Browser Anda tidak mendukung pemutar video HTML5.
               </video>
             ) : (
-              <img
-                src={currentDoc.file_url}
-                alt={currentDoc.file_name}
-                className="media-image-display"
-              />
+              <>
+                {!imageLoaded && (
+                  <div className="lightbox-image-loading" data-motion="none">
+                    <div className="lightbox-spinner" />
+                  </div>
+                )}
+                <img
+                  key={loadedUrl || originalFileUrl}
+                  src={loadedUrl || originalFileUrl}
+                  alt={currentDoc.file_name}
+                  className="media-image-display"
+                  data-motion="none"
+                  style={{
+                    opacity: imageLoaded ? 1 : 0,
+                    transition: 'opacity 0.2s ease',
+                    width: 'auto',
+                    height: 'auto',
+                    maxWidth: '100%',
+                    maxHeight: 'calc(100vh - 220px)',
+                    objectFit: 'contain',
+                    imageRendering: 'auto',
+                    transform: 'none',
+                  }}
+                />
+              </>
             )}
           </div>
 

@@ -516,8 +516,21 @@ export const dailyReportService = {
     }
 
     return res.data.map((item: any): Report => {
-      const cover = item.cover_url || null;
-      const evidenceList = cover ? [cover] : [];
+      let evidenceList: string[] = [];
+      if (Array.isArray(item.evidence_urls) && item.evidence_urls.length > 0) {
+        evidenceList = item.evidence_urls;
+      } else if (typeof item.evidence_urls === 'string' && item.evidence_urls.startsWith('[')) {
+        try {
+          evidenceList = JSON.parse(item.evidence_urls);
+        } catch (_) {}
+      }
+      if (evidenceList.length === 0 && item.cover_url) {
+        evidenceList = [item.cover_url];
+      }
+      if (evidenceList.length === 0 && item.file_url) {
+        evidenceList = [item.file_url];
+      }
+      const cover = evidenceList[0] || item.cover_url || item.file_url || null;
       let dateDisplay = item.report_date || '14 Okt 2026';
       if (item.report_date && item.report_date.includes('-')) {
         try {
