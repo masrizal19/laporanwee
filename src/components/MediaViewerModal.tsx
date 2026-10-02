@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TaskDocument, ProjectDocument } from '../types';
 import { Icon } from './icons';
+import { API_BASE_URL } from '../utils/api';
 
 interface MediaViewerModalProps {
   isOpen: boolean;
@@ -19,7 +20,6 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [loadedUrl, setLoadedUrl] = useState('');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -47,7 +47,14 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
 
   const currentDoc = documents[currentIndex] || documents[0];
   const isVideo = currentDoc?.file_type === 'video';
-  const originalFileUrl = currentDoc?.file_url || '';
+
+  // Use original.php endpoint if document has an id, preserving pristine file resolution
+  const originalFileUrl = currentDoc?.id
+    ? `${API_BASE_URL}/project-documents/original.php?id=${currentDoc.id}`
+    : currentDoc?.file_url || '';
+
+  // Stable key based on document id: key={`preview-${document.id}`}
+  const stableKey = currentDoc?.id ? `preview-${currentDoc.id}` : `preview-${currentIndex}`;
 
   // Reset loaded indicator when navigating documents
   useEffect(() => {
@@ -184,9 +191,9 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
                   </div>
                 )}
                 <img
-                  key={currentIndex}
+                  key={stableKey}
                   src={originalFileUrl}
-                  alt={currentDoc.file_name}
+                  alt={('original_name' in currentDoc ? currentDoc.original_name : currentDoc.file_name) || currentDoc.file_name}
                   className="media-image-display"
                   data-motion="none"
                   loading="eager"

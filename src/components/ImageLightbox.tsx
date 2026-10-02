@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from './icons';
+import { API_BASE_URL } from '../utils/api';
 
 interface ImageLightboxProps {
   isOpen: boolean;
   images: string[];
+  documents?: Array<{ id?: number | string; original_name?: string; [key: string]: any }>;
+  documentIds?: Array<number | string>;
   currentIndex: number;
   title?: string;
   onClose: () => void;
@@ -29,6 +32,8 @@ const getOriginalImageUrl = (url?: string): string => {
 export const ImageLightbox: React.FC<ImageLightboxProps> = ({
   isOpen,
   images,
+  documents,
+  documentIds,
   currentIndex,
   title,
   onClose,
@@ -37,7 +42,29 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
   const [imageLoaded, setImageLoaded] = useState(false);
 
   const rawImage = images[currentIndex] || images[0] || '';
-  const originalImage = getOriginalImageUrl(rawImage);
+  const currentDoc = documents?.[currentIndex] || documents?.[0];
+
+  // Resolve document ID if present on doc object, documentIds prop, or query params
+  let docId: number | string | undefined = currentDoc?.id || (documentIds && documentIds[currentIndex]);
+  if (!docId && typeof rawImage === 'string') {
+    const match = rawImage.match(/[?&]id=(\d+)/);
+    if (match) {
+      docId = match[1];
+    }
+  }
+
+  // If document has id and is project document, serve from original.php endpoint
+  let originalImage = '';
+  if (docId) {
+    originalImage = `${API_BASE_URL}/project-documents/original.php?id=${docId}`;
+  } else if (rawImage.includes('/project-documents/original.php?id=')) {
+    originalImage = rawImage;
+  } else {
+    originalImage = getOriginalImageUrl(rawImage);
+  }
+
+  // Stable key based on document id as required: key={`preview-${document.id}`}
+  const stableKey = docId ? `preview-${docId}` : `preview-${currentIndex}`;
 
   // Reset loaded indicator when navigating images
   useEffect(() => {
@@ -154,9 +181,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           )}
 
           <img
-            key={currentIndex}
+            key={stableKey}
             src={originalImage}
-            alt={title || 'Bukti pekerjaan'}
+            alt={currentDoc?.original_name || title || 'Bukti pekerjaan'}
             className="lightbox-img"
             data-motion="none"
             loading="eager"

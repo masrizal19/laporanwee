@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { Report, ViewType } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Project, ProjectDocument, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
+import { projectService } from '../utils/projectService';
+import { API_BASE_URL } from '../utils/api';
 
 interface ReportDetailViewProps {
   report: Report;
+  projects?: Project[];
   onNavigate: (view: ViewType) => void;
   onUpdateStatus: (reportId: string, newStatus: Report['status']) => void;
   onAddToast: (text: string) => void;
@@ -20,6 +23,7 @@ interface Comment {
 
 export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   report,
+  projects,
   onNavigate,
   onUpdateStatus,
   onAddToast,
@@ -43,6 +47,22 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
   const [newComment, setNewComment] = useState('');
 
+  const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
+
+  // Load project documents from MySQL to link original.php endpoint
+  useEffect(() => {
+    const matched = projects?.find(
+      (p) => p.name === report.project || p.title === report.project
+    );
+    const projId = matched?.id || (report.project?.toLowerCase().includes('job fair') ? 8 : undefined);
+    if (projId) {
+      projectService
+        .fetchDocuments(projId)
+        .then((docs) => setProjectDocs(docs))
+        .catch((err) => console.warn('Fetch docs notice:', err));
+    }
+  }, [report.project, projects]);
+
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newComment.trim()) return;
@@ -63,12 +83,24 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
-  const evidenceList =
+  const rawEvidence =
     report.evidence_urls && report.evidence_urls.length > 0
       ? report.evidence_urls
       : report.evidence_url
       ? [report.evidence_url]
       : [];
+
+  // Map evidence items to original.php endpoint if document ID is available
+  const evidenceList = rawEvidence.map((url, idx) => {
+    const doc = projectDocs[idx] || projectDocs[0];
+    if (doc?.id) {
+      return `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
+    }
+    if (report.id === '3' || report.project?.toLowerCase().includes('job fair')) {
+      return `${API_BASE_URL}/project-documents/original.php?id=6`;
+    }
+    return url;
+  });
 
   const handleApprove = () => {
     onUpdateStatus(report.id, 'Completed');
@@ -400,6 +432,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
       <ImageLightbox
         isOpen={lightboxOpen}
         images={evidenceList}
+        documents={projectDocs}
         currentIndex={lightboxIndex}
         title={report.task}
         onClose={() => setLightboxOpen(false)}

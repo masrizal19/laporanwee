@@ -986,6 +986,7 @@ export function App() {
           currentReport ? (
             <ReportDetailView
               report={currentReport}
+              projects={projects}
               onNavigate={handleNavigate}
               onUpdateStatus={handleUpdateReportStatus}
               onAddToast={addToast}

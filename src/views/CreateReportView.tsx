@@ -3,7 +3,7 @@ import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { getUserDisplayName } from '../utils/userUtils';
-import { api } from '../utils/api';
+import { api, API_BASE_URL } from '../utils/api';
 
 interface EvidenceFileItem {
   id: string;
@@ -159,10 +159,10 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
             formData.append('project_id', String(projectId));
             formData.append('file', item.file);
             const uploadRes = await api.upload('/project-documents/upload.php', formData);
-            const serverUrl =
-              uploadRes?.data?.file_url ||
-              uploadRes?.data?.url ||
-              uploadRes?.data?.original_url;
+            const docId = uploadRes?.data?.id;
+            const serverUrl = docId
+              ? `${API_BASE_URL}/project-documents/original.php?id=${docId}`
+              : (uploadRes?.data?.file_url || uploadRes?.data?.url || uploadRes?.data?.original_url);
             if (serverUrl) {
               uploadedUrls.push(serverUrl);
             }

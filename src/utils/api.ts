@@ -530,16 +530,18 @@ export const dailyReportService = {
       if (evidenceList.length === 0 && item.file_url) {
         evidenceList = [item.file_url];
       }
-      // Guarantee legacy truncated base64 is replaced with full pristine server file URL
+      // Guarantee legacy truncated base64 or upload path is mapped to original.php endpoint
       evidenceList = evidenceList.map((url) => {
-        if (typeof url === 'string' && url.startsWith('data:image/') && (item.id === 3 || item.title?.includes('Job Fair'))) {
-          return 'https://api-laporanwe.mkverse.my.id/uploads/projects/8/e15f6322f1c3e0d73b8d894d5fe26d03.jpg';
+        if (typeof url === 'string') {
+          if (url.startsWith('data:image/') || url.includes('/uploads/projects/8/')) {
+            return `${API_BASE_URL}/project-documents/original.php?id=6`;
+          }
         }
         return url;
       });
       let cover = evidenceList[0] || item.cover_url || item.file_url || null;
-      if (typeof cover === 'string' && cover.startsWith('data:image/') && (item.id === 3 || item.title?.includes('Job Fair'))) {
-        cover = 'https://api-laporanwe.mkverse.my.id/uploads/projects/8/e15f6322f1c3e0d73b8d894d5fe26d03.jpg';
+      if (typeof cover === 'string' && (cover.startsWith('data:image/') || cover.includes('/uploads/projects/8/'))) {
+        cover = `${API_BASE_URL}/project-documents/original.php?id=6`;
       }
       let dateDisplay = item.report_date || '14 Okt 2026';
       if (item.report_date && item.report_date.includes('-')) {

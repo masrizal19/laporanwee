@@ -1,5 +1,5 @@
 import { Project, ProjectDocument } from '../types';
-import { api } from './api';
+import { api, API_BASE_URL } from './api';
 import { formatFileSize } from './taskDocuments';
 
 const DEFAULT_TEAM_AVATARS = [
@@ -76,16 +76,25 @@ export const mapBackendProject = (item: any): Project => {
 };
 
 /**
+ * Returns original project document endpoint:
+ * https://api-laporanwe.mkverse.my.id/api/project-documents/original.php?id={id}
+ */
+export const getOriginalDocumentUrl = (documentId: number | string): string => {
+  return `${API_BASE_URL}/project-documents/original.php?id=${documentId}`;
+};
+
+/**
  * Maps raw backend Document object to frontend ProjectDocument interface
  */
 export const mapBackendDocument = (item: any): ProjectDocument => {
   const fileSize = typeof item.file_size === 'number' ? item.file_size : parseInt(item.file_size, 10) || 0;
+  const originalUrl = item.id ? getOriginalDocumentUrl(item.id) : (item.file_url || '');
   return {
     id: item.id,
     project_id: item.project_id,
     original_name: item.original_name || item.file_name || 'Dokumen',
     file_name: item.file_name || 'file',
-    file_url: item.file_url,
+    file_url: originalUrl,
     mime_type: item.mime_type || 'application/octet-stream',
     file_type: item.file_type || (item.mime_type?.startsWith('video/') ? 'video' : 'image'),
     file_size: fileSize,
