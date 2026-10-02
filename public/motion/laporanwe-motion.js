@@ -29,13 +29,13 @@
     overlays: '[role="dialog"], [role="alertdialog"], [aria-modal="true"], [role="menu"], [role="listbox"], ' +
               '[role="tooltip"], [class*="modal"], [class*="lightbox"], [class*="popover"], ' +
               '[class*="dropdown-menu"], [class*="dropdown-content"], [class*="toast"], [class*="snackbar"]',
-    backdrops: '[class*="backdrop"], [class*="overlay"]:not(.evidence-badge-overlay):not(.thumb-zoom-overlay):not(.task-doc-meta-overlay), [class*="scrim"]',
+    backdrops: '[class*="backdrop"], [class*="overlay"]:not(.evidence-badge-overlay):not(.thumb-zoom-overlay):not(.task-doc-meta-overlay):not(.evidence-lightbox-overlay):not(.media-viewer-overlay), [class*="scrim"]',
     counters: '[data-countup], [class*="stat"] [class*="value"], [class*="metric"] [class*="value"], ' +
               '[class*="kpi"] [class*="value"], [class*="stat"] [class*="number"], [class*="kpi"] [class*="number"], ' +
               '[class*="stat-chip"] .num, [class*="stat"] .num, [class*="kpi"] .num',
     rippleTargets: 'button, [role="button"], [role="tab"], [role="menuitem"], [class*="btn"], summary, ' +
                    'nav a, aside a, [class*="sidebar"] a, [class*="nav"] a',
-    exclude: '[data-motion~="none"], [data-motion="none"], [role="dialog"], [role="dialog"] *',
+    exclude: '[data-motion~="none"], [data-motion="none"], [role="dialog"], [role="dialog"] *, .evidence-lightbox-overlay, .evidence-lightbox-overlay *, .media-viewer-overlay, .media-viewer-overlay *',
     rippleMax: [420, 96],
     stagger: 50,
     maxSteps: 8,

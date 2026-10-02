@@ -86,26 +86,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          const src = event.target.result as string;
-          const img = new Image();
-          img.onload = () => {
-            const containerSize = 240;
-            const scaleX = containerSize / img.width;
-            const scaleY = containerSize / img.height;
-            const baseScale = Math.min(scaleX, scaleY);
-            setImageDims({ width: img.width, height: img.height, baseScale });
-            setZoom(1); // 1 = fit contain, entire image visible
-            setPanX(0);
-            setPanY(0);
-            setRawImageSrc(src);
-          };
-          img.src = src;
-        }
+      const src = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const containerSize = 240;
+        const scaleX = containerSize / img.width;
+        const scaleY = containerSize / img.height;
+        const baseScale = Math.min(scaleX, scaleY);
+        setImageDims({ width: img.width, height: img.height, baseScale });
+        setZoom(1); // 1 = fit contain, entire image visible
+        setPanX(0);
+        setPanY(0);
+        setRawImageSrc(src);
       };
-      reader.readAsDataURL(file);
+      img.src = src;
     }
   };
 

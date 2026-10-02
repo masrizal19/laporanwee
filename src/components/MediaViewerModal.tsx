@@ -49,49 +49,10 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
   const isVideo = currentDoc?.file_type === 'video';
   const originalFileUrl = currentDoc?.file_url || '';
 
-  // Preload and decode images before showing
+  // Reset loaded indicator when navigating documents
   useEffect(() => {
-    if (!isOpen || isVideo || !originalFileUrl) return;
-
-    let isMounted = true;
     setImageLoaded(false);
-
-    const img = new Image();
-    img.src = originalFileUrl;
-
-    if (typeof (img as any).decode === 'function') {
-      (img as HTMLImageElement).decode()
-        .then(() => {
-          if (isMounted) {
-            setLoadedUrl(originalFileUrl);
-            setImageLoaded(true);
-          }
-        })
-        .catch(() => {
-          if (isMounted) {
-            setLoadedUrl(originalFileUrl);
-            setImageLoaded(true);
-          }
-        });
-    } else {
-      img.onload = () => {
-        if (isMounted) {
-          setLoadedUrl(originalFileUrl);
-          setImageLoaded(true);
-        }
-      };
-      img.onerror = () => {
-        if (isMounted) {
-          setLoadedUrl(originalFileUrl);
-          setImageLoaded(true);
-        }
-      };
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen, isVideo, originalFileUrl]);
+  }, [currentIndex, originalFileUrl]);
 
   if (!isOpen || documents.length === 0) return null;
 
@@ -139,6 +100,35 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
           </div>
 
           <div className="media-header-actions">
+            {originalFileUrl && (
+              <a
+                href={originalFileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="media-ext-link"
+                title="Buka file asli di tab baru"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '5px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.16)',
+                  textDecoration: 'none',
+                  marginRight: '6px',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <Icon name="link" style={{ width: 13, height: 13 }} />
+                <span>Buka Asli</span>
+              </a>
+            )}
+
             {documents.length > 1 && (
               <span className="media-counter">
                 {currentIndex + 1} / {documents.length}
@@ -194,14 +184,15 @@ export const MediaViewerModal: React.FC<MediaViewerModalProps> = ({
                   </div>
                 )}
                 <img
-                  key={loadedUrl || originalFileUrl}
-                  src={loadedUrl || originalFileUrl}
+                  key={currentIndex}
+                  src={originalFileUrl}
                   alt={currentDoc.file_name}
                   className="media-image-display"
                   data-motion="none"
+                  loading="eager"
+                  decoding="async"
+                  onLoad={() => setImageLoaded(true)}
                   style={{
-                    opacity: imageLoaded ? 1 : 0,
-                    transition: 'opacity 0.2s ease',
                     width: 'auto',
                     height: 'auto',
                     maxWidth: '100%',

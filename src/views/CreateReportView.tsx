@@ -1,8 +1,17 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { getUserDisplayName } from '../utils/userUtils';
+import { api } from '../utils/api';
+
+interface EvidenceFileItem {
+  id: string;
+  file?: File;
+  previewUrl: string;
+  serverUrl?: string;
+  name: string;
+}
 
 interface CreateReportViewProps {
   projects: Project[];
@@ -39,14 +48,28 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
   const [taskErr, setTaskErr] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Evidence photos state (from gallery)
-  const [evidencePreviews, setEvidencePreviews] = useState<string[]>([]);
+  // Evidence items state: holds pristine File instances and uncompressed Object URLs
+  const [evidenceItems, setEvidenceItems] = useState<EvidenceFileItem[]>([]);
   const [activePreviewIndex, setActivePreviewIndex] = useState<number>(0);
   const [isLightboxOpen, setIsLightboxOpen] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // File handler for work evidence photos using FileReader data URLs (persistent & never shows raw URLs)
+  // Derived preview URLs for UI rendering and Lightbox
+  const evidencePreviews = evidenceItems.map((item) => item.previewUrl);
+
+  // Clean up blob Object URLs when component unmounts to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      evidenceItems.forEach((item) => {
+        if (item.previewUrl?.startsWith('blob:')) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      });
+    };
+  }, []);
+
+  // Process selected image files using native URL.createObjectURL (zero compression, zero blur)
   const processImageFiles = (files: FileList | File[]) => {
     const fileList = Array.from(files);
     const validFiles = fileList.filter((f) => f.type.startsWith('image/'));
@@ -56,24 +79,15 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
       return;
     }
 
-    let loadedCount = 0;
-    const loadedDataUrls: string[] = [];
+    const newItems: EvidenceFileItem[] = validFiles.map((file) => ({
+      id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      name: file.name,
+    }));
 
-    validFiles.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        if (dataUrl) {
-          loadedDataUrls.push(dataUrl);
-          loadedCount++;
-          if (loadedCount === validFiles.length) {
-            setEvidencePreviews((prev) => [...prev, ...loadedDataUrls]);
-            onAddToast(`✓ ${validFiles.length} foto bukti pekerjaan berhasil dipilih dari galeri.`);
-          }
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+    setEvidenceItems((prev) => [...prev, ...newItems]);
+    onAddToast(`✓ ${validFiles.length} foto bukti pekerjaan berhasil dipilih dari galeri.`);
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -97,7 +111,11 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
   };
 
   const handleRemovePhoto = (indexToRemove: number) => {
-    setEvidencePreviews((prev) => {
+    setEvidenceItems((prev) => {
+      const target = prev[indexToRemove];
+      if (target?.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(target.previewUrl);
+      }
       const updated = prev.filter((_, idx) => idx !== indexToRemove);
       if (activePreviewIndex >= updated.length) {
         setActivePreviewIndex(Math.max(0, updated.length - 1));
@@ -108,7 +126,12 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
   };
 
   const handleClearEvidence = () => {
-    setEvidencePreviews([]);
+    evidenceItems.forEach((item) => {
+      if (item.previewUrl?.startsWith('blob:')) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
+    });
+    setEvidenceItems([]);
     setActivePreviewIndex(0);
     onAddToast('Semua bukti foto telah dihapus.');
   };
@@ -120,22 +143,53 @@ export const CreateReportView: React.FC<CreateReportViewProps> = ({
       return;
     }
 
-    // Default category photo if user didn't upload any
-    const finalEvidence: string[] =
-      evidencePreviews.length > 0
-        ? evidencePreviews
-        : [
-            category.includes('Desain')
-              ? 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80'
-              : category.includes('Video')
-              ? 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80'
-              : category.includes('Foto')
-              ? 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80'
-              : 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
-          ];
-
     setIsSubmitting(true);
     try {
+      // Find matching project id for genuine server file storage
+      const matchedProject = projects.find((p) => p.name === selectedProject) || projects[0];
+      const projectId = matchedProject ? matchedProject.id : 8;
+
+      const uploadedUrls: string[] = [];
+
+      // Upload actual File instances directly to MySQL server storage via FormData
+      for (const item of evidenceItems) {
+        if (item.file) {
+          try {
+            const formData = new FormData();
+            formData.append('project_id', String(projectId));
+            formData.append('file', item.file);
+            const uploadRes = await api.upload('/project-documents/upload.php', formData);
+            const serverUrl =
+              uploadRes?.data?.file_url ||
+              uploadRes?.data?.url ||
+              uploadRes?.data?.original_url;
+            if (serverUrl) {
+              uploadedUrls.push(serverUrl);
+            }
+          } catch (uploadErr) {
+            console.warn('Gagal upload bukti pekerjaan ke server:', uploadErr);
+          }
+        } else if (item.serverUrl) {
+          uploadedUrls.push(item.serverUrl);
+        } else if (item.previewUrl && !item.previewUrl.startsWith('blob:')) {
+          uploadedUrls.push(item.previewUrl);
+        }
+      }
+
+      // Default category photo if user didn't upload any
+      const finalEvidence: string[] =
+        uploadedUrls.length > 0
+          ? uploadedUrls
+          : [
+              category.includes('Desain')
+                ? 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80'
+                : category.includes('Video')
+                ? 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80'
+                : category.includes('Foto')
+                ? 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80'
+                : 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
+            ];
+
       const newId = await onAddReport({
         person: reporterName,
         date: new Date().toISOString().slice(0, 10),

@@ -35,54 +35,14 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
   onNavigate,
 }) => {
   const [imageLoaded, setImageLoaded] = useState(false);
-  const [loadedUrl, setLoadedUrl] = useState('');
 
   const rawImage = images[currentIndex] || images[0] || '';
   const originalImage = getOriginalImageUrl(rawImage);
 
-  // Preload and decode original image before displaying to prevent blur/layout jumps
+  // Reset loaded indicator when navigating images
   useEffect(() => {
-    if (!isOpen || !originalImage) return;
-
-    let isMounted = true;
     setImageLoaded(false);
-
-    const img = new Image();
-    img.src = originalImage;
-
-    if (typeof (img as any).decode === 'function') {
-      (img as HTMLImageElement).decode()
-        .then(() => {
-          if (isMounted) {
-            setLoadedUrl(originalImage);
-            setImageLoaded(true);
-          }
-        })
-        .catch(() => {
-          if (isMounted) {
-            setLoadedUrl(originalImage);
-            setImageLoaded(true);
-          }
-        });
-    } else {
-      img.onload = () => {
-        if (isMounted) {
-          setLoadedUrl(originalImage);
-          setImageLoaded(true);
-        }
-      };
-      img.onerror = () => {
-        if (isMounted) {
-          setLoadedUrl(originalImage);
-          setImageLoaded(true);
-        }
-      };
-    }
-
-    return () => {
-      isMounted = false;
-    };
-  }, [isOpen, originalImage]);
+  }, [currentIndex, originalImage]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -125,6 +85,35 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           </div>
 
           <div className="lightbox-actions">
+            {originalImage && (
+              <a
+                href={originalImage}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="lightbox-ext-link"
+                title="Buka file gambar asli di tab baru"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '5px 12px',
+                  borderRadius: '8px',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.16)',
+                  textDecoration: 'none',
+                  marginRight: '6px',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s ease',
+                }}
+              >
+                <Icon name="link" style={{ width: 13, height: 13 }} />
+                <span>Buka Asli</span>
+              </a>
+            )}
+
             {images.length > 1 && (
               <span className="lightbox-counter">
                 {currentIndex + 1} / {images.length}
@@ -165,14 +154,15 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           )}
 
           <img
-            key={loadedUrl || originalImage}
-            src={loadedUrl || originalImage}
+            key={currentIndex}
+            src={originalImage}
             alt={title || 'Bukti pekerjaan'}
             className="lightbox-img"
             data-motion="none"
+            loading="eager"
+            decoding="async"
+            onLoad={() => setImageLoaded(true)}
             style={{
-              opacity: imageLoaded ? 1 : 0,
-              transition: 'opacity 0.2s ease',
               width: 'auto',
               height: 'auto',
               maxWidth: '100%',
