@@ -653,6 +653,7 @@ export const clearReportCache = () => {
 
 export const CANDIDATE_REPORT_ENDPOINTS = [
   '/reports/list.php',
+  '/reports/all.php',
   '/daily-reports/reports.php',
   '/daily-reports/all.php',
   '/daily-reports/index.php',
@@ -664,7 +665,6 @@ export const CANDIDATE_REPORT_ENDPOINTS = [
   '/reports.php',
   '/daily-reports.php',
   '/reports/index.php',
-  '/reports/all.php',
   '/daily-reports/fetch.php',
   '/daily-reports/list.php?type=reports',
   '/daily-reports/list.php?scope=reports',

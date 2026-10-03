@@ -686,8 +686,8 @@ export function App() {
         ]);
       }
 
-      // Re-fetch reports from MySQL API in background to ensure single source of truth
-      refreshReportsFromApi().catch((err) => console.warn('Background sync reports notice:', err));
+      // Re-fetch reports from MySQL API so new report appears immediately (Requirement 6)
+      await refreshReportsFromApi().catch((err) => console.warn('Sync reports notice:', err));
 
       // Show success feedback ONLY AFTER verification succeeded (Rule 8: jangan menampilkan success palsu)
       addToast(`Laporan kerja "${reportData.task}" berhasil dikirim!`);
