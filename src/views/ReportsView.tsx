@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 
@@ -25,19 +25,30 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 }) => {
   const [filterTab, setFilterTab] = useState<'All' | 'In Review' | 'In Progress' | 'Completed'>('All');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Debounce search input by 300ms without triggering network requests
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // Purely in-memory filtering: never request server on filter tab switch or search
   const filteredReports = reports.filter((r) => {
     if (filterTab === 'In Review' && r.status !== 'In Review') return false;
     if (filterTab === 'In Progress' && r.status !== 'In Progress') return false;
     if (filterTab === 'Completed' && r.status !== 'Completed') return false;
+    const query = debouncedSearch.trim().toLowerCase();
     if (
-      search.trim() &&
-      !r.task.toLowerCase().includes(search.toLowerCase()) &&
-      !r.person.toLowerCase().includes(search.toLowerCase()) &&
-      !r.project.toLowerCase().includes(search.toLowerCase())
+      query &&
+      !r.task.toLowerCase().includes(query) &&
+      !r.person.toLowerCase().includes(query) &&
+      !r.project.toLowerCase().includes(query)
     ) {
       return false;
     }

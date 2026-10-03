@@ -162,45 +162,49 @@ export const formatApiErrorMessage = (err: any): string => {
 };
 
 export const api = {
-  get: async (endpoint: string) => {
+  get: async (endpoint: string, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'GET', url });
     const response = await fetch(url, {
       method: 'GET',
       headers: getHeaders(),
       cache: 'no-store',
+      signal: options?.signal,
     });
     return handleResponse(response, url, 'GET');
   },
 
-  post: async (endpoint: string, body: any) => {
+  post: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'POST', url });
     const response = await fetch(url, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
     return handleResponse(response, url, 'POST');
   },
 
-  put: async (endpoint: string, body: any) => {
+  put: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'PUT', url });
     const response = await fetch(url, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
     return handleResponse(response, url, 'PUT');
   },
 
-  delete: async (endpoint: string) => {
+  delete: async (endpoint: string, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'DELETE', url });
     const response = await fetch(url, {
       method: 'DELETE',
       headers: getHeaders(),
+      signal: options?.signal,
     });
     return handleResponse(response, url, 'DELETE');
   },
@@ -592,6 +596,8 @@ export const mapRawDailyReportToReport = (item: any): Report => {
     next_plan: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
     evidence_urls: evidenceList,
     evidence_url: cover || undefined,
+    updated_at: item.updated_at || item.created_at || item.report_date || '',
+    created_at: item.created_at || item.report_date || '',
   };
 };
 
@@ -651,27 +657,8 @@ export const clearReportCache = () => {
   } catch (_) {}
 };
 
-export const CANDIDATE_REPORT_ENDPOINTS = [
-  '/reports/list.php',
-  '/reports/all.php',
-  '/daily-reports/reports.php',
-  '/daily-reports/all.php',
-  '/daily-reports/index.php',
-  '/daily-reports/list-reports.php',
-  '/daily-reports/list_reports.php',
-  '/daily-reports/get.php',
-  '/daily-reports/data.php',
-  '/daily_reports/list.php',
-  '/reports.php',
-  '/daily-reports.php',
-  '/reports/index.php',
-  '/daily-reports/fetch.php',
-  '/daily-reports/list.php?type=reports',
-  '/daily-reports/list.php?scope=reports',
-  '/daily-reports/list.php?mode=reports',
-  '/daily-reports/list.php?category=all',
-  '/daily-reports/list.php',
-];
+export const PRIMARY_REPORT_ENDPOINT = '/reports/list.php';
+export const FALLBACK_REPORT_ENDPOINT = '/reports/all.php';
 
 export const extractReportsArrayFromResponse = (res: any): any[] | null => {
   if (!res) return null;
@@ -723,33 +710,34 @@ export const dailyReportService = {
   removeReportFromCache,
   clearReportCache,
 
-  fetchDailyReports: async (userEmail?: string, isAdmin?: boolean): Promise<Report[]> => {
+  fetchDailyReports: async (
+    userEmail?: string,
+    isAdmin?: boolean,
+    options?: { signal?: AbortSignal }
+  ): Promise<Report[]> => {
     let apiReports: Report[] = [];
-    let workingEndpoint: string | null = null;
 
-    const savedEndpoint = localStorage.getItem('laporanwee_working_reports_endpoint');
-    const endpointsToTry = savedEndpoint
-      ? [savedEndpoint, ...CANDIDATE_REPORT_ENDPOINTS.filter((e) => e !== savedEndpoint)]
-      : CANDIDATE_REPORT_ENDPOINTS;
+    // 1. Primary request: /api/reports/list.php
+    try {
+      const res = await api.get(PRIMARY_REPORT_ENDPOINT, options);
+      const extracted = extractReportsArrayFromResponse(res);
+      if (extracted !== null) {
+        apiReports = extracted.map(mapRawDailyReportToReport);
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      console.warn('[LaporanWe] /reports/list.php fallback check:', err);
 
-    for (const endpoint of endpointsToTry) {
+      // 2. Fallback only if primary fails: /api/reports/all.php
       try {
-        const fullUrl = buildApiUrl(endpoint);
-        console.log("[LaporanWe] API URL:", fullUrl);
-
-        const res = await api.get(endpoint);
-        console.log("[LaporanWe] Report response:", res);
-
-        const extracted = extractReportsArrayFromResponse(res);
+        const fallbackRes = await api.get(FALLBACK_REPORT_ENDPOINT, options);
+        const extracted = extractReportsArrayFromResponse(fallbackRes);
         if (extracted !== null) {
-          console.log("REPORT DATA:", extracted);
-          workingEndpoint = endpoint;
-          localStorage.setItem('laporanwee_working_reports_endpoint', endpoint);
           apiReports = extracted.map(mapRawDailyReportToReport);
-          break;
         }
-      } catch (err: any) {
-        // Continue trying remaining candidate endpoints
+      } catch (fallbackErr: any) {
+        if (fallbackErr?.name === 'AbortError') throw fallbackErr;
+        console.warn('[LaporanWe] /reports/all.php error:', fallbackErr);
       }
     }
 
@@ -768,9 +756,7 @@ export const dailyReportService = {
       finalReports = cached;
     }
 
-    console.log("[LaporanWe] Reports parsed:", finalReports);
-    console.log("[LaporanWe] Current user:", userEmail);
-
+    console.log('[LaporanWe] Reports loaded:', finalReports.length);
     return finalReports;
   },
 
@@ -779,24 +765,19 @@ export const dailyReportService = {
     const targetIdNum = Number(targetIdStr);
     if (!targetIdStr) return null;
 
-    // 1. Check local cache first for instant retrieval
+    // 1. Instant return from local cache
     const cached = getCachedReportById(targetIdStr);
 
-    // 2. Query specific report from backend API if working endpoint is known
-    const workingEndpoint = localStorage.getItem('laporanwee_working_reports_endpoint');
-    const detailCandidates = [
-      workingEndpoint ? `${workingEndpoint}?id=${encodeURIComponent(targetIdStr)}` : null,
-      `/reports/list.php?id=${encodeURIComponent(targetIdStr)}`,
-      `/daily-reports/reports.php?id=${encodeURIComponent(targetIdStr)}`,
-      `/daily-reports/get.php?id=${encodeURIComponent(targetIdStr)}`,
-      `/daily-reports/detail.php?id=${encodeURIComponent(targetIdStr)}`,
-      `/daily-reports/list.php?id=${encodeURIComponent(targetIdStr)}`,
-    ].filter(Boolean) as string[];
+    // 2. Fetch directly from /reports/list.php?id=... (with /reports/all.php fallback)
+    const detailEndpoints = [
+      `${PRIMARY_REPORT_ENDPOINT}?id=${encodeURIComponent(targetIdStr)}`,
+      `${FALLBACK_REPORT_ENDPOINT}?id=${encodeURIComponent(targetIdStr)}`,
+    ];
 
-    for (const endpoint of detailCandidates) {
+    for (const endpoint of detailEndpoints) {
       try {
         const res = await api.get(endpoint);
-        if (res && res.success && res.data) {
+        if (res && res.data) {
           const items = Array.isArray(res.data) ? res.data : [res.data];
           const matched = items.find((item: any) => {
             const itemIdStr = String(item.id).trim();
@@ -820,20 +801,7 @@ export const dailyReportService = {
       } catch (_) {}
     }
 
-    // 3. Fallback to list of all reports (safe string/number comparison)
-    try {
-      const all = await dailyReportService.fetchDailyReports();
-      const matched = all.find((r) => {
-        const rIdStr = String(r.id).trim();
-        const rIdNum = Number(rIdStr);
-        return rIdStr === targetIdStr || (!isNaN(targetIdNum) && !isNaN(rIdNum) && rIdNum === targetIdNum);
-      });
-      if (matched) {
-        return matched;
-      }
-    } catch (_) {}
-
-    // 4. Return cached version if found
+    // 3. Fallback to cached version
     if (cached) {
       return cached;
     }
@@ -1454,7 +1422,10 @@ export const resetTasks = taskService.resetTasks;
 export const realtimeService = {
   poll: async (since?: string | number, signal?: AbortSignal) => {
     try {
-      const endpoint = since !== undefined && since !== null ? `/realtime/poll.php?since=${since}` : '/realtime/poll.php';
+      const query = since !== undefined && since !== null && String(since).trim() !== ''
+        ? `?since=${encodeURIComponent(String(since).trim())}`
+        : '';
+      const endpoint = `/realtime/poll.php${query}`;
       const url = buildApiUrl(endpoint);
       const response = await fetch(url, {
         method: 'GET',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ViewType,
   Project,
@@ -42,6 +42,8 @@ import {
   analyticsService,
   taskService,
   realtimeService,
+  mapRawDailyReportToReport,
+  extractReportsArrayFromResponse,
 } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
@@ -291,13 +293,52 @@ export function App() {
     }
   }, []);
 
-  // Synchronize Daily Reports with Backend PHP/MySQL API
-  const refreshReportsFromApi = useCallback(async () => {
-    setIsReportsLoading(true);
+  // Tracking for active reports fetch and incremental realtime sync
+  const reportsAbortControllerRef = useRef<AbortController | null>(null);
+  const lastSyncAtRef = useRef<string>(localStorage.getItem('laporanwee_last_sync') || '');
+
+  // Calculate latest update timestamp from reports list
+  const computeLatestTimestamp = (list: Report[]): string => {
+    let latest = '';
+    for (const r of list) {
+      const candidate = r.updated_at || r.created_at || r.report_date || '';
+      if (candidate && candidate > latest) {
+        latest = candidate;
+      }
+    }
+    return latest;
+  };
+
+  // Synchronize Daily Reports with Backend PHP/MySQL API with AbortController
+  const refreshReportsFromApi = useCallback(async (silent = false) => {
+    // Abort previous in-flight request to prevent requests piling up
+    if (reportsAbortControllerRef.current) {
+      reportsAbortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    reportsAbortControllerRef.current = controller;
+
+    // Show loading spinner only if we don't already have reports in memory
+    if (!silent) {
+      setIsReportsLoading((prev) => reports.length === 0);
+    }
+
     try {
-      const fetchedReports = await dailyReportService.fetchDailyReports(user?.email, isAdmin);
+      const fetchedReports = await dailyReportService.fetchDailyReports(user?.email, isAdmin, {
+        signal: controller.signal,
+      });
       if (fetchedReports && fetchedReports.length > 0) {
         setReports(fetchedReports);
+        const latestTime = computeLatestTimestamp(fetchedReports);
+        if (latestTime) {
+          lastSyncAtRef.current = latestTime;
+          localStorage.setItem('laporanwee_last_sync', latestTime);
+        } else {
+          const nowIso = new Date().toISOString();
+          lastSyncAtRef.current = nowIso;
+          localStorage.setItem('laporanwee_last_sync', nowIso);
+        }
+
         setSelectedReportId((prev) => {
           if (prev && fetchedReports.some((r) => String(r.id).trim() === String(prev).trim())) {
             return prev;
@@ -309,12 +350,55 @@ export function App() {
           return prev || String(fetchedReports[0].id);
         });
       }
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       console.warn('Sync reports from API notice:', err);
     } finally {
       setIsReportsLoading(false);
     }
-  }, [user?.email, isAdmin]);
+  }, [user?.email, isAdmin, reports.length]);
+
+  // Incrementally merge new or updated reports without refetching the full table
+  const mergeUpdatedReports = useCallback((newOrUpdatedRaw: any[]) => {
+    if (!Array.isArray(newOrUpdatedRaw) || newOrUpdatedRaw.length === 0) return;
+    const newOrUpdated = newOrUpdatedRaw.map(mapRawDailyReportToReport);
+    newOrUpdated.forEach((r) => dailyReportService.saveReportToCache(r));
+
+    setReports((prev) => {
+      const updatedMap = new Map<string, Report>();
+      newOrUpdated.forEach((r) => updatedMap.set(String(r.id).trim(), r));
+
+      const result: Report[] = [];
+      const seenIds = new Set<string>();
+
+      // Update matching items in-place
+      for (const item of prev) {
+        const idStr = String(item.id).trim();
+        seenIds.add(idStr);
+        if (updatedMap.has(idStr)) {
+          result.push(updatedMap.get(idStr)!);
+        } else {
+          result.push(item);
+        }
+      }
+
+      // Prepend brand new items
+      for (const item of newOrUpdated) {
+        const idStr = String(item.id).trim();
+        if (!seenIds.has(idStr)) {
+          result.unshift(item);
+          seenIds.add(idStr);
+        }
+      }
+
+      const latestTime = computeLatestTimestamp(result);
+      if (latestTime) {
+        lastSyncAtRef.current = latestTime;
+        localStorage.setItem('laporanwee_last_sync', latestTime);
+      }
+      return result;
+    });
+  }, []);
 
   // Synchronize Team Members from Backend PHP/MySQL API
   const refreshTeamFromApi = useCallback(async () => {
@@ -349,16 +433,30 @@ export function App() {
     }
   }, [refreshTeamFromApi]);
 
-  // Load all server-side global data when user is authenticated
+  // Initial load when user is authenticated:
+  // Immediately prioritize current view (e.g. reports) so it displays without waiting for secondary requests
   useEffect(() => {
     if (user) {
-      refreshTasksFromApi();
-      refreshProjectsFromApi();
-      refreshActivitiesFromApi();
-      refreshEventsFromApi();
-      refreshReportsFromApi();
-      refreshTeamFromApi();
-      refreshAnalyticsFromApi();
+      // 1. Immediate primary fetch for active screen
+      if (currentView === 'reports') {
+        refreshReportsFromApi();
+      } else if (currentView === 'tasks') {
+        refreshTasksFromApi();
+      } else if (currentView === 'projects') {
+        refreshProjectsFromApi();
+      } else {
+        refreshReportsFromApi();
+      }
+
+      // 2. Defer secondary data fetching so initial report list renders in milliseconds
+      const secondaryTimer = setTimeout(() => {
+        refreshTasksFromApi();
+        refreshProjectsFromApi();
+        refreshActivitiesFromApi();
+        refreshEventsFromApi();
+        refreshTeamFromApi();
+        refreshAnalyticsFromApi();
+      }, 350);
 
       // Mark current user as online in database
       if (user.email) {
@@ -367,26 +465,24 @@ export function App() {
         });
       }
 
-      // Send initial heartbeat and setup periodic heartbeat (every 30s) + periodic presence sync (every 20s)
+      // Periodic heartbeat every 45s (lightweight)
       teamService.sendHeartbeat((user as any).id, user.email);
       const heartbeatInterval = setInterval(() => {
-        teamService.sendHeartbeat((user as any).id, user.email);
-      }, 30000);
+        if (navigator.onLine) {
+          teamService.sendHeartbeat((user as any).id, user.email);
+        }
+      }, 45000);
 
-      const presenceInterval = setInterval(() => {
-        refreshTeamFromApi();
-      }, 20000);
-
-      // Handle window beforeunload to mark offline
       const handleBeforeUnload = () => {
         if (user?.email) {
           teamService.updatePresence(false, user.email);
         }
       };
       window.addEventListener('beforeunload', handleBeforeUnload);
+
       return () => {
+        clearTimeout(secondaryTimer);
         clearInterval(heartbeatInterval);
-        clearInterval(presenceInterval);
         window.removeEventListener('beforeunload', handleBeforeUnload);
       };
     } else {
@@ -398,16 +494,7 @@ export function App() {
       setMembers([]);
       setAnalytics(undefined);
     }
-  }, [
-    user,
-    refreshTasksFromApi,
-    refreshProjectsFromApi,
-    refreshActivitiesFromApi,
-    refreshEventsFromApi,
-    refreshReportsFromApi,
-    refreshTeamFromApi,
-    refreshAnalyticsFromApi,
-  ]);
+  }, [user]);
 
   // Re-fetch tasks whenever user navigates to tasks view
   useEffect(() => {
@@ -416,71 +503,106 @@ export function App() {
     }
   }, [user, currentView, refreshTasksFromApi]);
 
-  // Re-fetch reports whenever user navigates to reports view
+  // Re-fetch reports silently whenever user navigates to reports view
   useEffect(() => {
     if (user && currentView === 'reports') {
-      refreshReportsFromApi();
+      refreshReportsFromApi(true);
     }
   }, [user, currentView, refreshReportsFromApi]);
 
-  // Realtime Polling via /realtime/poll.php
+  // Optimized Incremental Realtime Polling via /api/realtime/poll.php
   useEffect(() => {
-    if (!user) return;
+    // Only poll when: user is logged in, reports view is active, and browser is online
+    if (!user || currentView !== 'reports') return;
 
     let isMounted = true;
-    let sinceCursor: string | number | undefined = undefined;
-    const abortController = new AbortController();
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollController: AbortController | null = null;
 
-    const runRealtimePoll = async () => {
-      if (!isMounted) return;
+    const executePoll = async () => {
+      if (!isMounted || !user || currentView !== 'reports' || !navigator.onLine) {
+        return;
+      }
+
+      // Abort old pending poll request before issuing new one
+      if (pollController) {
+        pollController.abort();
+      }
+      pollController = new AbortController();
+
       try {
-        const res = await realtimeService.poll(sinceCursor, abortController.signal);
+        const sinceParam = lastSyncAtRef.current || undefined;
+        const res = await realtimeService.poll(sinceParam, pollController.signal);
+
         if (res && isMounted) {
-          if (res.latest !== undefined) {
-            sinceCursor = res.latest;
+          // Track server timestamp or cursor
+          if (res.server_time || res.latest || res.last_sync) {
+            const nextCursor = String(res.server_time || res.latest || res.last_sync).trim();
+            lastSyncAtRef.current = nextCursor;
+            localStorage.setItem('laporanwee_last_sync', nextCursor);
           }
-          if (res.changed === true) {
-            console.log('[Realtime] Database changes detected from poll.php, syncing data...');
-            refreshTasksFromApi();
-            refreshProjectsFromApi();
-            refreshActivitiesFromApi();
-            refreshEventsFromApi();
-            refreshReportsFromApi();
-            refreshTeamFromApi();
-            refreshAnalyticsFromApi();
+
+          // Check if incremental updated reports are provided directly
+          const changedItems = extractReportsArrayFromResponse(res);
+          if (changedItems && changedItems.length > 0) {
+            console.log('[Realtime] Received incremental reports update:', changedItems.length);
+            mergeUpdatedReports(changedItems);
+          } else if (res.changed === true || res.has_updates === true) {
+            // If server indicated changes occurred without sending list, do a silent refetch
+            console.log('[Realtime] Database change flagged, fetching latest reports...');
+            refreshReportsFromApi(true);
           }
         }
-      } catch (_) {}
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.warn('[Realtime] Poll notice:', err);
+        }
+      } finally {
+        scheduleNext();
+      }
     };
 
-    // Initial poll to set cursor
-    realtimeService.poll(undefined, abortController.signal)
-      .then((res) => {
-        if (res && res.latest !== undefined) {
-          sinceCursor = res.latest;
-        }
-      })
-      .catch(() => {});
+    const scheduleNext = () => {
+      if (!isMounted || !user || currentView !== 'reports') return;
+      if (pollTimer) clearTimeout(pollTimer);
 
-    const pollInterval = setInterval(() => {
-      runRealtimePoll();
-    }, 2500);
+      // 5-10s (8s) when active, 30s when hidden
+      const isVisible = document.visibilityState === 'visible';
+      const delay = isVisible ? 8000 : 30000;
+
+      pollTimer = setTimeout(() => {
+        executePoll();
+      }, delay);
+    };
+
+    // On tab visibility change: sync immediately when becoming visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        if (pollTimer) clearTimeout(pollTimer);
+        executePoll();
+      }
+    };
+
+    // On reconnecting online
+    const handleOnline = () => {
+      if (pollTimer) clearTimeout(pollTimer);
+      executePoll();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+
+    // Initial scheduled poll
+    scheduleNext();
 
     return () => {
       isMounted = false;
-      abortController.abort();
-      clearInterval(pollInterval);
+      if (pollTimer) clearTimeout(pollTimer);
+      if (pollController) pollController.abort();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
     };
-  }, [
-    user,
-    refreshTasksFromApi,
-    refreshProjectsFromApi,
-    refreshActivitiesFromApi,
-    refreshEventsFromApi,
-    refreshReportsFromApi,
-    refreshTeamFromApi,
-    refreshAnalyticsFromApi,
-  ]);
+  }, [user, currentView, refreshReportsFromApi, mergeUpdatedReports]);
 
   const addToast = (text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;

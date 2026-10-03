@@ -164,6 +164,8 @@ export interface Report {
   duration?: string;
   obstacles?: string;
   next_plan?: string;
+  updated_at?: string;
+  created_at?: string;
 }
 
 export interface DailyReportFile {
