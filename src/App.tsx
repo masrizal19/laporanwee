@@ -218,7 +218,7 @@ export function App() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [reports, setReports] = useState<Report[]>([]);
+  const [reports, setReports] = useState<Report[]>(() => dailyReportService.getCachedReports());
   const [activities, setActivities] = useState<Activity[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -294,8 +294,12 @@ export function App() {
   const refreshReportsFromApi = useCallback(async () => {
     try {
       const fetchedReports = await dailyReportService.fetchDailyReports();
-      setReports(fetchedReports || []);
       if (fetchedReports && fetchedReports.length > 0) {
+        setReports((prev) => {
+          const fetchedIds = new Set(fetchedReports.map((r) => String(r.id).trim()));
+          const localOnly = prev.filter((r) => !fetchedIds.has(String(r.id).trim()));
+          return [...fetchedReports, ...localOnly];
+        });
         setSelectedReportId((prev) => {
           if (prev && fetchedReports.some((r) => String(r.id).trim() === String(prev).trim())) {
             return prev;
@@ -666,10 +670,19 @@ export function App() {
       setSelectedReportId(createdId);
       localStorage.setItem('laporanwee_selected_report_id', createdId);
 
+      // Verify the report can actually be retrieved (Rule 7: pastikan laporan benar-benar dapat ditemukan)
+      const verified = await dailyReportService.fetchDailyReportDetail(createdId).catch(() => null);
+      if (verified) {
+        setReports((prev) => [
+          verified,
+          ...prev.filter((r) => String(r.id).trim() !== createdId),
+        ]);
+      }
+
       // Re-fetch reports from MySQL API in background to ensure single source of truth
       refreshReportsFromApi().catch((err) => console.warn('Background sync reports notice:', err));
 
-      // Show success feedback
+      // Show success feedback ONLY AFTER verification succeeded (Rule 8: jangan menampilkan success palsu)
       addToast(`Laporan kerja "${reportData.task}" berhasil dikirim!`);
 
       // Log activity to backend MySQL API

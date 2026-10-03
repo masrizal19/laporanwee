@@ -36,14 +36,15 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   onAddToast,
 }) => {
   const effectiveReportId = String(reportId || initialReport?.id || report?.id || '').trim();
-  const initialData = initialReport || report || null;
+  const initialData =
+    initialReport || report || dailyReportService.getCachedReportById(effectiveReportId) || null;
   const [currentData, setCurrentData] = useState<Report | null>(initialData);
   const [isLoading, setIsLoading] = useState<boolean>(!initialData && Boolean(effectiveReportId));
   const [errorStatus, setErrorStatus] = useState<number | string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isEditing, setIsEditing] = useState<boolean>(false);
 
-  // Sync if initial prop changes
+  // Sync if initial prop or cache changes
   useEffect(() => {
     if (initialReport) {
       setCurrentData(initialReport);
@@ -53,8 +54,15 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
       setCurrentData(report);
       setIsLoading(false);
       setErrorStatus(null);
+    } else if (effectiveReportId) {
+      const cached = dailyReportService.getCachedReportById(effectiveReportId);
+      if (cached) {
+        setCurrentData(cached);
+        setIsLoading(false);
+        setErrorStatus(null);
+      }
     }
-  }, [report, initialReport]);
+  }, [report, initialReport, effectiveReportId]);
 
   // SINGLE SOURCE OF TRUTH: Fetch freshest report detail from backend MySQL API
   useEffect(() => {
@@ -86,18 +94,40 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
             onReportUpdated(fresh);
           }
         } else {
-          if (!currentData || String(currentData.id).trim() !== effectiveReportId) {
+          // If we already have currentData matching effectiveReportId, KEEP IT
+          if (currentData && String(currentData.id).trim() === effectiveReportId) {
             setIsLoading(false);
-            setErrorStatus(404);
-            setErrorMessage(`Laporan kerja dengan ID #${effectiveReportId} tidak ditemukan di database.`);
+            setErrorStatus(null);
           } else {
-            setIsLoading(false);
+            const cached = dailyReportService.getCachedReportById(effectiveReportId);
+            if (cached) {
+              setCurrentData(cached);
+              setIsLoading(false);
+              setErrorStatus(null);
+            } else {
+              setIsLoading(false);
+              setErrorStatus(404);
+              setErrorMessage(`Laporan kerja dengan ID #${effectiveReportId} tidak ditemukan di database.`);
+            }
           }
         }
       })
       .catch((err: any) => {
         if (!isMounted) return;
         setIsLoading(false);
+
+        // If we already have valid data for this report, do not wipe the view with error status
+        if (currentData && String(currentData.id).trim() === effectiveReportId) {
+          setErrorStatus(null);
+          return;
+        }
+        const cached = dailyReportService.getCachedReportById(effectiveReportId);
+        if (cached) {
+          setCurrentData(cached);
+          setErrorStatus(null);
+          return;
+        }
+
         const status = Number(err?.status || err?.code || 0);
         if (status === 401) {
           setErrorStatus(401);
