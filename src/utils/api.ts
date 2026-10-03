@@ -9,6 +9,7 @@ import {
   Task,
   TaskStatus,
   PriorityLevel,
+  DailyReportFile,
 } from '../types';
 
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
@@ -136,6 +137,28 @@ export const handleResponse = async (response: Response, customUrl?: string, cus
   }
 
   return data;
+};
+
+/**
+ * Standard Indonesian error messages mapping for consistent UX
+ */
+export const formatApiErrorMessage = (err: any): string => {
+  if (!err) return 'Terjadi kesalahan sistem.';
+  const status = Number(err.status || err.code);
+  if (status === 401) return 'Session tidak valid atau sudah berakhir.';
+  if (status === 403) return 'Anda tidak memiliki izin untuk mengubah laporan ini.';
+  if (status === 404) return 'Laporan/file tidak ditemukan.';
+  if (status === 413) return 'Ukuran file terlalu besar.';
+  if (status === 422) return 'Terdapat data yang belum valid.';
+  if (status === 500) return 'Terjadi kesalahan server.';
+  if (
+    err.name === 'TypeError' ||
+    err.message?.toLowerCase().includes('failed to fetch') ||
+    err.message?.toLowerCase().includes('network')
+  ) {
+    return 'Backend tidak dapat dihubungi.';
+  }
+  return err.message || 'Terjadi kesalahan pada sistem.';
 };
 
 export const api = {
@@ -567,14 +590,32 @@ export const dailyReportService = {
         work_category: item.work_category || item.category || 'Desain & UI/UX',
         desc: item.description || '',
         progress: Number(item.progress) || 0,
-        time: item.time_spent || '4 jam 00 mnt',
+        time: item.duration || item.time_spent || '4 jam 00 mnt',
+        duration: item.duration || item.time_spent || '4 jam 00 mnt',
         status: mapBackendStatusToFrontend(item.status),
-        challenges: item.challenges || 'Tidak ada kendala berarti.',
+        challenges: item.obstacles || item.challenges || 'Tidak ada kendala berarti.',
+        obstacles: item.obstacles || item.challenges || 'Tidak ada kendala berarti.',
         next: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
+        next_plan: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
         evidence_urls: evidenceList,
         evidence_url: cover || undefined,
       };
     });
+  },
+
+  fetchDailyReportDetail: async (id: string | number): Promise<Report | null> => {
+    try {
+      const res = await api.get(`/daily-reports/list.php?report_id=${id}`);
+      if (res && res.success && res.data) {
+        const item = Array.isArray(res.data) ? res.data[0] : res.data;
+        if (item && item.id) {
+          const all = await dailyReportService.fetchDailyReports();
+          return all.find((r) => String(r.id) === String(id)) || null;
+        }
+      }
+    } catch (_) {}
+    const all = await dailyReportService.fetchDailyReports();
+    return all.find((r) => String(r.id) === String(id)) || null;
   },
 
   createDailyReport: async (
@@ -594,7 +635,11 @@ export const dailyReportService = {
       user_email: userEmail || '',
       user_name: reportData.person || userName || 'Tim LaporanWee',
       project_name: reportData.project || 'Proyek Wee Studio',
+      work_category: reportData.category || 'Desain & UI/UX',
       report_date: dateStr,
+      duration: reportData.time || '4 jam 00 mnt',
+      obstacles: reportData.challenges || '',
+      next_plan: reportData.next || '',
       progress: typeof reportData.progress === 'number' ? reportData.progress : 85,
       status: mapFrontendStatusToBackend(reportData.status),
       cover_url:
@@ -613,27 +658,127 @@ export const dailyReportService = {
 
   updateDailyReport: async (payload: {
     id: number | string;
-    work_category: string;
-    project_name: string;
     title: string;
     description: string;
+    work_category: string;
+    project_name: string;
     progress: number;
     status: string;
     report_date: string;
+    duration?: string;
+    obstacles?: string;
+    next_plan?: string;
   }): Promise<{ success: boolean; message?: string; data?: any }> => {
     const numericId = Number(payload.id);
     const body = {
       id: isNaN(numericId) ? payload.id : numericId,
-      work_category: payload.work_category,
-      project_name: payload.project_name,
       title: payload.title,
       description: payload.description,
+      work_category: payload.work_category,
+      project_name: payload.project_name,
       progress: Number(payload.progress),
       status: payload.status,
       report_date: payload.report_date,
+      duration: payload.duration || '4 jam 00 mnt',
+      obstacles: payload.obstacles || '',
+      next_plan: payload.next_plan || '',
     };
     const res = await api.post('/daily-reports/update.php', body);
     return res;
+  },
+
+  fetchReportFiles: async (
+    reportId: string | number,
+    category: 'proof' | 'attachment'
+  ): Promise<DailyReportFile[]> => {
+    try {
+      const res = await api.get(`/daily-reports/list.php?report_id=${reportId}&category=${category}`);
+      if (res && res.success && Array.isArray(res.data)) {
+        return res.data.map((item: any): DailyReportFile => ({
+          id: item.id,
+          report_id: item.report_id || reportId,
+          file_name: item.file_name || item.name || 'File',
+          original_name: item.original_name || item.file_name || item.name || 'File',
+          file_url: item.file_url || item.url || '',
+          file_category: item.file_category || category,
+          file_type: item.file_type || (item.mime_type?.startsWith('video/') ? 'video' : 'image'),
+          mime_type: item.mime_type || 'application/octet-stream',
+          file_size: Number(item.file_size) || 0,
+          file_size_formatted:
+            item.file_size_formatted ||
+            (item.file_size ? `${Math.round(Number(item.file_size) / 1024)} KB` : undefined),
+          uploaded_by: item.uploaded_by,
+          created_at: item.created_at,
+          updated_at: item.updated_at,
+        }));
+      }
+      return [];
+    } catch (err) {
+      console.warn(`Fetch ${category} files for report ${reportId} notice:`, err);
+      return [];
+    }
+  },
+
+  uploadReportFile: async (
+    reportId: string | number,
+    file: File,
+    fileCategory: 'proof' | 'attachment'
+  ): Promise<DailyReportFile> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('report_id', String(reportId));
+    formData.append('file_category', fileCategory);
+
+    const res = await api.upload('/daily-reports/upload.php', formData);
+    if (res && res.success && res.data) {
+      const item = res.data;
+      return {
+        id: item.id,
+        report_id: item.report_id || reportId,
+        file_name: item.file_name || file.name,
+        original_name: item.original_name || file.name,
+        file_url: item.file_url || item.url || '',
+        file_category: item.file_category || fileCategory,
+        file_type: item.file_type || (file.type.startsWith('video/') ? 'video' : 'image'),
+        mime_type: item.mime_type || file.type,
+        file_size: file.size,
+      };
+    }
+    throw new Error(res?.message || 'Gagal mengunggah berkas laporan.');
+  },
+
+  deleteReportFile: async (fileId: string | number): Promise<boolean> => {
+    const numId = Number(fileId);
+    const idVal = isNaN(numId) ? fileId : numId;
+    const res = await api.post('/daily-reports/delete.php', {
+      file_id: idVal,
+      id: idVal,
+    });
+    return Boolean(res && res.success !== false);
+  },
+
+  replaceReportFile: async (fileId: string | number, file: File): Promise<DailyReportFile> => {
+    const formData = new FormData();
+    formData.append('file_id', String(fileId));
+    formData.append('id', String(fileId));
+    formData.append('file', file);
+
+    const res = await api.upload('/daily-reports/replace.php', formData);
+    if (res && res.success && res.data) {
+      const item = res.data;
+      return {
+        id: item.id || fileId,
+        report_id: item.report_id,
+        file_name: item.file_name || file.name,
+        original_name: item.original_name || file.name,
+        file_url: item.file_url || item.url || '',
+        file_category: item.file_category || 'proof',
+        file_type: item.file_type || (file.type.startsWith('video/') ? 'video' : 'image'),
+        mime_type: item.mime_type || file.type,
+        file_size: file.size,
+      };
+    }
+    throw new Error(res?.message || 'Gagal mengganti berkas laporan.');
   },
 
   deleteDailyReport: async (id: string | number): Promise<boolean> => {
@@ -652,10 +797,15 @@ export const dailyReportService = {
 
 // Export individual helper functions for clean usage
 export const fetchDailyReports = dailyReportService.fetchDailyReports;
+export const fetchDailyReportDetail = dailyReportService.fetchDailyReportDetail;
 export const createDailyReport = dailyReportService.createDailyReport;
 export const updateDailyReport = dailyReportService.updateDailyReport;
 export const deleteDailyReport = dailyReportService.deleteDailyReport;
 export const resetDailyReports = dailyReportService.resetDailyReports;
+export const fetchReportFiles = dailyReportService.fetchReportFiles;
+export const uploadReportFile = dailyReportService.uploadReportFile;
+export const deleteReportFile = dailyReportService.deleteReportFile;
+export const replaceReportFile = dailyReportService.replaceReportFile;
 
 // ==========================================
 // 6. TEAM & PRESENCE SERVICE

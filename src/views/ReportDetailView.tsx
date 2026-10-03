@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Project, ProjectDocument, Report, ViewType } from '../types';
+import { Project, ProjectDocument, Report, ViewType, DailyReportFile } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { projectService } from '../utils/projectService';
-import { API_BASE_URL } from '../utils/api';
+import { API_BASE_URL, dailyReportService } from '../utils/api';
 import { DailyReportForm } from '../components/DailyReportForm';
 
 interface ReportDetailViewProps {
@@ -62,6 +62,36 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
   const [newComment, setNewComment] = useState('');
   const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
+  const [reportFiles, setReportFiles] = useState<DailyReportFile[]>([]);
+
+  // SINGLE SOURCE OF TRUTH: Re-fetch freshest report detail from backend MySQL
+  useEffect(() => {
+    if (!currentData?.id) return;
+    dailyReportService
+      .fetchDailyReportDetail(currentData.id)
+      .then((fresh) => {
+        if (!fresh) return;
+        setCurrentData((prev) => ({
+          ...prev,
+          task: fresh.task || prev.task,
+          desc: fresh.desc || prev.desc,
+          project: fresh.project_name || fresh.project || prev.project,
+          project_name: fresh.project_name || fresh.project || prev.project_name,
+          category: fresh.work_category || fresh.category || prev.category,
+          work_category: fresh.work_category || fresh.category || prev.work_category,
+          progress: typeof fresh.progress === 'number' ? fresh.progress : prev.progress,
+          status: fresh.status || prev.status,
+          time: fresh.duration || fresh.time || prev.time,
+          duration: fresh.duration || fresh.time || prev.duration,
+          challenges: fresh.obstacles || fresh.challenges || prev.challenges,
+          obstacles: fresh.obstacles || fresh.challenges || prev.obstacles,
+          next: fresh.next_plan || fresh.next || prev.next,
+          next_plan: fresh.next_plan || fresh.next || prev.next_plan,
+          report_date: fresh.report_date || fresh.date || prev.report_date,
+        }));
+      })
+      .catch((err) => console.warn('Fetch report detail notice in ReportDetailView:', err));
+  }, [currentData.id]);
 
   // Load project documents from MySQL to link original.php endpoint
   useEffect(() => {
@@ -76,6 +106,34 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
         .catch((err) => console.warn('Fetch docs notice:', err));
     }
   }, [currentData.project, projects]);
+
+  // Load report attachments (category=attachment) from backend MySQL
+  useEffect(() => {
+    if (!currentData?.id) return;
+    dailyReportService
+      .fetchReportFiles(currentData.id, 'attachment')
+      .then((files) => {
+        if (files) setReportFiles(files);
+      })
+      .catch((err) => console.warn('Fetch report files notice:', err));
+  }, [currentData.id]);
+
+  // Combined documents list (Project docs + Report attachments)
+  const allDocs: ProjectDocument[] = [
+    ...projectDocs,
+    ...reportFiles
+      .filter((rf) => !projectDocs.some((pd) => String(pd.id) === String(rf.id) || pd.original_name === rf.original_name))
+      .map((rf) => ({
+        id: rf.id,
+        project_id: (currentData as any)?.project_id || 0,
+        file_name: rf.file_name,
+        original_name: rf.original_name || rf.file_name,
+        file_type: rf.file_type || 'doc',
+        file_size: rf.file_size,
+        file_size_formatted: rf.file_size_formatted,
+        file_url: rf.file_url,
+      } as ProjectDocument))
+  ];
 
   const handleAddComment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,8 +162,11 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
       ? [currentData.evidence_url]
       : [];
 
-  // Map evidence items to original.php endpoint if document ID is available
+  // Map evidence items
   const evidenceList = rawEvidence.map((url, idx) => {
+    if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:'))) {
+      return url;
+    }
     const doc = projectDocs[idx] || projectDocs[0];
     if (doc?.id) {
       return `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
@@ -347,18 +408,18 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
           {/* Attachments Section — Connected to Backend MySQL */}
           <div style={{ marginTop: '28px' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px' }}>
-              Lampiran &amp; Berkas Proyek ({projectDocs.length})
+              Lampiran &amp; Berkas Proyek ({allDocs.length})
             </h3>
             <p className="section-sub" style={{ margin: 0 }}>
               Berkas asli dari server proyek yang dapat dibuka dan diunduh.
             </p>
 
-            {projectDocs.length > 0 ? (
+            {allDocs.length > 0 ? (
               <div className="attach-grid" style={{ marginTop: '14px' }}>
-                {projectDocs.map((doc) => (
+                {allDocs.map((doc) => (
                   <a
                     key={doc.id}
-                    href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
+                    href={doc.file_url || `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="attach-card"

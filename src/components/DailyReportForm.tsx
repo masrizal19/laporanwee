@@ -1,19 +1,29 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, ProjectDocument, Report, ViewType } from '../types';
+import { Project, ProjectDocument, Report, ViewType, DailyReportFile } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { getUserDisplayName } from '../utils/userUtils';
-import { api, API_BASE_URL, dailyReportService, mapFrontendStatusToBackend } from '../utils/api';
+import {
+  api,
+  API_BASE_URL,
+  dailyReportService,
+  mapFrontendStatusToBackend,
+  formatApiErrorMessage,
+} from '../utils/api';
 import { categoryService, WorkCategory } from '../utils/categoryService';
 import { projectService } from '../utils/projectService';
 import { formatFileSize } from '../utils/taskDocuments';
 
 export interface EvidenceFileItem {
   id: string;
+  file_id?: number | string;
   file?: File;
   previewUrl: string;
   serverUrl?: string;
   name: string;
+  size?: number;
+  sizeFormatted?: string;
+  isNew?: boolean;
 }
 
 export interface PendingAttachmentFile {
@@ -146,15 +156,15 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
   });
 
   const [timeSpent, setTimeSpent] = useState<string>(() => {
-    return isEdit && initialReport ? initialReport.time || '4 jam 30 mnt' : '4 jam 30 mnt';
+    return isEdit && initialReport ? initialReport.duration || initialReport.time || '4 jam 30 mnt' : '4 jam 30 mnt';
   });
 
   const [challenges, setChallenges] = useState<string>(() => {
-    return isEdit && initialReport ? initialReport.challenges || '' : '';
+    return isEdit && initialReport ? initialReport.obstacles || initialReport.challenges || '' : '';
   });
 
   const [next, setNext] = useState<string>(() => {
-    return isEdit && initialReport ? initialReport.next || '' : '';
+    return isEdit && initialReport ? initialReport.next_plan || initialReport.next || '' : '';
   });
 
   const [reportDate, setReportDate] = useState<string>(() => {
@@ -199,9 +209,10 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
 
   // Project Documents (Lampiran & Berkas) — Max 2 GB per file
   const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
+  const [reportAttachmentFiles, setReportAttachmentFiles] = useState<DailyReportFile[]>([]);
   const [pendingDocs, setPendingDocs] = useState<PendingAttachmentFile[]>([]);
   const [deletingDocId, setDeletingDocId] = useState<number | string | null>(null);
-  const [docToDelete, setDocToDelete] = useState<ProjectDocument | null>(null);
+  const [docToDelete, setDocToDelete] = useState<{ id: string | number; name: string } | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
 
   // 2 GB limit per file (2,147,483,648 bytes)
@@ -219,6 +230,73 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     }
   }, [selectedProject, projects]);
 
+  // SINGLE SOURCE OF TRUTH: In Edit Mode, fetch freshest report data, proof files, and attachments from backend MySQL API
+  useEffect(() => {
+    if (!isEdit || !initialReport?.id) return;
+    let isMounted = true;
+
+    // 1. Fetch freshest report fields from backend
+    dailyReportService
+      .fetchDailyReportDetail(initialReport.id)
+      .then((fresh) => {
+        if (!isMounted || !fresh) return;
+        if (fresh.task) setTask(fresh.task);
+        if (fresh.desc) setDesc(fresh.desc);
+        if (fresh.project || fresh.project_name) {
+          setSelectedProject(fresh.project_name || fresh.project);
+        }
+        if (fresh.category || fresh.work_category) {
+          setCategory(fresh.work_category || fresh.category);
+          categoryService.ensureCategoryExists(fresh.work_category || fresh.category);
+        }
+        if (typeof fresh.progress === 'number') setProgress(fresh.progress);
+        if (fresh.status) setStatus(fresh.status);
+        if (fresh.duration || fresh.time) setTimeSpent(fresh.duration || fresh.time || '');
+        if (fresh.obstacles || fresh.challenges) setChallenges(fresh.obstacles || fresh.challenges || '');
+        if (fresh.next_plan || fresh.next) setNext(fresh.next_plan || fresh.next || '');
+        if (fresh.report_date || fresh.date) {
+          setReportDate(parseToDateInput(fresh.report_date || fresh.date));
+        }
+      })
+      .catch((err) => console.warn('Fetch report detail notice:', err));
+
+    // 2. Fetch proof files (category=proof) from backend
+    dailyReportService
+      .fetchReportFiles(initialReport.id, 'proof')
+      .then((files) => {
+        if (!isMounted) return;
+        if (files && files.length > 0) {
+          setEvidenceItems(
+            files.map((f, idx) => ({
+              id: `ev_server_${f.id}`,
+              file_id: f.id,
+              previewUrl: f.file_url,
+              serverUrl: f.file_url,
+              name: f.original_name || f.file_name || `Foto Bukti #${idx + 1}`,
+              size: f.file_size,
+              sizeFormatted: f.file_size_formatted,
+            }))
+          );
+        }
+      })
+      .catch((err) => console.warn('Fetch proof files notice:', err));
+
+    // 3. Fetch attachment files (category=attachment) from backend
+    dailyReportService
+      .fetchReportFiles(initialReport.id, 'attachment')
+      .then((files) => {
+        if (!isMounted) return;
+        if (files && files.length > 0) {
+          setReportAttachmentFiles(files);
+        }
+      })
+      .catch((err) => console.warn('Fetch attachment files notice:', err));
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isEdit, initialReport?.id]);
+
   // Clean up blob Object URLs when component unmounts to prevent memory leaks
   useEffect(() => {
     return () => {
@@ -230,8 +308,8 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     };
   }, []);
 
-  // Process selected image files using native URL.createObjectURL (zero compression, zero blur)
-  const processImageFiles = (files: FileList | File[]) => {
+  // Process selected image files using native File / FormData without Base64, canvas, or compression
+  const processImageFiles = async (files: FileList | File[]) => {
     const fileList = Array.from(files);
     const validFiles = fileList.filter((f) => f.type.startsWith('image/'));
 
@@ -240,11 +318,45 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
       return;
     }
 
+    // In Edit mode with backend report ID, upload directly to MySQL API
+    if (isEdit && initialReport?.id) {
+      setIsSubmitting(true);
+      try {
+        for (const file of validFiles) {
+          await dailyReportService.uploadReportFile(initialReport.id, file, 'proof');
+        }
+        // Re-fetch freshest proof files from backend
+        const files = await dailyReportService.fetchReportFiles(initialReport.id, 'proof');
+        if (files && files.length > 0) {
+          setEvidenceItems(
+            files.map((f, idx) => ({
+              id: `ev_server_${f.id}`,
+              file_id: f.id,
+              previewUrl: f.file_url,
+              serverUrl: f.file_url,
+              name: f.original_name || f.file_name || `Foto Bukti #${idx + 1}`,
+              size: f.file_size,
+              sizeFormatted: f.file_size_formatted,
+            }))
+          );
+        }
+        onAddToast(`✓ ${validFiles.length} foto bukti pekerjaan berhasil diunggah ke server.`);
+      } catch (err) {
+        console.warn('Upload proof error:', err);
+        onAddToast(formatApiErrorMessage(err));
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // In Create mode, stage native File instances
     const newItems: EvidenceFileItem[] = validFiles.map((file) => ({
       id: `ev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       file,
       previewUrl: URL.createObjectURL(file),
       name: file.name,
+      isNew: true,
     }));
 
     setEvidenceItems((prev) => [...prev, ...newItems]);
@@ -271,9 +383,36 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     e.stopPropagation();
   };
 
-  const handleRemovePhoto = (indexToRemove: number) => {
+  const handleRemovePhoto = async (indexToRemove: number) => {
+    const target = evidenceItems[indexToRemove];
+    if (isEdit && target?.file_id && initialReport?.id) {
+      setIsSubmitting(true);
+      try {
+        await dailyReportService.deleteReportFile(target.file_id);
+        onAddToast('Foto bukti pekerjaan berhasil dihapus dari server.');
+        // Re-fetch freshest proof files from backend
+        const files = await dailyReportService.fetchReportFiles(initialReport.id, 'proof');
+        setEvidenceItems(
+          files.map((f, idx) => ({
+            id: `ev_server_${f.id}`,
+            file_id: f.id,
+            previewUrl: f.file_url,
+            serverUrl: f.file_url,
+            name: f.original_name || f.file_name || `Foto Bukti #${idx + 1}`,
+            size: f.file_size,
+            sizeFormatted: f.file_size_formatted,
+          }))
+        );
+        return;
+      } catch (err) {
+        console.warn('Delete proof error:', err);
+        onAddToast(formatApiErrorMessage(err));
+      } finally {
+        setIsSubmitting(false);
+      }
+    }
+
     setEvidenceItems((prev) => {
-      const target = prev[indexToRemove];
       if (target?.previewUrl?.startsWith('blob:')) {
         URL.revokeObjectURL(target.previewUrl);
       }
@@ -303,12 +442,41 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     replaceFileInputRef.current?.click();
   };
 
-  const handleReplaceFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleReplaceFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || replaceIndex === null) return;
 
     if (!file.type.startsWith('image/')) {
       onAddToast('Mohon pilih file gambar yang valid.');
+      return;
+    }
+
+    const targetItem = evidenceItems[replaceIndex];
+    if (isEdit && targetItem?.file_id && initialReport?.id) {
+      setIsSubmitting(true);
+      try {
+        await dailyReportService.replaceReportFile(targetItem.file_id, file);
+        onAddToast(`Foto bukti berhasil diganti di server.`);
+        const files = await dailyReportService.fetchReportFiles(initialReport.id, 'proof');
+        setEvidenceItems(
+          files.map((f, idx) => ({
+            id: `ev_server_${f.id}`,
+            file_id: f.id,
+            previewUrl: f.file_url,
+            serverUrl: f.file_url,
+            name: f.original_name || f.file_name || `Foto Bukti #${idx + 1}`,
+            size: f.file_size,
+            sizeFormatted: f.file_size_formatted,
+          }))
+        );
+      } catch (err) {
+        console.warn('Replace proof error:', err);
+        onAddToast(formatApiErrorMessage(err));
+      } finally {
+        setIsSubmitting(false);
+        setReplaceIndex(null);
+        e.target.value = '';
+      }
       return;
     }
 
@@ -324,6 +492,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
             file,
             previewUrl: newPreviewUrl,
             name: file.name,
+            isNew: true,
           };
         }
         return item;
@@ -336,11 +505,11 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
   };
 
   // Process selected attachment files with strict 2 GB per-file validation
-  const handleSelectAttachmentFiles = (files: FileList | File[]) => {
+  const handleSelectAttachmentFiles = async (files: FileList | File[]) => {
     const fileList = Array.from(files);
     if (fileList.length === 0) return;
 
-    const accepted: PendingAttachmentFile[] = [];
+    const accepted: File[] = [];
     const rejected: { name: string; sizeFormatted: string }[] = [];
 
     for (const file of fileList) {
@@ -350,14 +519,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           sizeFormatted: formatFileSize(file.size),
         });
       } else {
-        accepted.push({
-          id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          file,
-          name: file.name,
-          size: file.size,
-          sizeFormatted: formatFileSize(file.size),
-          type: file.type || 'application/octet-stream',
-        });
+        accepted.push(file);
       }
     }
 
@@ -367,10 +529,50 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
       });
     }
 
-    if (accepted.length > 0) {
-      setPendingDocs((prev) => [...prev, ...accepted]);
-      onAddToast(`✓ ${accepted.length} berkas berhasil ditambahkan ke daftar lampiran.`);
+    if (accepted.length === 0) return;
+
+    // In Edit mode, upload directly to MySQL API
+    if (isEdit && initialReport?.id) {
+      setIsSubmitting(true);
+      try {
+        const matchedProject = projects.find((p) => p.name === selectedProject) || projects[0];
+        const projId = matchedProject ? matchedProject.id : 8;
+
+        for (const file of accepted) {
+          await dailyReportService.uploadReportFile(initialReport.id, file, 'attachment');
+          try {
+            await projectService.uploadDocument(projId, file);
+          } catch (_) {}
+        }
+
+        const files = await dailyReportService.fetchReportFiles(initialReport.id, 'attachment');
+        if (files) setReportAttachmentFiles(files);
+        if (projId) {
+          const docs = await projectService.fetchDocuments(projId);
+          if (docs) setProjectDocs(docs);
+        }
+        onAddToast(`✓ ${accepted.length} berkas berhasil diunggah ke server.`);
+      } catch (err) {
+        console.warn('Upload attachment error:', err);
+        onAddToast(formatApiErrorMessage(err));
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
     }
+
+    // In Create mode, stage files
+    const pendingItems: PendingAttachmentFile[] = accepted.map((file) => ({
+      id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      file,
+      name: file.name,
+      size: file.size,
+      sizeFormatted: formatFileSize(file.size),
+      type: file.type || 'application/octet-stream',
+    }));
+
+    setPendingDocs((prev) => [...prev, ...pendingItems]);
+    onAddToast(`✓ ${accepted.length} berkas berhasil ditambahkan ke daftar lampiran.`);
   };
 
   const handleAttachmentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -393,19 +595,34 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     onAddToast(`Berkas "${name}" dibatalkan dari daftar upload.`);
   };
 
-  const handleDeleteStoredDoc = async (doc: ProjectDocument) => {
-    setDeletingDocId(doc.id);
+  const handleDeleteAttachmentDoc = async (itemToDelete: { id: string | number; name: string }) => {
+    setDeletingDocId(itemToDelete.id);
     try {
-      const ok = await projectService.deleteDocument(doc.id);
-      if (ok) {
-        setProjectDocs((prev) => prev.filter((d) => d.id !== doc.id));
-        onAddToast(`Berkas "${doc.original_name}" berhasil dihapus dari server.`);
-      } else {
-        onAddToast(`Gagal menghapus berkas "${doc.original_name}".`);
+      // 1. Delete from daily report files
+      try {
+        await dailyReportService.deleteReportFile(itemToDelete.id);
+      } catch (_) {}
+      // 2. Also delete from project docs if matched
+      try {
+        await projectService.deleteDocument(itemToDelete.id);
+      } catch (_) {}
+
+      // Re-fetch from backend
+      if (initialReport?.id) {
+        const files = await dailyReportService.fetchReportFiles(initialReport.id, 'attachment');
+        setReportAttachmentFiles(files || []);
       }
-    } catch (err: any) {
-      console.warn('Gagal menghapus berkas:', err);
-      onAddToast(err?.message || 'Gagal menghapus berkas.');
+      const matched = projects.find((p) => p.name === selectedProject);
+      if (matched?.id) {
+        const docs = await projectService.fetchDocuments(matched.id);
+        setProjectDocs(docs || []);
+      } else {
+        setProjectDocs((prev) => prev.filter((d) => String(d.id) !== String(itemToDelete.id)));
+      }
+      onAddToast(`Berkas "${itemToDelete.name}" berhasil dihapus dari server.`);
+    } catch (err) {
+      console.warn('Delete attachment error:', err);
+      onAddToast(formatApiErrorMessage(err));
     } finally {
       setDeletingDocId(null);
       setDocToDelete(null);
@@ -491,6 +708,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           progress,
           status: mapFrontendStatusToBackend(status),
           report_date: reportDate,
+          duration: timeSpent.trim() || '4 jam 00 mnt',
+          obstacles: challenges.trim() || '',
+          next_plan: next.trim() || '',
         });
 
         if (res && res.success !== false) {
@@ -506,9 +726,12 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
             work_category: category,
             progress,
             status,
-            time: timeSpent || '4 jam 00 mnt',
+            time: timeSpent.trim() || '4 jam 00 mnt',
+            duration: timeSpent.trim() || '4 jam 00 mnt',
             challenges: challenges.trim() || 'Tidak ada kendala berarti.',
+            obstacles: challenges.trim() || 'Tidak ada kendala berarti.',
             next: next.trim() || 'Melanjutkan modul sprint berikutnya.',
+            next_plan: next.trim() || 'Melanjutkan modul sprint berikutnya.',
             report_date: reportDate,
             date: formatFullDateDisplay(reportDate),
             evidence_urls: finalEvidence,
@@ -519,6 +742,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
               ...(res.data.project_name && { project: res.data.project_name, project_name: res.data.project_name }),
               ...(res.data.work_category && { category: res.data.work_category, work_category: res.data.work_category }),
               ...(res.data.progress !== undefined && { progress: Number(res.data.progress) }),
+              ...(res.data.duration && { time: res.data.duration, duration: res.data.duration }),
+              ...(res.data.obstacles && { challenges: res.data.obstacles, obstacles: res.data.obstacles }),
+              ...(res.data.next_plan && { next: res.data.next_plan, next_plan: res.data.next_plan }),
             } : {}),
           };
 
@@ -682,7 +908,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
               Hapus Berkas dari Server?
             </h4>
             <p style={{ margin: '0 0 20px', fontSize: '13.5px', color: 'var(--muted)', lineHeight: 1.5 }}>
-              Apakah Anda yakin ingin menghapus berkas <b>"{docToDelete.original_name}"</b> dari server? File yang dihapus tidak dapat dipulihkan.
+              Apakah Anda yakin ingin menghapus berkas <b>"{docToDelete.name}"</b> dari server? File yang dihapus tidak dapat dipulihkan.
             </p>
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
               <button
@@ -697,7 +923,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                 type="button"
                 className="btn btn-sm"
                 style={{ background: '#dc2626', color: '#fff', border: '1px solid #dc2626' }}
-                onClick={() => handleDeleteStoredDoc(docToDelete)}
+                onClick={() => handleDeleteAttachmentDoc(docToDelete)}
                 disabled={Boolean(deletingDocId)}
               >
                 {deletingDocId ? 'Menghapus...' : 'Ya, Hapus Berkas'}
@@ -1307,7 +1533,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                             </a>
                             <button
                               type="button"
-                              onClick={() => setDocToDelete(doc)}
+                              onClick={() => setDocToDelete({ id: doc.id, name: doc.original_name })}
                               disabled={deletingDocId === doc.id || isSubmitting}
                               style={{
                                 background: 'transparent',

@@ -161,6 +161,25 @@ export interface Report {
   report_date?: string;
   work_category?: string;
   project_name?: string;
+  duration?: string;
+  obstacles?: string;
+  next_plan?: string;
+}
+
+export interface DailyReportFile {
+  id: number | string;
+  report_id: number | string;
+  file_name: string;
+  original_name?: string;
+  file_url: string;
+  file_category: 'proof' | 'attachment' | string;
+  file_type?: string;
+  mime_type?: string;
+  file_size?: number;
+  file_size_formatted?: string;
+  uploaded_by?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Activity {
