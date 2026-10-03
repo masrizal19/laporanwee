@@ -225,7 +225,9 @@ export function App() {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | undefined>(undefined);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [selectedReportId, setSelectedReportId] = useState<string>('');
+  const [selectedReportId, setSelectedReportId] = useState<string>(() => {
+    return localStorage.getItem('laporanwee_selected_report_id') || '';
+  });
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Determine if current logged in user has Administrator privileges
@@ -294,15 +296,19 @@ export function App() {
       const fetchedReports = await dailyReportService.fetchDailyReports();
       setReports(fetchedReports || []);
       if (fetchedReports && fetchedReports.length > 0) {
-        setSelectedReportId((prev) =>
-          fetchedReports.some((r) => r.id === prev) ? prev : fetchedReports[0].id
-        );
-      } else {
-        setSelectedReportId('');
+        setSelectedReportId((prev) => {
+          if (prev && fetchedReports.some((r) => String(r.id).trim() === String(prev).trim())) {
+            return prev;
+          }
+          const stored = localStorage.getItem('laporanwee_selected_report_id');
+          if (stored && fetchedReports.some((r) => String(r.id).trim() === String(stored).trim())) {
+            return stored;
+          }
+          return prev || String(fetchedReports[0].id);
+        });
       }
     } catch (err) {
       console.warn('Sync reports from API notice:', err);
-      setReports([]);
     }
   }, []);
 
@@ -643,26 +649,44 @@ export function App() {
         user?.email,
         user?.name
       );
-      // Re-fetch directly from MySQL API to ensure single source of truth
-      await refreshReportsFromApi();
-      setSelectedReportId(created.id);
+
+      if (!created || !created.id) {
+        throw new Error('Server berhasil membuat laporan namun ID laporan baru tidak valid.');
+      }
+
+      const createdId = String(created.id).trim();
+
+      // Immediately place new report into reports state so it is instantly available
+      setReports((prev) => [
+        created,
+        ...prev.filter((r) => String(r.id).trim() !== createdId),
+      ]);
+
+      // Set active report ID and persist to localStorage
+      setSelectedReportId(createdId);
+      localStorage.setItem('laporanwee_selected_report_id', createdId);
+
+      // Re-fetch reports from MySQL API in background to ensure single source of truth
+      refreshReportsFromApi().catch((err) => console.warn('Background sync reports notice:', err));
+
+      // Show success feedback
       addToast(`Laporan kerja "${reportData.task}" berhasil dikirim!`);
 
       // Log activity to backend MySQL API
-      await activityService.createActivity({
+      activityService.createActivity({
         title: 'mengirim laporan kerja',
         description: `"${reportData.task}" (${reportData.project})`,
         activity_type: 'report',
         icon_type: 'doc',
         user_name: reportData.person || user?.name || 'Tim LaporanWee',
         user_email: user?.email || '',
-      });
-      await refreshActivitiesFromApi();
+      }).then(() => refreshActivitiesFromApi()).catch(() => {});
 
       // Refresh projects from API as well in case project progress/cover was updated
-      await refreshProjectsFromApi();
+      refreshProjectsFromApi().catch(() => {});
+      refreshAnalyticsFromApi().catch(() => {});
 
-      return created.id;
+      return createdId;
     } catch (e: any) {
       console.error('API create daily report error:', e);
       addToast(e?.message || 'Gagal mengirim laporan kerja.');
@@ -867,10 +891,16 @@ export function App() {
     }
   };
 
+  const handleSelectReport = (id: string | number) => {
+    const cleanId = String(id).trim();
+    setSelectedReportId(cleanId);
+    localStorage.setItem('laporanwee_selected_report_id', cleanId);
+  };
+
   const currentProject =
     projects.find((p) => p.id === selectedProjectId) || projects[0];
   const currentReport =
-    reports.find((r) => r.id === selectedReportId) || reports[0];
+    reports.find((r) => String(r.id).trim() === String(selectedReportId).trim()) || reports[0];
 
   // Conditional Rendering for Auth Flows
   if (currentPath === '/verify-email') {
@@ -984,7 +1014,7 @@ export function App() {
             reports={reports}
             isAdmin={isAdmin}
             onNavigate={handleNavigate}
-            onSelectReport={(id) => setSelectedReportId(id)}
+            onSelectReport={handleSelectReport}
             onDeleteReport={handleDeleteReport}
             onResetReports={handleResetReports}
             onAddToast={addToast}
@@ -992,33 +1022,15 @@ export function App() {
         )}
 
         {currentView === 'report-detail' && (
-          currentReport ? (
-            <ReportDetailView
-              report={currentReport}
-              projects={projects}
-              onNavigate={handleNavigate}
-              onUpdateStatus={handleUpdateReportStatus}
-              onReportUpdated={handleReportUpdated}
-              onAddToast={addToast}
-            />
-          ) : (
-            <div className="view">
-              <div className="card" style={{ padding: '48px 24px', textAlign: 'center', background: '#fff' }}>
-                <Icon name="doc" style={{ width: 32, height: 32, margin: '0 auto 12px', color: 'var(--line-soft)' }} />
-                <h3 style={{ margin: '0 0 6px', fontSize: '17px' }}>Laporan Tidak Ditemukan</h3>
-                <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: '0 0 16px' }}>
-                  Laporan kerja belum dipilih atau telah dihapus dari database.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-dark btn-sm"
-                  onClick={() => handleNavigate('reports')}
-                >
-                  Kembali ke Daftar Laporan
-                </button>
-              </div>
-            </div>
-          )
+          <ReportDetailView
+            reportId={selectedReportId}
+            initialReport={reports.find((r) => String(r.id).trim() === String(selectedReportId).trim())}
+            projects={projects}
+            onNavigate={handleNavigate}
+            onUpdateStatus={handleUpdateReportStatus}
+            onReportUpdated={handleReportUpdated}
+            onAddToast={addToast}
+          />
         )}
 
         {currentView === 'create-report' && (
@@ -1028,7 +1040,7 @@ export function App() {
             userEmail={user.email}
             onNavigate={handleNavigate}
             onAddReport={handleAddReport}
-            onSelectReport={(id) => setSelectedReportId(id)}
+            onSelectReport={handleSelectReport}
             onAddToast={addToast}
           />
         )}

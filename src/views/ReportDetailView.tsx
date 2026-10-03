@@ -7,7 +7,9 @@ import { API_BASE_URL, dailyReportService } from '../utils/api';
 import { DailyReportForm } from '../components/DailyReportForm';
 
 interface ReportDetailViewProps {
-  report: Report;
+  report?: Report;
+  reportId?: string;
+  initialReport?: Report;
   projects?: Project[];
   onNavigate: (view: ViewType) => void;
   onUpdateStatus: (reportId: string, newStatus: Report['status']) => void;
@@ -25,22 +27,107 @@ interface Comment {
 
 export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   report,
+  reportId,
+  initialReport,
   projects,
   onNavigate,
   onUpdateStatus,
   onReportUpdated,
   onAddToast,
 }) => {
-  // Local state for the current report data to allow instant reactive updates
-  const [currentData, setCurrentData] = useState<Report>(report);
-
-  // Edit Mode state: toggles between read-only detail view and comprehensive DailyReportForm
+  const effectiveReportId = String(reportId || initialReport?.id || report?.id || '').trim();
+  const initialData = initialReport || report || null;
+  const [currentData, setCurrentData] = useState<Report | null>(initialData);
+  const [isLoading, setIsLoading] = useState<boolean>(!initialData && Boolean(effectiveReportId));
+  const [errorStatus, setErrorStatus] = useState<number | string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string>('');
   const [isEditing, setIsEditing] = useState<boolean>(false);
 
-  // Keep local state in sync when parent report prop changes
+  // Sync if initial prop changes
   useEffect(() => {
-    setCurrentData(report);
-  }, [report]);
+    if (initialReport) {
+      setCurrentData(initialReport);
+      setIsLoading(false);
+      setErrorStatus(null);
+    } else if (report) {
+      setCurrentData(report);
+      setIsLoading(false);
+      setErrorStatus(null);
+    }
+  }, [report, initialReport]);
+
+  // SINGLE SOURCE OF TRUTH: Fetch freshest report detail from backend MySQL API
+  useEffect(() => {
+    if (!effectiveReportId) {
+      if (!currentData) {
+        setIsLoading(false);
+        setErrorStatus(404);
+        setErrorMessage('ID laporan kerja belum dipilih.');
+      }
+      return;
+    }
+
+    let isMounted = true;
+    if (!currentData || String(currentData.id).trim() !== effectiveReportId) {
+      setIsLoading(true);
+    }
+    setErrorStatus(null);
+    setErrorMessage('');
+
+    dailyReportService
+      .fetchDailyReportDetail(effectiveReportId)
+      .then((fresh) => {
+        if (!isMounted) return;
+        if (fresh) {
+          setCurrentData(fresh);
+          setIsLoading(false);
+          setErrorStatus(null);
+          if (onReportUpdated) {
+            onReportUpdated(fresh);
+          }
+        } else {
+          if (!currentData || String(currentData.id).trim() !== effectiveReportId) {
+            setIsLoading(false);
+            setErrorStatus(404);
+            setErrorMessage(`Laporan kerja dengan ID #${effectiveReportId} tidak ditemukan di database.`);
+          } else {
+            setIsLoading(false);
+          }
+        }
+      })
+      .catch((err: any) => {
+        if (!isMounted) return;
+        setIsLoading(false);
+        const status = Number(err?.status || err?.code || 0);
+        if (status === 401) {
+          setErrorStatus(401);
+          setErrorMessage('Session login tidak valid atau sudah berakhir. Silakan login kembali.');
+        } else if (status === 403) {
+          setErrorStatus(403);
+          setErrorMessage('Anda tidak memiliki izin untuk melihat laporan ini.');
+        } else if (status === 404) {
+          setErrorStatus(404);
+          setErrorMessage(`Laporan kerja dengan ID #${effectiveReportId} tidak ditemukan.`);
+        } else if (status === 500) {
+          setErrorStatus(500);
+          setErrorMessage('Terjadi kesalahan server saat memuat laporan.');
+        } else if (
+          err?.name === 'TypeError' ||
+          err?.message?.toLowerCase().includes('network') ||
+          err?.message?.toLowerCase().includes('failed to fetch')
+        ) {
+          setErrorStatus('network');
+          setErrorMessage('Backend tidak dapat dihubungi. Periksa koneksi internet Anda.');
+        } else {
+          setErrorStatus(status || 500);
+          setErrorMessage(err?.message || 'Gagal memuat laporan kerja.');
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [effectiveReportId]);
 
   // Team Discussion Comments
   const [comments, setComments] = useState<Comment[]>([
@@ -64,59 +151,33 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
   const [reportFiles, setReportFiles] = useState<DailyReportFile[]>([]);
 
-  // SINGLE SOURCE OF TRUTH: Re-fetch freshest report detail from backend MySQL
-  useEffect(() => {
-    if (!currentData?.id) return;
-    dailyReportService
-      .fetchDailyReportDetail(currentData.id)
-      .then((fresh) => {
-        if (!fresh) return;
-        setCurrentData((prev) => ({
-          ...prev,
-          task: fresh.task || prev.task,
-          desc: fresh.desc || prev.desc,
-          project: fresh.project_name || fresh.project || prev.project,
-          project_name: fresh.project_name || fresh.project || prev.project_name,
-          category: fresh.work_category || fresh.category || prev.category,
-          work_category: fresh.work_category || fresh.category || prev.work_category,
-          progress: typeof fresh.progress === 'number' ? fresh.progress : prev.progress,
-          status: fresh.status || prev.status,
-          time: fresh.duration || fresh.time || prev.time,
-          duration: fresh.duration || fresh.time || prev.duration,
-          challenges: fresh.obstacles || fresh.challenges || prev.challenges,
-          obstacles: fresh.obstacles || fresh.challenges || prev.obstacles,
-          next: fresh.next_plan || fresh.next || prev.next,
-          next_plan: fresh.next_plan || fresh.next || prev.next_plan,
-          report_date: fresh.report_date || fresh.date || prev.report_date,
-        }));
-      })
-      .catch((err) => console.warn('Fetch report detail notice in ReportDetailView:', err));
-  }, [currentData.id]);
-
   // Load project documents from MySQL to link original.php endpoint
   useEffect(() => {
+    const projName = currentData?.project_name || currentData?.project;
+    if (!projName) return;
     const matched = projects?.find(
-      (p) => p.name === currentData.project || p.title === currentData.project
+      (p) => p.name === projName || p.title === projName
     );
-    const projId = matched?.id || (currentData.project?.toLowerCase().includes('job fair') ? 8 : undefined);
+    const projId = matched?.id || (projName.toLowerCase().includes('job fair') ? 8 : undefined);
     if (projId) {
       projectService
         .fetchDocuments(projId)
         .then((docs) => setProjectDocs(docs || []))
         .catch((err) => console.warn('Fetch docs notice:', err));
     }
-  }, [currentData.project, projects]);
+  }, [currentData?.project, currentData?.project_name, projects]);
 
   // Load report attachments (category=attachment) from backend MySQL
   useEffect(() => {
-    if (!currentData?.id) return;
+    const targetId = currentData?.id || effectiveReportId;
+    if (!targetId) return;
     dailyReportService
-      .fetchReportFiles(currentData.id, 'attachment')
+      .fetchReportFiles(targetId, 'attachment')
       .then((files) => {
         if (files) setReportFiles(files);
       })
       .catch((err) => console.warn('Fetch report files notice:', err));
-  }, [currentData.id]);
+  }, [currentData?.id, effectiveReportId]);
 
   // Combined documents list (Project docs + Report attachments)
   const allDocs: ProjectDocument[] = [
@@ -155,6 +216,108 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
+  // 1. Loading State Guard (Item 13)
+  if (isLoading && !currentData) {
+    return (
+      <div className="view">
+        <div className="card" style={{ padding: '60px 24px', textAlign: 'center', background: '#fff' }}>
+          <div
+            style={{
+              width: '36px',
+              height: '36px',
+              margin: '0 auto 16px',
+              border: '3px solid var(--line-soft)',
+              borderTopColor: 'var(--violet)',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite',
+            }}
+          />
+          <h3 style={{ margin: '0 0 6px', fontSize: '18px', fontWeight: 800 }}>Memuat Laporan...</h3>
+          <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: 0 }}>
+            Mengambil data laporan kerja langsung dari database server...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Error / Not Found State Guard (Item 14)
+  if (!currentData || errorStatus) {
+    const is401 = errorStatus === 401;
+    const is403 = errorStatus === 403;
+    const is404 = errorStatus === 404;
+    const is500 = errorStatus === 500;
+    const isNetwork = errorStatus === 'network';
+
+    const titleText = is401
+      ? 'Session Tidak Valid'
+      : is403
+      ? 'Akses Ditolak'
+      : is404
+      ? 'Laporan Tidak Ditemukan'
+      : is500
+      ? 'Terjadi Kesalahan Server'
+      : isNetwork
+      ? 'Backend Tidak Dapat Dihubungi'
+      : 'Gagal Memuat Laporan';
+
+    const descText = errorMessage || (
+      is401
+        ? 'Session login sudah berakhir. Silakan login kembali.'
+        : is403
+        ? 'Anda tidak memiliki akses ke laporan ini.'
+        : is404
+        ? 'Laporan kerja belum dipilih atau telah dihapus dari database.'
+        : is500
+        ? 'Terjadi kesalahan sistem di server backend saat memproses laporan.'
+        : isNetwork
+        ? 'Backend tidak dapat dihubungi. Periksa koneksi jaringan Anda.'
+        : 'Data laporan kerja tidak dapat dimuat.'
+    );
+
+    return (
+      <div className="view">
+        <div className="card" style={{ padding: '48px 24px', textAlign: 'center', background: '#fff' }}>
+          <Icon name="doc" style={{ width: 32, height: 32, margin: '0 auto 12px', color: 'var(--line-soft)' }} />
+          <h3 style={{ margin: '0 0 6px', fontSize: '17px', fontWeight: 800 }}>{titleText}</h3>
+          <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: '0 0 16px' }}>
+            {descText}
+          </p>
+          <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            {effectiveReportId && (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => {
+                  setIsLoading(true);
+                  setErrorStatus(null);
+                  dailyReportService.fetchDailyReportDetail(effectiveReportId).then((fresh) => {
+                    if (fresh) {
+                      setCurrentData(fresh);
+                      setIsLoading(false);
+                    } else {
+                      setIsLoading(false);
+                      setErrorStatus(404);
+                    }
+                  }).catch(() => setIsLoading(false));
+                }}
+              >
+                Coba Lagi
+              </button>
+            )}
+            <button
+              type="button"
+              className="btn btn-dark btn-sm"
+              onClick={() => onNavigate('reports')}
+            >
+              Kembali ke Daftar Laporan
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const rawEvidence =
     currentData.evidence_urls && currentData.evidence_urls.length > 0
       ? currentData.evidence_urls
@@ -179,13 +342,13 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
   const handleApprove = () => {
     onUpdateStatus(currentData.id, 'Completed');
-    setCurrentData((prev) => ({ ...prev, status: 'Completed' }));
+    setCurrentData((prev) => (prev ? { ...prev, status: 'Completed' } : null));
     onAddToast(`Laporan "${currentData.task}" telah disetujui (Completed)!`);
   };
 
   const handleRequestRevision = () => {
     onUpdateStatus(currentData.id, 'In Review');
-    setCurrentData((prev) => ({ ...prev, status: 'In Review' }));
+    setCurrentData((prev) => (prev ? { ...prev, status: 'In Review' } : null));
     onAddToast(`Revisi telah diminta untuk laporan "${currentData.task}".`);
   };
 

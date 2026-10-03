@@ -776,9 +776,14 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           evidence_url: finalEvidence[0],
         });
 
-        if (newId && onSelectReport && onNavigate) {
-          onSelectReport(newId);
-          onNavigate('report-detail');
+        if (newId) {
+          const cleanId = String(newId).trim();
+          if (onSelectReport) {
+            onSelectReport(cleanId);
+          }
+          if (onNavigate) {
+            onNavigate('report-detail');
+          }
         } else if (onNavigate) {
           onNavigate('reports');
         }

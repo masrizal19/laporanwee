@@ -531,91 +531,113 @@ export const mapFrontendStatusToBackend = (
   return 'in_review';
 };
 
+export const mapRawDailyReportToReport = (item: any): Report => {
+  let evidenceList: string[] = [];
+  if (Array.isArray(item.evidence_urls) && item.evidence_urls.length > 0) {
+    evidenceList = item.evidence_urls;
+  } else if (typeof item.evidence_urls === 'string' && item.evidence_urls.startsWith('[')) {
+    try {
+      evidenceList = JSON.parse(item.evidence_urls);
+    } catch (_) {}
+  }
+  if (evidenceList.length === 0 && item.cover_url) {
+    evidenceList = [item.cover_url];
+  }
+  if (evidenceList.length === 0 && item.file_url) {
+    evidenceList = [item.file_url];
+  }
+  // Guarantee legacy truncated base64 or upload path is mapped to original.php endpoint
+  evidenceList = evidenceList.map((url) => {
+    if (typeof url === 'string') {
+      if (url.startsWith('data:image/') || url.includes('/uploads/projects/8/')) {
+        return `${API_BASE_URL}/project-documents/original.php?id=6`;
+      }
+    }
+    return url;
+  });
+  let cover = evidenceList[0] || item.cover_url || item.file_url || null;
+  if (typeof cover === 'string' && (cover.startsWith('data:image/') || cover.includes('/uploads/projects/8/'))) {
+    cover = `${API_BASE_URL}/project-documents/original.php?id=6`;
+  }
+  let dateDisplay = item.report_date || '14 Okt 2026';
+  if (item.report_date && item.report_date.includes('-')) {
+    try {
+      const parts = item.report_date.split('-');
+      if (parts.length === 3) {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        dateDisplay = `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
+      }
+    } catch (_) {}
+  }
+
+  return {
+    id: String(item.id),
+    person: item.user_name || item.user_email?.split('@')[0] || 'Tim LaporanWee',
+    date: dateDisplay,
+    report_date: item.report_date || '',
+    project: item.project_name || 'LaporanWee',
+    project_name: item.project_name || 'LaporanWee',
+    task: item.title || item.task || 'Laporan Kerja Harian',
+    category: item.work_category || item.category || 'Desain & UI/UX',
+    work_category: item.work_category || item.category || 'Desain & UI/UX',
+    desc: item.description || item.desc || '',
+    progress: Number(item.progress) || 0,
+    time: item.duration || item.time_spent || '4 jam 00 mnt',
+    duration: item.duration || item.time_spent || '4 jam 00 mnt',
+    status: mapBackendStatusToFrontend(item.status),
+    challenges: item.obstacles || item.challenges || 'Tidak ada kendala berarti.',
+    obstacles: item.obstacles || item.challenges || 'Tidak ada kendala berarti.',
+    next: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
+    next_plan: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
+    evidence_urls: evidenceList,
+    evidence_url: cover || undefined,
+  };
+};
+
 export const dailyReportService = {
   fetchDailyReports: async (): Promise<Report[]> => {
     const res = await api.get('/daily-reports/list.php');
     if (!res || !Array.isArray(res.data)) {
       return [];
     }
-
-    return res.data.map((item: any): Report => {
-      let evidenceList: string[] = [];
-      if (Array.isArray(item.evidence_urls) && item.evidence_urls.length > 0) {
-        evidenceList = item.evidence_urls;
-      } else if (typeof item.evidence_urls === 'string' && item.evidence_urls.startsWith('[')) {
-        try {
-          evidenceList = JSON.parse(item.evidence_urls);
-        } catch (_) {}
-      }
-      if (evidenceList.length === 0 && item.cover_url) {
-        evidenceList = [item.cover_url];
-      }
-      if (evidenceList.length === 0 && item.file_url) {
-        evidenceList = [item.file_url];
-      }
-      // Guarantee legacy truncated base64 or upload path is mapped to original.php endpoint
-      evidenceList = evidenceList.map((url) => {
-        if (typeof url === 'string') {
-          if (url.startsWith('data:image/') || url.includes('/uploads/projects/8/')) {
-            return `${API_BASE_URL}/project-documents/original.php?id=6`;
-          }
-        }
-        return url;
-      });
-      let cover = evidenceList[0] || item.cover_url || item.file_url || null;
-      if (typeof cover === 'string' && (cover.startsWith('data:image/') || cover.includes('/uploads/projects/8/'))) {
-        cover = `${API_BASE_URL}/project-documents/original.php?id=6`;
-      }
-      let dateDisplay = item.report_date || '14 Okt 2026';
-      if (item.report_date && item.report_date.includes('-')) {
-        try {
-          const parts = item.report_date.split('-');
-          if (parts.length === 3) {
-            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-            const mIdx = parseInt(parts[1], 10) - 1;
-            dateDisplay = `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
-          }
-        } catch (_) {}
-      }
-
-      return {
-        id: String(item.id),
-        person: item.user_name || item.user_email?.split('@')[0] || 'Tim LaporanWee',
-        date: dateDisplay,
-        report_date: item.report_date || '',
-        project: item.project_name || 'LaporanWee',
-        project_name: item.project_name || 'LaporanWee',
-        task: item.title || 'Laporan Kerja Harian',
-        category: item.work_category || item.category || 'Desain & UI/UX',
-        work_category: item.work_category || item.category || 'Desain & UI/UX',
-        desc: item.description || '',
-        progress: Number(item.progress) || 0,
-        time: item.duration || item.time_spent || '4 jam 00 mnt',
-        duration: item.duration || item.time_spent || '4 jam 00 mnt',
-        status: mapBackendStatusToFrontend(item.status),
-        challenges: item.obstacles || item.challenges || 'Tidak ada kendala berarti.',
-        obstacles: item.obstacles || item.challenges || 'Tidak ada kendala berarti.',
-        next: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
-        next_plan: item.next_plan || item.next || 'Melanjutkan deliverable berikutnya.',
-        evidence_urls: evidenceList,
-        evidence_url: cover || undefined,
-      };
-    });
+    return res.data.map(mapRawDailyReportToReport);
   },
 
   fetchDailyReportDetail: async (id: string | number): Promise<Report | null> => {
+    console.log("DETAIL REPORT ID:", id);
+    const targetIdStr = String(id).trim();
+    if (!targetIdStr) return null;
+
+    // 1. Try querying specific report from backend API
     try {
-      const res = await api.get(`/daily-reports/list.php?report_id=${id}`);
+      const res = await api.get(`/daily-reports/list.php?id=${encodeURIComponent(targetIdStr)}`);
+      console.log("DETAIL API RESPONSE:", res);
       if (res && res.success && res.data) {
-        const item = Array.isArray(res.data) ? res.data[0] : res.data;
-        if (item && item.id) {
-          const all = await dailyReportService.fetchDailyReports();
-          return all.find((r) => String(r.id) === String(id)) || null;
+        const items = Array.isArray(res.data) ? res.data : [res.data];
+        const matched = items.find((item: any) => String(item.id).trim() === targetIdStr);
+        if (matched) {
+          return mapRawDailyReportToReport(matched);
         }
       }
-    } catch (_) {}
-    const all = await dailyReportService.fetchDailyReports();
-    return all.find((r) => String(r.id) === String(id)) || null;
+    } catch (e) {
+      console.warn("fetchDailyReportDetail specific id query notice:", e);
+    }
+
+    // 2. Fallback to list of all reports (safe string comparison)
+    try {
+      const all = await dailyReportService.fetchDailyReports();
+      console.log("DETAIL API FALLBACK ALL REPORTS COUNT:", all.length);
+      const matched = all.find((r) => String(r.id).trim() === targetIdStr);
+      if (matched) {
+        return matched;
+      }
+    } catch (err) {
+      console.error("fetchDailyReportDetail error:", err);
+      throw err;
+    }
+
+    return null;
   },
 
   createDailyReport: async (
@@ -649,10 +671,53 @@ export const dailyReportService = {
     };
 
     const res = await api.post('/daily-reports/create.php', payload);
-    const createdId = res?.data?.id ? String(res.data.id) : `r_${Date.now()}`;
+    console.log("CREATE REPORT RESPONSE:", res);
+
+    if (!res || res.success === false) {
+      throw new Error(res?.message || 'Gagal membuat laporan di server backend.');
+    }
+
+    // Extract real ID from MySQL response
+    const rawId = res.data?.id ?? res.id ?? res.data?.report_id ?? res.report_id;
+    if (rawId === undefined || rawId === null || rawId === '') {
+      console.error("CREATE REPORT ERROR: Missing ID in backend response", res);
+      throw new Error('Server berhasil membuat laporan namun tidak mengembalikan ID laporan baru.');
+    }
+
+    const createdReportId = String(rawId);
+    console.log("CREATED REPORT ID:", createdReportId);
+
+    let dateDisplay = dateStr;
+    try {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        dateDisplay = `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
+      }
+    } catch (_) {}
+
     return {
-      id: createdId,
-      ...reportData,
+      id: createdReportId,
+      person: reportData.person || userName || 'Tim LaporanWee',
+      date: dateDisplay,
+      report_date: dateStr,
+      project: reportData.project || 'Proyek Wee Studio',
+      project_name: reportData.project || 'Proyek Wee Studio',
+      task: reportData.task,
+      category: reportData.category || 'Desain & UI/UX',
+      work_category: reportData.category || 'Desain & UI/UX',
+      desc: reportData.desc || '',
+      progress: typeof reportData.progress === 'number' ? reportData.progress : 85,
+      time: reportData.time || '4 jam 00 mnt',
+      duration: reportData.time || '4 jam 00 mnt',
+      status: reportData.status || 'In Review',
+      challenges: reportData.challenges || '',
+      obstacles: reportData.challenges || '',
+      next: reportData.next || '',
+      next_plan: reportData.next || '',
+      evidence_urls: reportData.evidence_urls || [],
+      evidence_url: reportData.evidence_url || (reportData.evidence_urls ? reportData.evidence_urls[0] : undefined),
     };
   },
 
