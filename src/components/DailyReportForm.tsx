@@ -6,6 +6,7 @@ import { getUserDisplayName } from '../utils/userUtils';
 import { api, API_BASE_URL, dailyReportService, mapFrontendStatusToBackend } from '../utils/api';
 import { categoryService, WorkCategory } from '../utils/categoryService';
 import { projectService } from '../utils/projectService';
+import { formatFileSize } from '../utils/taskDocuments';
 
 export interface EvidenceFileItem {
   id: string;
@@ -13,6 +14,15 @@ export interface EvidenceFileItem {
   previewUrl: string;
   serverUrl?: string;
   name: string;
+}
+
+export interface PendingAttachmentFile {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  sizeFormatted: string;
+  type: string;
 }
 
 export interface DailyReportFormProps {
@@ -187,10 +197,15 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
   // Derived preview URLs for UI rendering and Lightbox
   const evidencePreviews = evidenceItems.map((item) => item.previewUrl);
 
-  // Project Documents (Lampiran & Berkas)
+  // Project Documents (Lampiran & Berkas) — Max 2 GB per file
   const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
-  const [isUploadingDoc, setIsUploadingDoc] = useState(false);
+  const [pendingDocs, setPendingDocs] = useState<PendingAttachmentFile[]>([]);
+  const [deletingDocId, setDeletingDocId] = useState<number | string | null>(null);
+  const [docToDelete, setDocToDelete] = useState<ProjectDocument | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
+
+  // 2 GB limit per file (2,147,483,648 bytes)
+  const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024;
 
   // Load backend documents for selected project
   useEffect(() => {
@@ -320,27 +335,80 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     e.target.value = '';
   };
 
-  // Handle uploading extra document / attachment to project
-  const handleUploadProjectDoc = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // Process selected attachment files with strict 2 GB per-file validation
+  const handleSelectAttachmentFiles = (files: FileList | File[]) => {
+    const fileList = Array.from(files);
+    if (fileList.length === 0) return;
 
-    const matchedProject = projects.find((p) => p.name === selectedProject) || projects[0];
-    const projId = matchedProject ? matchedProject.id : 8;
+    const accepted: PendingAttachmentFile[] = [];
+    const rejected: { name: string; sizeFormatted: string }[] = [];
 
-    setIsUploadingDoc(true);
+    for (const file of fileList) {
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        rejected.push({
+          name: file.name,
+          sizeFormatted: formatFileSize(file.size),
+        });
+      } else {
+        accepted.push({
+          id: `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          file,
+          name: file.name,
+          size: file.size,
+          sizeFormatted: formatFileSize(file.size),
+          type: file.type || 'application/octet-stream',
+        });
+      }
+    }
+
+    if (rejected.length > 0) {
+      rejected.forEach((item) => {
+        onAddToast(`File "${item.name}" ditolak (${item.sizeFormatted}). Ukuran maksimal 2 GB per file.`);
+      });
+    }
+
+    if (accepted.length > 0) {
+      setPendingDocs((prev) => [...prev, ...accepted]);
+      onAddToast(`✓ ${accepted.length} berkas berhasil ditambahkan ke daftar lampiran.`);
+    }
+  };
+
+  const handleAttachmentInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleSelectAttachmentFiles(e.target.files);
+      e.target.value = '';
+    }
+  };
+
+  const handleAttachmentDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleSelectAttachmentFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleRemovePendingDoc = (id: string, name: string) => {
+    setPendingDocs((prev) => prev.filter((d) => d.id !== id));
+    onAddToast(`Berkas "${name}" dibatalkan dari daftar upload.`);
+  };
+
+  const handleDeleteStoredDoc = async (doc: ProjectDocument) => {
+    setDeletingDocId(doc.id);
     try {
-      const doc = await projectService.uploadDocument(projId, file);
-      if (doc) {
-        setProjectDocs((prev) => [doc, ...prev]);
-        onAddToast(`Berkas "${file.name}" berhasil diunggah.`);
+      const ok = await projectService.deleteDocument(doc.id);
+      if (ok) {
+        setProjectDocs((prev) => prev.filter((d) => d.id !== doc.id));
+        onAddToast(`Berkas "${doc.original_name}" berhasil dihapus dari server.`);
+      } else {
+        onAddToast(`Gagal menghapus berkas "${doc.original_name}".`);
       }
     } catch (err: any) {
-      console.warn('Upload doc error:', err);
-      onAddToast(err?.message || 'Gagal mengunggah berkas.');
+      console.warn('Gagal menghapus berkas:', err);
+      onAddToast(err?.message || 'Gagal menghapus berkas.');
     } finally {
-      setIsUploadingDoc(false);
-      e.target.value = '';
+      setDeletingDocId(null);
+      setDocToDelete(null);
     }
   };
 
@@ -355,6 +423,21 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     try {
       const matchedProject = projects.find((p) => p.name === selectedProject) || projects[0];
       const projectId = matchedProject ? matchedProject.id : 8;
+
+      // 1. Upload pending project attachment files to MySQL project-documents (Max 2 GB per file)
+      if (pendingDocs.length > 0) {
+        for (const item of pendingDocs) {
+          try {
+            const uploadedDoc = await projectService.uploadDocument(projectId, item.file);
+            if (uploadedDoc) {
+              setProjectDocs((prev) => [uploadedDoc, ...prev]);
+            }
+          } catch (uploadDocErr) {
+            console.warn(`Gagal upload berkas lampiran "${item.name}":`, uploadDocErr);
+          }
+        }
+        setPendingDocs([]);
+      }
 
       const uploadedUrls: string[] = [];
 
@@ -511,11 +594,13 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
         hidden
       />
 
-      {/* Hidden file input for uploading extra project doc */}
+      {/* Hidden file input for project attachments supporting multiple selection and 2 GB limit */}
       <input
         ref={docFileInputRef}
         type="file"
-        onChange={handleUploadProjectDoc}
+        accept=".jpg,.jpeg,.png,.webp,.gif,.svg,.bmp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,.rar,.7z,.tar,.gz,.mp4,.mov,.webm,.mkv,.avi,image/*,video/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/zip,application/x-rar-compressed"
+        multiple
+        onChange={handleAttachmentInputChange}
         hidden
       />
 
@@ -565,6 +650,57 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                 }}
               >
                 HAPUS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Project Document Deletion from MySQL */}
+      {docToDelete && (
+        <div
+          className="edit-report-modal-overlay"
+          style={{ zIndex: 10006 }}
+          onClick={() => !deletingDocId && setDocToDelete(null)}
+        >
+          <div
+            className="card"
+            style={{
+              maxWidth: '400px',
+              padding: '24px',
+              textAlign: 'center',
+              border: '1.5px solid var(--line)',
+              borderRadius: '12px',
+              background: 'var(--card, #fff)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ marginBottom: '12px', display: 'inline-flex', padding: '10px', borderRadius: '50%', background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}>
+              <Icon name="trash" size={26} />
+            </div>
+            <h4 style={{ margin: '0 0 8px', fontSize: '17px', fontWeight: 800 }}>
+              Hapus Berkas dari Server?
+            </h4>
+            <p style={{ margin: '0 0 20px', fontSize: '13.5px', color: 'var(--muted)', lineHeight: 1.5 }}>
+              Apakah Anda yakin ingin menghapus berkas <b>"{docToDelete.original_name}"</b> dari server? File yang dihapus tidak dapat dipulihkan.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setDocToDelete(null)}
+                disabled={Boolean(deletingDocId)}
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ background: '#dc2626', color: '#fff', border: '1px solid #dc2626' }}
+                onClick={() => handleDeleteStoredDoc(docToDelete)}
+                disabled={Boolean(deletingDocId)}
+              >
+                {deletingDocId ? 'Menghapus...' : 'Ya, Hapus Berkas'}
               </button>
             </div>
           </div>
@@ -890,54 +1026,313 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
               />
             </div>
 
-            {/* Field: Lampiran & Berkas Bukti (Dari Backend MySQL) */}
-            <div className="field" style={{ marginTop: '20px' }}>
-              <div className="field-label-row">
-                <label>Lampiran &amp; Berkas Proyek ({projectDocs.length})</label>
+            {/* Field: Lampiran & Berkas Proyek (Maksimal 2 GB per file) */}
+            <div className="field" style={{ marginTop: '24px' }}>
+              <div
+                className="field-label-row"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  marginBottom: '8px',
+                }}
+              >
+                <div>
+                  <label style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: 'var(--ink)' }}>
+                    Lampiran &amp; Berkas Proyek ({projectDocs.length + pendingDocs.length})
+                  </label>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
+                    Ukuran maksimal 2 GB per file. Format: JPG, PNG, WEBP, PDF, DOCX, XLSX, PPTX, ZIP, RAR, MP4, MOV, dll.
+                  </div>
+                </div>
                 <button
                   type="button"
                   className="btn btn-outline btn-xs"
                   onClick={() => docFileInputRef.current?.click()}
-                  disabled={isSubmitting || isUploadingDoc}
+                  disabled={isSubmitting}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontWeight: 700,
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
                 >
-                  <Icon name="plus" size={12} />
-                  <span>{isUploadingDoc ? 'Mengunggah...' : '+ Tambah File'}</span>
+                  <Icon name="plus" size={13} />
+                  <span>+ Tambah File</span>
                 </button>
               </div>
 
-              {projectDocs.length > 0 ? (
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                    gap: '10px',
-                    marginTop: '8px',
-                  }}
-                >
-                  {projectDocs.map((doc) => (
-                    <a
-                      key={doc.id}
-                      href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="attach-card"
-                      style={{ padding: '8px', textDecoration: 'none', color: 'inherit' }}
-                      title={`Buka berkas ${doc.original_name}`}
+              {/* Drag and Drop Container & File Cards List */}
+              <div
+                className="attachment-dropzone-box"
+                onDrop={handleAttachmentDrop}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                style={{
+                  border: '1.5px dashed var(--line-soft)',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  background: 'var(--paper)',
+                  marginTop: '6px',
+                }}
+              >
+                {projectDocs.length === 0 && pendingDocs.length === 0 ? (
+                  <div
+                    onClick={() => docFileInputRef.current?.click()}
+                    style={{
+                      padding: '28px 16px',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        padding: '10px',
+                        borderRadius: '50%',
+                        background: 'var(--card, #fff)',
+                        border: '1px solid var(--line-soft)',
+                        marginBottom: '10px',
+                        color: 'var(--ink)',
+                      }}
                     >
-                      <div className="attach-meta">
-                        <div className="fn" style={{ fontSize: '12px' }}>{doc.original_name}</div>
-                        <div className="fs">
-                          {doc.file_size_formatted || (doc.file_size ? `${Math.round(doc.file_size / 1024)} KB` : 'Berkas')}
+                      <Icon name="upload" size={22} />
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--ink)' }}>
+                      + Tambah File Lampiran Proyek
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--muted)', marginTop: '4px' }}>
+                      Pilih atau seret berkas ke area ini (Maks. 2 GB per file)
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* 1. Pending Files (ready to be uploaded on submit) */}
+                    {pendingDocs.map((item) => {
+                      const isImg = item.type.startsWith('image/');
+                      const isVid = item.type.startsWith('video/');
+                      return (
+                        <div
+                          key={item.id}
+                          className="attachment-file-row pending"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            background: 'var(--card, #fff)',
+                            border: '1.5px solid var(--line-soft)',
+                            borderRadius: '8px',
+                            gap: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '6px',
+                                background: 'var(--paper)',
+                                border: '1px solid var(--line-soft)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Icon name={isImg ? 'image' : isVid ? 'video' : 'doc'} size={18} />
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div
+                                style={{
+                                  fontWeight: 700,
+                                  fontSize: '13px',
+                                  color: 'var(--ink)',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                                title={item.name}
+                              >
+                                {item.name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '11.5px',
+                                  color: 'var(--muted)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginTop: '2px',
+                                }}
+                              >
+                                <span>{item.sizeFormatted}</span>
+                                <span>&bull;</span>
+                                <span style={{ color: 'var(--violet)', fontWeight: 600 }}>
+                                  File Baru (Menunggu Unggah)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePendingDoc(item.id, item.name)}
+                            disabled={isSubmitting}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#ef4444',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 6px',
+                              flexShrink: 0,
+                            }}
+                            title="Batalkan berkas ini"
+                          >
+                            <Icon name="x" size={13} />
+                            <span>Hapus X</span>
+                          </button>
                         </div>
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '4px 0 0' }}>
-                  Belum ada berkas lampiran tambahan dari server untuk proyek ini.
-                </p>
-              )}
+                      );
+                    })}
+
+                    {/* 2. Stored Files (already in MySQL database) */}
+                    {projectDocs.map((doc) => {
+                      const isImg = doc.file_type === 'image';
+                      const isVid = doc.file_type === 'video';
+                      return (
+                        <div
+                          key={doc.id}
+                          className="attachment-file-row stored"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            background: 'var(--card, #fff)',
+                            border: '1.5px solid var(--line-soft)',
+                            borderRadius: '8px',
+                            gap: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '6px',
+                                background: 'rgba(167, 139, 250, 0.15)',
+                                border: '1px solid var(--line-soft)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Icon name={isImg ? 'image' : isVid ? 'video' : 'doc'} size={18} />
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <a
+                                href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontWeight: 700,
+                                  fontSize: '13px',
+                                  color: 'var(--ink)',
+                                  textDecoration: 'none',
+                                  display: 'block',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                                title={`Buka berkas ${doc.original_name}`}
+                              >
+                                {doc.original_name}
+                              </a>
+                              <div
+                                style={{
+                                  fontSize: '11.5px',
+                                  color: 'var(--muted)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginTop: '2px',
+                                }}
+                              >
+                                <span>
+                                  {doc.file_size_formatted ||
+                                    (doc.file_size ? `${Math.round(doc.file_size / 1024)} KB` : 'Berkas')}
+                                </span>
+                                <span>&bull;</span>
+                                <span style={{ color: '#16a34a', fontWeight: 600 }}>Tersimpan di Server</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            <a
+                              href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-outline btn-xs"
+                              style={{
+                                textDecoration: 'none',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '4px 8px',
+                                borderRadius: '5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                color: 'inherit',
+                              }}
+                              title="Buka atau unduh berkas asli"
+                            >
+                              <span>Buka</span>
+                              <span style={{ fontSize: '11px' }}>↗</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => setDocToDelete(doc)}
+                              disabled={deletingDocId === doc.id || isSubmitting}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#ef4444',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 6px',
+                              }}
+                              title="Hapus berkas ini dari server"
+                            >
+                              <Icon name="x" size={13} />
+                              <span>Hapus X</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Action Buttons: [BATAL] & [SIMPAN PERUBAHAN] / [Kirim Laporan] */}

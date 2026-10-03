@@ -6666,4 +6666,33 @@ input[type=range]::-webkit-slider-thumb:active {
   }
 }
 
+/* ========================================================
+   ATTACHMENTS & PROJECT DOCUMENTS — MAX 2 GB PER FILE
+   ======================================================== */
+.attachment-dropzone-box {
+  transition: border-color 0.18s ease, background-color 0.18s ease;
+}
+
+.attachment-dropzone-box:hover {
+  border-color: var(--line);
+}
+
+.attachment-file-row {
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.attachment-file-row:hover {
+  border-color: var(--line) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+
+.attachment-file-row.pending {
+  border-left: 3px solid var(--violet) !important;
+}
+
+.attachment-file-row.stored {
+  border-left: 3px solid #16a34a !important;
+}
+
+
 

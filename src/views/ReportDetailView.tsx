@@ -344,18 +344,18 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
             </div>
           )}
 
-          {/* Attachments Section */}
+          {/* Attachments Section — Connected to Backend MySQL */}
           <div style={{ marginTop: '28px' }}>
             <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 4px' }}>
-              Lampiran &amp; Berkas Bukti ({projectDocs.length > 0 ? projectDocs.length : 4})
+              Lampiran &amp; Berkas Proyek ({projectDocs.length})
             </h3>
             <p className="section-sub" style={{ margin: 0 }}>
-              Klik berkas untuk melihat preview atau mengunduh aset.
+              Berkas asli dari server proyek yang dapat dibuka dan diunduh.
             </p>
 
-            <div className="attach-grid">
-              {projectDocs.length > 0 ? (
-                projectDocs.map((doc) => (
+            {projectDocs.length > 0 ? (
+              <div className="attach-grid" style={{ marginTop: '14px' }}>
+                {projectDocs.map((doc) => (
                   <a
                     key={doc.id}
                     href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
@@ -363,10 +363,10 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                     rel="noopener noreferrer"
                     className="attach-card"
                     style={{ textDecoration: 'none', color: 'inherit' }}
-                    title={`Buka berkas ${doc.original_name}`}
+                    title={`Buka berkas asli ${doc.original_name}`}
                   >
                     <div className="attach-thumb" style={{ background: 'var(--paper)' }}>
-                      <Icon name={doc.file_type === 'image' ? 'image' : 'doc'} />
+                      <Icon name={doc.file_type === 'image' ? 'image' : doc.file_type === 'video' ? 'video' : 'doc'} />
                     </div>
                     <div className="attach-meta">
                       <div className="fn">{doc.original_name}</div>
@@ -375,63 +375,40 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                       </div>
                     </div>
                   </a>
-                ))
-              ) : (
-                <>
-                  <div
-                    className="attach-card"
-                    onClick={() => onAddToast('Membuka file mockup Figma...')}
-                  >
-                    <div className="attach-thumb" style={{ background: 'var(--lavender)' }}>
-                      <Icon name="palette" />
-                    </div>
-                    <div className="attach-meta">
-                      <div className="fn">Mockup-v3.fig</div>
-                      <div className="fs">14.2 MB &bull; Figma</div>
-                    </div>
-                  </div>
-
-                  <div
-                    className="attach-card"
-                    onClick={() => onAddToast('Mengunduh dokumentasi PDF...')}
-                  >
-                    <div className="attach-thumb" style={{ background: 'var(--mint)' }}>
-                      <Icon name="doc" />
-                    </div>
-                    <div className="attach-meta">
-                      <div className="fn">Responsive-Spec.pdf</div>
-                      <div className="fs">3.8 MB &bull; PDF</div>
-                    </div>
-                  </div>
-
-                  <div
-                    className="attach-card"
-                    onClick={() => onAddToast('Membuka palet token PNG...')}
-                  >
-                    <div className="attach-thumb" style={{ background: 'var(--peach)' }}>
-                      <Icon name="image" />
-                    </div>
-                    <div className="attach-meta">
-                      <div className="fn">Palette-Tokens.png</div>
-                      <div className="fs">820 KB &bull; PNG</div>
-                    </div>
-                  </div>
-
-                  <div
-                    className="attach-card"
-                    onClick={() => onAddToast('Mengunduh shotlist video...')}
-                  >
-                    <div className="attach-thumb" style={{ background: 'var(--cream)' }}>
-                      <Icon name="video" />
-                    </div>
-                    <div className="attach-meta">
-                      <div className="fn">Shotlist-Take3.mov</div>
-                      <div className="fs">42 MB &bull; Video</div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  padding: '24px 16px',
+                  background: 'var(--paper)',
+                  borderRadius: '12px',
+                  border: '1.5px dashed var(--line-soft)',
+                  textAlign: 'center',
+                  marginTop: '12px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    padding: '10px',
+                    borderRadius: '50%',
+                    background: 'var(--card, #fff)',
+                    border: '1px solid var(--line-soft)',
+                    marginBottom: '8px',
+                    color: 'var(--muted)',
+                  }}
+                >
+                  <Icon name="doc" size={20} />
+                </div>
+                <div style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--ink)' }}>
+                  Belum Ada Berkas Lampiran Tambahan
+                </div>
+                <div style={{ fontSize: '12.5px', color: 'var(--muted)', marginTop: '4px' }}>
+                  Gunakan tombol <b>EDIT LAPORAN</b> untuk menambahkan berkas proyek (Maks. 2 GB per file).
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
