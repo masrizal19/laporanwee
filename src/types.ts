@@ -158,6 +158,9 @@ export interface Report {
   next?: string;
   evidence_urls?: string[];
   evidence_url?: string;
+  report_date?: string;
+  work_category?: string;
+  project_name?: string;
 }
 
 export interface Activity {

@@ -559,9 +559,12 @@ export const dailyReportService = {
         id: String(item.id),
         person: item.user_name || item.user_email?.split('@')[0] || 'Tim LaporanWee',
         date: dateDisplay,
+        report_date: item.report_date || '',
         project: item.project_name || 'LaporanWee',
+        project_name: item.project_name || 'LaporanWee',
         task: item.title || 'Laporan Kerja Harian',
-        category: item.category || 'Desain & UI/UX',
+        category: item.work_category || item.category || 'Desain & UI/UX',
+        work_category: item.work_category || item.category || 'Desain & UI/UX',
         desc: item.description || '',
         progress: Number(item.progress) || 0,
         time: item.time_spent || '4 jam 00 mnt',
@@ -608,6 +611,31 @@ export const dailyReportService = {
     };
   },
 
+  updateDailyReport: async (payload: {
+    id: number | string;
+    work_category: string;
+    project_name: string;
+    title: string;
+    description: string;
+    progress: number;
+    status: string;
+    report_date: string;
+  }): Promise<{ success: boolean; message?: string; data?: any }> => {
+    const numericId = Number(payload.id);
+    const body = {
+      id: isNaN(numericId) ? payload.id : numericId,
+      work_category: payload.work_category,
+      project_name: payload.project_name,
+      title: payload.title,
+      description: payload.description,
+      progress: Number(payload.progress),
+      status: payload.status,
+      report_date: payload.report_date,
+    };
+    const res = await api.post('/daily-reports/update.php', body);
+    return res;
+  },
+
   deleteDailyReport: async (id: string | number): Promise<boolean> => {
     const numericId = Number(id);
     const res = await api.post('/daily-reports/delete.php', {
@@ -625,6 +653,7 @@ export const dailyReportService = {
 // Export individual helper functions for clean usage
 export const fetchDailyReports = dailyReportService.fetchDailyReports;
 export const createDailyReport = dailyReportService.createDailyReport;
+export const updateDailyReport = dailyReportService.updateDailyReport;
 export const deleteDailyReport = dailyReportService.deleteDailyReport;
 export const resetDailyReports = dailyReportService.resetDailyReports;
 

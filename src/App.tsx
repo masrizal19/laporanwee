@@ -739,6 +739,15 @@ export function App() {
     );
   };
 
+  const handleReportUpdated = (updatedReport: Report) => {
+    setReports((prev) =>
+      prev.map((r) => (r.id === updatedReport.id ? updatedReport : r))
+    );
+    // Refresh analytics summary and reports in background
+    refreshAnalyticsFromApi();
+    refreshReportsFromApi();
+  };
+
   // Activities Admin CRUD strictly connected to backend MySQL API
   const handleDeleteActivity = async (activityId: string) => {
     if (!isAdmin) {
@@ -989,6 +998,7 @@ export function App() {
               projects={projects}
               onNavigate={handleNavigate}
               onUpdateStatus={handleUpdateReportStatus}
+              onReportUpdated={handleReportUpdated}
               onAddToast={addToast}
             />
           ) : (
