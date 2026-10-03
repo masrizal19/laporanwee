@@ -9,6 +9,7 @@ import {
   uploadUIAsset,
   applyUISettingsToDocument,
 } from '../utils/uiSettings';
+import { categoryService, WorkCategory } from '../utils/categoryService';
 
 interface AdminUISettingsViewProps {
   onNavigate: (view: ViewType) => void;
@@ -62,6 +63,67 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
   const [signoutIconPreview, setSignoutIconPreview] = useState<string | null>(null);
   const [signoutIconFileName, setSignoutIconFileName] = useState<string | null>(null);
   const [isUploadingSignoutIcon, setIsUploadingSignoutIcon] = useState<boolean>(false);
+
+  // Category management state
+  const [categoriesList, setCategoriesList] = useState<WorkCategory[]>(() =>
+    categoryService.getAllCategories()
+  );
+  const [newCatName, setNewCatName] = useState('');
+  const [newCatIcon, setNewCatIcon] = useState('🎨');
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+
+  const refreshCategories = () => {
+    setCategoriesList(categoryService.getAllCategories());
+  };
+
+  const handleAddCategory = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCatName.trim()) {
+      onAddToast('Nama kategori wajib diisi.');
+      return;
+    }
+    try {
+      categoryService.addCategory(newCatName.trim(), newCatIcon);
+      setNewCatName('');
+      refreshCategories();
+      onAddToast(`Kategori "${newCatName.trim()}" berhasil ditambahkan.`);
+    } catch (err: any) {
+      onAddToast(err?.message || 'Gagal menambahkan kategori.');
+    }
+  };
+
+  const handleToggleCategoryActive = (id: string) => {
+    try {
+      const updated = categoryService.toggleCategoryActive(id);
+      refreshCategories();
+      onAddToast(`Kategori "${updated.name}" ${updated.active ? 'diaktifkan' : 'dinonaktifkan'}.`);
+    } catch (err: any) {
+      onAddToast(err?.message || 'Gagal mengubah status kategori.');
+    }
+  };
+
+  const handleDeleteCategory = (id: string) => {
+    try {
+      categoryService.deleteCategory(id);
+      refreshCategories();
+      onAddToast('Kategori berhasil dihapus.');
+    } catch (err: any) {
+      onAddToast(err?.message || 'Gagal menghapus kategori.');
+    }
+  };
+
+  const handleSaveEditCategory = (id: string) => {
+    if (!editingCatName.trim()) return;
+    try {
+      categoryService.updateCategory(id, editingCatName.trim());
+      setEditingCatId(null);
+      refreshCategories();
+      onAddToast('Nama kategori berhasil diperbarui.');
+    } catch (err: any) {
+      onAddToast(err?.message || 'Gagal memperbarui kategori.');
+    }
+  };
 
   // Sync previews with settings data
   const syncPreviewsWithData = (data: UISettings) => {
@@ -836,6 +898,148 @@ export const AdminUISettingsView: React.FC<AdminUISettingsViewProps> = ({
               <p>
                 Asset yang dipilih otomatis diunggah ke server dan URL permanen dari server akan disimpan ke database saat Anda menekan tombol <strong>Simpan Perubahan</strong>.
               </p>
+            </div>
+          </div>
+
+          {/* Card: Manajemen Divisi & Kategori Pekerjaan */}
+          <div className="settings-card">
+            <div className="settings-card-head">
+              <div className="sc-icon">
+                <Icon name="palette" />
+              </div>
+              <div>
+                <h3>Manajemen Divisi &amp; Kategori Kerja</h3>
+                <p>
+                  Kelola daftar kategori yang dapat dipilih oleh tim pada Formulir Buat &amp; Edit Laporan Harian.
+                </p>
+              </div>
+            </div>
+
+            {/* Add Category Form */}
+            <form onSubmit={handleAddCategory} style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+              <select
+                className="setting-input"
+                style={{ width: '80px', padding: '8px', fontSize: '16px' }}
+                value={newCatIcon}
+                onChange={(e) => setNewCatIcon(e.target.value)}
+              >
+                <option value="🎨">🎨</option>
+                <option value="🎬">🎬</option>
+                <option value="📸">📸</option>
+                <option value="💻">💻</option>
+                <option value="📢">📢</option>
+                <option value="📁">📁</option>
+                <option value="📊">📊</option>
+                <option value="⚙️">⚙️</option>
+                <option value="✍️">✍️</option>
+              </select>
+
+              <input
+                type="text"
+                className="setting-input"
+                style={{ flex: 1, minWidth: '220px' }}
+                placeholder="Nama kategori baru (contoh: 3D Animation & VFX)"
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+              />
+
+              <button type="submit" className="btn btn-dark btn-sm" style={{ padding: '8px 16px' }}>
+                <Icon name="plus" size={14} />
+                <span>Tambah Kategori</span>
+              </button>
+            </form>
+
+            {/* Categories Table / List */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {categoriesList.map((cat) => (
+                <div
+                  key={cat.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 14px',
+                    background: 'var(--paper)',
+                    borderRadius: '8px',
+                    border: '1px solid var(--line-soft)',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+                    <span style={{ fontSize: '18px' }}>{cat.icon || '📁'}</span>
+                    {editingCatId === cat.id ? (
+                      <input
+                        type="text"
+                        className="setting-input"
+                        style={{ padding: '4px 8px', fontSize: '13.5px', maxWidth: '300px' }}
+                        value={editingCatName}
+                        onChange={(e) => setEditingCatName(e.target.value)}
+                        autoFocus
+                      />
+                    ) : (
+                      <span style={{ fontWeight: 700, fontSize: '13.5px' }}>
+                        {cat.name}
+                        {cat.is_default && (
+                          <span style={{ fontSize: '10.5px', color: 'var(--muted)', marginLeft: '8px', fontWeight: 600 }}>
+                            (Bawaan)
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {editingCatId === cat.id ? (
+                      <>
+                        <button
+                          type="button"
+                          className="btn btn-dark btn-xs"
+                          onClick={() => handleSaveEditCategory(cat.id)}
+                        >
+                          Simpan
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => setEditingCatId(null)}
+                        >
+                          Batal
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className={`btn btn-xs ${cat.active ? 'btn-outline' : 'btn-danger-soft'}`}
+                          onClick={() => handleToggleCategoryActive(cat.id)}
+                          style={{ minWidth: '70px', justifyContent: 'center' }}
+                        >
+                          {cat.active ? '✓ Aktif' : 'Nonaktif'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-xs"
+                          onClick={() => {
+                            setEditingCatId(cat.id);
+                            setEditingCatName(cat.name);
+                          }}
+                        >
+                          Ubah
+                        </button>
+                        {!cat.is_default && (
+                          <button
+                            type="button"
+                            className="btn btn-danger-soft btn-xs"
+                            onClick={() => handleDeleteCategory(cat.id)}
+                          >
+                            Hapus
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

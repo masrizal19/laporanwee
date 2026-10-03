@@ -3,7 +3,8 @@ import { Project, ProjectDocument, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { projectService } from '../utils/projectService';
-import { dailyReportService, mapBackendStatusToFrontend, API_BASE_URL } from '../utils/api';
+import { API_BASE_URL } from '../utils/api';
+import { DailyReportForm } from '../components/DailyReportForm';
 
 interface ReportDetailViewProps {
   report: Report;
@@ -22,58 +23,6 @@ interface Comment {
   text: string;
 }
 
-/**
- * Format YYYY-MM-DD into Indonesian human readable date
- */
-const formatHumanDate = (dateStr?: string): string => {
-  if (!dateStr) return 'Hari ini';
-  const clean = dateStr.trim();
-  if (clean.includes('-')) {
-    const parts = clean.split('-');
-    if (parts.length === 3) {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-      const mIdx = parseInt(parts[1], 10) - 1;
-      return `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
-    }
-  }
-  return clean;
-};
-
-/**
- * Parse any date string into standard YYYY-MM-DD for <input type="date" />
- */
-const parseToDateInput = (dateStr?: string): string => {
-  if (!dateStr) return new Date().toISOString().slice(0, 10);
-  const clean = dateStr.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(clean)) return clean;
-  const monthMap: Record<string, string> = {
-    jan: '01', feb: '02', mar: '03', apr: '04', mei: '05', may: '05',
-    jun: '06', jul: '07', agu: '08', aug: '08', sep: '09', okt: '10',
-    oct: '10', nov: '11', des: '12', dec: '12'
-  };
-  const parts = clean.split(/[\s,]+/);
-  if (parts.length >= 3) {
-    const day = parts[0].padStart(2, '0');
-    const monthKey = parts[1].toLowerCase().slice(0, 3);
-    const month = monthMap[monthKey] || '10';
-    const year = parts[2].length === 4 ? parts[2] : '2026';
-    return `${year}-${month}-${day}`;
-  }
-  return new Date().toISOString().slice(0, 10);
-};
-
-/**
- * Normalizes frontend / backend status to backend enum value:
- * 'in_review' | 'completed' | 'draft' | 'rejected'
- */
-const getInitialStatusValue = (status?: string): string => {
-  const s = (status || '').toLowerCase().replace(/\s+/g, '_');
-  if (s === 'completed' || s === 'selesai') return 'completed';
-  if (s === 'draft' || s === 'draf' || s === 'todo' || s === 'to_do') return 'draft';
-  if (s === 'rejected' || s === 'ditolak' || s === 'revisi') return 'rejected';
-  return 'in_review';
-};
-
 export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   report,
   projects,
@@ -85,65 +34,13 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   // Local state for the current report data to allow instant reactive updates
   const [currentData, setCurrentData] = useState<Report>(report);
 
-  // Edit Modal & Form State
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const [formData, setFormData] = useState({
-    work_category: report.work_category || report.category || '',
-    project_name: report.project_name || report.project || '',
-    title: report.task || '',
-    description: report.desc || '',
-    progress: typeof report.progress === 'number' ? report.progress : 85,
-    status: getInitialStatusValue(report.status),
-    report_date: parseToDateInput(report.report_date || report.date),
-  });
+  // Edit Mode state: toggles between read-only detail view and comprehensive DailyReportForm
+  const [isEditing, setIsEditing] = useState<boolean>(false);
 
   // Keep local state in sync when parent report prop changes
   useEffect(() => {
     setCurrentData(report);
   }, [report]);
-
-  // Synchronize form values whenever modal is opened
-  useEffect(() => {
-    if (isEditModalOpen) {
-      setFormData({
-        work_category: currentData.work_category || currentData.category || '',
-        project_name: currentData.project_name || currentData.project || '',
-        title: currentData.task || '',
-        description: currentData.desc || '',
-        progress: typeof currentData.progress === 'number' ? currentData.progress : 85,
-        status: getInitialStatusValue(currentData.status),
-        report_date: parseToDateInput(currentData.report_date || currentData.date),
-      });
-      setFormError(null);
-    }
-  }, [isEditModalOpen, currentData]);
-
-  // Interaction: close modal on ESC key
-  useEffect(() => {
-    if (!isEditModalOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isSubmitting) {
-        setIsEditModalOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isEditModalOpen, isSubmitting]);
-
-  // Prevent background scrolling when modal is open
-  useEffect(() => {
-    if (isEditModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isEditModalOpen]);
 
   // Team Discussion Comments
   const [comments, setComments] = useState<Comment[]>([
@@ -175,7 +72,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     if (projId) {
       projectService
         .fetchDocuments(projId)
-        .then((docs) => setProjectDocs(docs))
+        .then((docs) => setProjectDocs(docs || []))
         .catch((err) => console.warn('Fetch docs notice:', err));
     }
   }, [currentData.project, projects]);
@@ -231,113 +128,30 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     onAddToast(`Revisi telah diminta untuk laporan "${currentData.task}".`);
   };
 
-  // Close modal and reset form
-  const handleCloseEditModal = () => {
-    if (isSubmitting) return;
-    setFormData({
-      work_category: currentData.work_category || currentData.category || '',
-      project_name: currentData.project_name || currentData.project || '',
-      title: currentData.task || '',
-      description: currentData.desc || '',
-      progress: typeof currentData.progress === 'number' ? currentData.progress : 85,
-      status: getInitialStatusValue(currentData.status),
-      report_date: parseToDateInput(currentData.report_date || currentData.date),
-    });
-    setFormError(null);
-    setIsEditModalOpen(false);
-  };
+  // If user enters Edit Mode, render the comprehensive DailyReportForm in edit mode
+  if (isEditing) {
+    return (
+      <div className="view">
+        <DailyReportForm
+          mode="edit"
+          initialReport={currentData}
+          projects={projects || []}
+          userName={currentData.person}
+          onCancel={() => setIsEditing(false)}
+          onUpdateReport={async (updatedReport) => {
+            setCurrentData(updatedReport);
+            if (onReportUpdated) {
+              await onReportUpdated(updatedReport);
+            }
+            setIsEditing(false);
+          }}
+          onAddToast={onAddToast}
+        />
+      </div>
+    );
+  }
 
-  // Submit edit form to backend MySQL via POST /api/daily-reports/update.php
-  const handleSaveEdit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    // Frontend validation
-    if (!formData.title.trim()) {
-      setFormError('Judul / tugas wajib diisi.');
-      return;
-    }
-
-    try {
-      setIsSubmitting(true);
-      setFormError(null);
-
-      const res = await dailyReportService.updateDailyReport({
-        id: currentData.id,
-        work_category: formData.work_category.trim(),
-        project_name: formData.project_name.trim(),
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        progress: Number(formData.progress),
-        status: formData.status,
-        report_date: formData.report_date,
-      });
-
-      if (res && res.success !== false) {
-        onAddToast('Laporan berhasil diperbarui');
-
-        const updatedReport: Report = {
-          ...currentData,
-          task: formData.title.trim(),
-          desc: formData.description.trim(),
-          project: formData.project_name.trim(),
-          project_name: formData.project_name.trim(),
-          category: formData.work_category.trim(),
-          work_category: formData.work_category.trim(),
-          progress: Number(formData.progress),
-          status: mapBackendStatusToFrontend(formData.status),
-          report_date: formData.report_date,
-          date: formatHumanDate(formData.report_date),
-          ...(res.data && typeof res.data === 'object' ? {
-            ...(res.data.title && { task: res.data.title }),
-            ...(res.data.description && { desc: res.data.description }),
-            ...(res.data.project_name && { project: res.data.project_name, project_name: res.data.project_name }),
-            ...(res.data.work_category && { category: res.data.work_category, work_category: res.data.work_category }),
-            ...(res.data.progress !== undefined && { progress: Number(res.data.progress) }),
-            ...(res.data.status && { status: mapBackendStatusToFrontend(res.data.status) }),
-          } : {}),
-        };
-
-        // Update local Detail Laporan state immediately
-        setCurrentData(updatedReport);
-
-        // Notify parent state for immediate synchronization across ReportsView & Dashboard
-        if (onReportUpdated) {
-          onReportUpdated(updatedReport);
-        }
-
-        setIsEditModalOpen(false);
-      } else {
-        const msg = res?.message || 'Gagal memperbarui laporan. Silakan coba lagi.';
-        setFormError(msg);
-        onAddToast(msg);
-      }
-    } catch (err: any) {
-      console.error('Update daily report error:', err);
-      let errorMsg = 'Gagal memperbarui laporan. Silakan coba lagi.';
-      if (err?.status === 401) {
-        errorMsg = 'Session login sudah berakhir. Silakan login kembali.';
-      } else if (err?.status === 403) {
-        errorMsg = 'Anda tidak memiliki izin untuk mengedit laporan ini.';
-      } else if (err?.status === 404) {
-        errorMsg = 'Laporan tidak ditemukan.';
-      } else if (err?.status === 500) {
-        errorMsg = 'Terjadi kesalahan server.';
-      } else if (
-        err?.name === 'TypeError' ||
-        err?.message?.toLowerCase().includes('network') ||
-        err?.message?.toLowerCase().includes('failed to fetch')
-      ) {
-        errorMsg = 'Tidak dapat terhubung ke server.';
-      } else if (err?.message) {
-        errorMsg = err.message;
-      }
-      setFormError(errorMsg);
-      onAddToast(errorMsg);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
+  // Read-only Detail Laporan view
   return (
     <div className="view">
       {/* Top Bar with Navigation, Chips, and EDIT LAPORAN Button */}
@@ -396,7 +210,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
         <button
           type="button"
           className="rd-btn-edit"
-          onClick={() => setIsEditModalOpen(true)}
+          onClick={() => setIsEditing(true)}
           title="Edit laporan kerja ini"
         >
           <Icon name="pencil" size={15} />
@@ -690,234 +504,6 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
           </div>
         </div>
       </div>
-
-      {/* ========================================================
-          MODAL EDIT LAPORAN (600-760px, Clean Editorial UI)
-          ======================================================== */}
-      {isEditModalOpen && (
-        <div
-          className="edit-report-modal-overlay"
-          onClick={() => {
-            if (!isSubmitting) handleCloseEditModal();
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="edit-modal-title"
-        >
-          <div
-            className="edit-report-modal-dialog"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header: EDIT LAPORAN + Subtitle + Close [X] Button */}
-            <div className="edit-modal-header">
-              <div>
-                <h2 id="edit-modal-title" className="edit-modal-title">
-                  EDIT LAPORAN
-                </h2>
-                <p className="edit-modal-subtitle">
-                  Edit informasi pekerjaan dan simpan perubahan.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="edit-modal-close-btn"
-                onClick={handleCloseEditModal}
-                disabled={isSubmitting}
-                aria-label="Tutup form edit"
-              >
-                <Icon name="x" size={18} />
-              </button>
-            </div>
-
-            {/* Form Fields Body */}
-            <form onSubmit={handleSaveEdit}>
-              <div className="edit-modal-body">
-                {formError && (
-                  <div className="edit-form-error-banner">
-                    <Icon name="alert" size={15} />
-                    <span>{formError}</span>
-                  </div>
-                )}
-
-                {/* A. Kategori Pekerjaan */}
-                <div className="edit-form-field">
-                  <label htmlFor="edit-field-work-category" className="edit-form-label">
-                    Kategori Pekerjaan
-                  </label>
-                  <input
-                    id="edit-field-work-category"
-                    type="text"
-                    className="edit-form-input"
-                    value={formData.work_category}
-                    onChange={(e) =>
-                      setFormData({ ...formData, work_category: e.target.value })
-                    }
-                    placeholder="Contoh: Desain & UI/UX"
-                    disabled={isSubmitting}
-                  />
-                </div>
-
-                {/* B. Project Terkait */}
-                <div className="edit-form-field">
-                  <label htmlFor="edit-field-project-name" className="edit-form-label">
-                    Project Terkait
-                  </label>
-                  <input
-                    id="edit-field-project-name"
-                    type="text"
-                    className="edit-form-input"
-                    value={formData.project_name}
-                    onChange={(e) =>
-                      setFormData({ ...formData, project_name: e.target.value })
-                    }
-                    placeholder="Contoh: KEGIATAN JOB FAIR"
-                    disabled={isSubmitting}
-                  />
-                </div>
-
-                {/* C. Judul / Tugas */}
-                <div className="edit-form-field">
-                  <label htmlFor="edit-field-title" className="edit-form-label">
-                    Judul / Tugas <span style={{ color: 'var(--danger)' }}>*</span>
-                  </label>
-                  <input
-                    id="edit-field-title"
-                    type="text"
-                    className="edit-form-input"
-                    value={formData.title}
-                    onChange={(e) =>
-                      setFormData({ ...formData, title: e.target.value })
-                    }
-                    placeholder="Judul deliverable atau pekerjaan"
-                    required
-                    disabled={isSubmitting}
-                  />
-                </div>
-
-                {/* D. Deskripsi Pekerjaan */}
-                <div className="edit-form-field">
-                  <label htmlFor="edit-field-description" className="edit-form-label">
-                    Deskripsi Pekerjaan
-                  </label>
-                  <textarea
-                    id="edit-field-description"
-                    className="edit-form-textarea"
-                    rows={4}
-                    value={formData.description}
-                    onChange={(e) =>
-                      setFormData({ ...formData, description: e.target.value })
-                    }
-                    placeholder="Tuliskan deskripsi lengkap deliverable atau catatan pengerjaan..."
-                    disabled={isSubmitting}
-                  />
-                </div>
-
-                {/* E. Progress Pekerjaan */}
-                <div className="edit-form-field">
-                  <div className="edit-progress-header">
-                    <label htmlFor="edit-field-progress" className="edit-form-label" style={{ marginBottom: 0 }}>
-                      Progress Pekerjaan
-                    </label>
-                    <span className="edit-progress-val">{formData.progress}%</span>
-                  </div>
-                  <div className="edit-progress-slider-wrap">
-                    <input
-                      id="edit-field-progress"
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={1}
-                      className="edit-progress-range"
-                      value={formData.progress}
-                      onChange={(e) =>
-                        setFormData({ ...formData, progress: Number(e.target.value) })
-                      }
-                      disabled={isSubmitting}
-                    />
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      className="edit-form-input edit-progress-input-num"
-                      value={formData.progress}
-                      onChange={(e) => {
-                        const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-                        setFormData({ ...formData, progress: val });
-                      }}
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                </div>
-
-                {/* F. Status Laporan & G. Tanggal Laporan */}
-                <div className="edit-form-grid-2">
-                  <div className="edit-form-field">
-                    <label htmlFor="edit-field-status" className="edit-form-label">
-                      Status Laporan
-                    </label>
-                    <select
-                      id="edit-field-status"
-                      className="edit-form-select"
-                      value={formData.status}
-                      onChange={(e) =>
-                        setFormData({ ...formData, status: e.target.value })
-                      }
-                      disabled={isSubmitting}
-                    >
-                      <option value="in_review">in_review (In Review)</option>
-                      <option value="completed">completed (Completed)</option>
-                      <option value="draft">draft (Draft)</option>
-                      <option value="rejected">rejected (Rejected)</option>
-                    </select>
-                  </div>
-
-                  <div className="edit-form-field">
-                    <label htmlFor="edit-field-report-date" className="edit-form-label">
-                      Tanggal Laporan
-                    </label>
-                    <input
-                      id="edit-field-report-date"
-                      type="date"
-                      className="edit-form-input"
-                      value={formData.report_date}
-                      onChange={(e) =>
-                        setFormData({ ...formData, report_date: e.target.value })
-                      }
-                      disabled={isSubmitting}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer: [BATAL] & [SIMPAN PERUBAHAN] */}
-              <div className="edit-modal-footer">
-                <button
-                  type="button"
-                  className="btn-modal-cancel"
-                  onClick={handleCloseEditModal}
-                  disabled={isSubmitting}
-                >
-                  BATAL
-                </button>
-                <button
-                  type="submit"
-                  className="btn-modal-save"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="btn-spinner" />
-                      <span>Menyimpan...</span>
-                    </>
-                  ) : (
-                    <span>SIMPAN PERUBAHAN</span>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Image Lightbox Modal for Evidence Photos */}
       <ImageLightbox
