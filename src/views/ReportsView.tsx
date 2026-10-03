@@ -4,6 +4,7 @@ import { Icon } from '../components/icons';
 
 interface ReportsViewProps {
   reports: Report[];
+  isLoading?: boolean;
   isAdmin?: boolean;
   onNavigate: (view: ViewType) => void;
   onSelectReport: (reportId: string) => void;
@@ -14,6 +15,7 @@ interface ReportsViewProps {
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
   reports,
+  isLoading = false,
   isAdmin = false,
   onNavigate,
   onSelectReport,
@@ -181,7 +183,24 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       <div className="dash-grid">
         {/* Left: Reports list */}
         <div>
-          {filteredReports.length === 0 ? (
+          {isLoading ? (
+            <div className="empty-state card" style={{ background: '#fff', padding: '48px 24px', textAlign: 'center' }}>
+              <div
+                style={{
+                  width: '28px',
+                  height: '28px',
+                  margin: '0 auto 12px',
+                  border: '3px solid var(--line-soft)',
+                  borderTopColor: 'var(--accent)',
+                  borderRadius: '50%',
+                  animation: 'spin 0.8s linear infinite',
+                }}
+              />
+              <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: 0 }}>
+                Memuat data laporan dari server...
+              </p>
+            </div>
+          ) : filteredReports.length === 0 ? (
             <div className="empty-state card" style={{ background: '#fff' }}>
               <Icon name="doc" />
               <b>Belum ada laporan yang sesuai</b>

@@ -228,6 +228,7 @@ export function App() {
   const [selectedReportId, setSelectedReportId] = useState<string>(() => {
     return localStorage.getItem('laporanwee_selected_report_id') || '';
   });
+  const [isReportsLoading, setIsReportsLoading] = useState<boolean>(false);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Determine if current logged in user has Administrator privileges
@@ -292,14 +293,11 @@ export function App() {
 
   // Synchronize Daily Reports with Backend PHP/MySQL API
   const refreshReportsFromApi = useCallback(async () => {
+    setIsReportsLoading(true);
     try {
-      const fetchedReports = await dailyReportService.fetchDailyReports();
+      const fetchedReports = await dailyReportService.fetchDailyReports(user?.email, isAdmin);
       if (fetchedReports && fetchedReports.length > 0) {
-        setReports((prev) => {
-          const fetchedIds = new Set(fetchedReports.map((r) => String(r.id).trim()));
-          const localOnly = prev.filter((r) => !fetchedIds.has(String(r.id).trim()));
-          return [...fetchedReports, ...localOnly];
-        });
+        setReports(fetchedReports);
         setSelectedReportId((prev) => {
           if (prev && fetchedReports.some((r) => String(r.id).trim() === String(prev).trim())) {
             return prev;
@@ -313,8 +311,10 @@ export function App() {
       }
     } catch (err) {
       console.warn('Sync reports from API notice:', err);
+    } finally {
+      setIsReportsLoading(false);
     }
-  }, []);
+  }, [user?.email, isAdmin]);
 
   // Synchronize Team Members from Backend PHP/MySQL API
   const refreshTeamFromApi = useCallback(async () => {
@@ -415,6 +415,13 @@ export function App() {
       refreshTasksFromApi();
     }
   }, [user, currentView, refreshTasksFromApi]);
+
+  // Re-fetch reports whenever user navigates to reports view
+  useEffect(() => {
+    if (user && currentView === 'reports') {
+      refreshReportsFromApi();
+    }
+  }, [user, currentView, refreshReportsFromApi]);
 
   // Realtime Polling via /realtime/poll.php
   useEffect(() => {
@@ -1025,6 +1032,7 @@ export function App() {
         {currentView === 'reports' && (
           <ReportsView
             reports={reports}
+            isLoading={isReportsLoading}
             isAdmin={isAdmin}
             onNavigate={handleNavigate}
             onSelectReport={handleSelectReport}

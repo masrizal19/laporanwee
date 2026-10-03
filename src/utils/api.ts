@@ -651,6 +651,71 @@ export const clearReportCache = () => {
   } catch (_) {}
 };
 
+export const CANDIDATE_REPORT_ENDPOINTS = [
+  '/reports/list.php',
+  '/daily-reports/reports.php',
+  '/daily-reports/all.php',
+  '/daily-reports/index.php',
+  '/daily-reports/list-reports.php',
+  '/daily-reports/list_reports.php',
+  '/daily-reports/get.php',
+  '/daily-reports/data.php',
+  '/daily_reports/list.php',
+  '/reports.php',
+  '/daily-reports.php',
+  '/reports/index.php',
+  '/reports/all.php',
+  '/daily-reports/fetch.php',
+  '/daily-reports/list.php?type=reports',
+  '/daily-reports/list.php?scope=reports',
+  '/daily-reports/list.php?mode=reports',
+  '/daily-reports/list.php?category=all',
+  '/daily-reports/list.php',
+];
+
+export const extractReportsArrayFromResponse = (res: any): any[] | null => {
+  if (!res) return null;
+  if (res.success === false && !res.data && !res.reports) return null;
+
+  let list: any[] | null = null;
+  if (Array.isArray(res.data)) {
+    list = res.data;
+  } else if (Array.isArray(res.reports)) {
+    list = res.reports;
+  } else if (res.data && Array.isArray(res.data.reports)) {
+    list = res.data.reports;
+  } else if (res.data && Array.isArray(res.data.data)) {
+    list = res.data.data;
+  } else if (res.data && Array.isArray(res.data.items)) {
+    list = res.data.items;
+  } else if (Array.isArray(res)) {
+    list = res;
+  }
+
+  if (list && Array.isArray(list)) {
+    if (list.length > 0) {
+      const isDailyReportsTable = list.some(
+        (item: any) =>
+          item &&
+          typeof item === 'object' &&
+          (item.title !== undefined ||
+            item.task !== undefined ||
+            item.project_name !== undefined ||
+            item.work_category !== undefined ||
+            item.report_date !== undefined ||
+            item.user_email !== undefined)
+      );
+      if (isDailyReportsTable) {
+        return list;
+      }
+      return null;
+    }
+    return list;
+  }
+
+  return null;
+};
+
 export const dailyReportService = {
   saveReportToCache,
   getCachedReports,
@@ -658,39 +723,58 @@ export const dailyReportService = {
   removeReportFromCache,
   clearReportCache,
 
-  fetchDailyReports: async (): Promise<Report[]> => {
+  fetchDailyReports: async (userEmail?: string, isAdmin?: boolean): Promise<Report[]> => {
     let apiReports: Report[] = [];
-    try {
-      const res = await api.get('/daily-reports/list.php');
-      if (res && res.success && Array.isArray(res.data)) {
-        const hasReportProps = res.data.some(
-          (item: any) =>
-            item.title !== undefined ||
-            item.task !== undefined ||
-            item.work_category !== undefined ||
-            item.report_date !== undefined
-        );
-        if (hasReportProps) {
-          apiReports = res.data.map(mapRawDailyReportToReport);
+    let workingEndpoint: string | null = null;
+
+    const savedEndpoint = localStorage.getItem('laporanwee_working_reports_endpoint');
+    const endpointsToTry = savedEndpoint
+      ? [savedEndpoint, ...CANDIDATE_REPORT_ENDPOINTS.filter((e) => e !== savedEndpoint)]
+      : CANDIDATE_REPORT_ENDPOINTS;
+
+    for (const endpoint of endpointsToTry) {
+      try {
+        const fullUrl = buildApiUrl(endpoint);
+        console.log("[LaporanWe] API URL:", fullUrl);
+
+        const res = await api.get(endpoint);
+        console.log("[LaporanWe] Report response:", res);
+
+        const extracted = extractReportsArrayFromResponse(res);
+        if (extracted !== null) {
+          console.log("REPORT DATA:", extracted);
+          workingEndpoint = endpoint;
+          localStorage.setItem('laporanwee_working_reports_endpoint', endpoint);
+          apiReports = extracted.map(mapRawDailyReportToReport);
+          break;
         }
+      } catch (err: any) {
+        // Continue trying remaining candidate endpoints
       }
-    } catch (err) {
-      console.warn('fetchDailyReports error:', err);
+    }
+
+    if (apiReports.length > 0) {
+      apiReports.forEach((r) => saveReportToCache(r));
     }
 
     const cached = getCachedReports();
+    let finalReports: Report[] = [];
+
     if (apiReports.length > 0) {
-      apiReports.forEach((r) => saveReportToCache(r));
       const apiIds = new Set(apiReports.map((r) => String(r.id).trim()));
       const remainingCached = cached.filter((r) => !apiIds.has(String(r.id).trim()));
-      return [...apiReports, ...remainingCached];
+      finalReports = [...apiReports, ...remainingCached];
+    } else {
+      finalReports = cached;
     }
 
-    return cached;
+    console.log("[LaporanWe] Reports parsed:", finalReports);
+    console.log("[LaporanWe] Current user:", userEmail);
+
+    return finalReports;
   },
 
   fetchDailyReportDetail: async (id: string | number): Promise<Report | null> => {
-    console.log("DETAIL REPORT ID:", id);
     const targetIdStr = String(id).trim();
     const targetIdNum = Number(targetIdStr);
     if (!targetIdStr) return null;
@@ -698,39 +782,47 @@ export const dailyReportService = {
     // 1. Check local cache first for instant retrieval
     const cached = getCachedReportById(targetIdStr);
 
-    // 2. Query specific report from backend API
-    try {
-      const res = await api.get(`/daily-reports/list.php?id=${encodeURIComponent(targetIdStr)}`);
-      console.log("DETAIL API RESPONSE:", res);
-      if (res && res.success && res.data) {
-        const items = Array.isArray(res.data) ? res.data : [res.data];
-        const matched = items.find((item: any) => {
-          const itemIdStr = String(item.id).trim();
-          const itemIdNum = Number(itemIdStr);
-          const isIdMatch =
-            itemIdStr === targetIdStr ||
-            (!isNaN(targetIdNum) && !isNaN(itemIdNum) && itemIdNum === targetIdNum);
-          const isReport =
-            item.title !== undefined ||
-            item.task !== undefined ||
-            item.project_name !== undefined ||
-            item.work_category !== undefined;
-          return isIdMatch && isReport;
-        });
-        if (matched) {
-          const mapped = mapRawDailyReportToReport(matched);
-          saveReportToCache(mapped);
-          return mapped;
+    // 2. Query specific report from backend API if working endpoint is known
+    const workingEndpoint = localStorage.getItem('laporanwee_working_reports_endpoint');
+    const detailCandidates = [
+      workingEndpoint ? `${workingEndpoint}?id=${encodeURIComponent(targetIdStr)}` : null,
+      `/reports/list.php?id=${encodeURIComponent(targetIdStr)}`,
+      `/daily-reports/reports.php?id=${encodeURIComponent(targetIdStr)}`,
+      `/daily-reports/get.php?id=${encodeURIComponent(targetIdStr)}`,
+      `/daily-reports/detail.php?id=${encodeURIComponent(targetIdStr)}`,
+      `/daily-reports/list.php?id=${encodeURIComponent(targetIdStr)}`,
+    ].filter(Boolean) as string[];
+
+    for (const endpoint of detailCandidates) {
+      try {
+        const res = await api.get(endpoint);
+        if (res && res.success && res.data) {
+          const items = Array.isArray(res.data) ? res.data : [res.data];
+          const matched = items.find((item: any) => {
+            const itemIdStr = String(item.id).trim();
+            const itemIdNum = Number(itemIdStr);
+            const isIdMatch =
+              itemIdStr === targetIdStr ||
+              (!isNaN(targetIdNum) && !isNaN(itemIdNum) && itemIdNum === targetIdNum);
+            const isReport =
+              item.title !== undefined ||
+              item.task !== undefined ||
+              item.project_name !== undefined ||
+              item.work_category !== undefined;
+            return isIdMatch && isReport;
+          });
+          if (matched) {
+            const mapped = mapRawDailyReportToReport(matched);
+            saveReportToCache(mapped);
+            return mapped;
+          }
         }
-      }
-    } catch (e) {
-      console.warn("fetchDailyReportDetail specific id query notice:", e);
+      } catch (_) {}
     }
 
     // 3. Fallback to list of all reports (safe string/number comparison)
     try {
       const all = await dailyReportService.fetchDailyReports();
-      console.log("DETAIL API FALLBACK ALL REPORTS COUNT:", all.length);
       const matched = all.find((r) => {
         const rIdStr = String(r.id).trim();
         const rIdNum = Number(rIdStr);
@@ -739,9 +831,7 @@ export const dailyReportService = {
       if (matched) {
         return matched;
       }
-    } catch (err) {
-      console.error("fetchDailyReportDetail error:", err);
-    }
+    } catch (_) {}
 
     // 4. Return cached version if found
     if (cached) {
