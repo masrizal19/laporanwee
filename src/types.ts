@@ -144,18 +144,24 @@ export interface TaskDocument {
 
 export interface Task {
   id: string;
+  report_id?: string;
   proj: string;
   title: string;
+  description?: string;
+  category?: string;
   priority: PriorityLevel;
   assignee: string;
+  assignee_email?: string;
   due: string;
   progress: number;
   col: TaskStatus;
   documents?: TaskDocument[];
+  cover_url?: string;
 }
 
 export interface Report {
   id: string;
+  task_id?: string;
   person: string;
   date: string;
   project: string;

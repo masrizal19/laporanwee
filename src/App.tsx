@@ -51,6 +51,9 @@ import {
   setStoredUser,
   clearStoredAuth,
   clearReportCache,
+  reportStatusToTaskCol,
+  taskColToReportStatus,
+  taskColToBackendReportStatus,
 } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
@@ -284,16 +287,91 @@ export function App() {
     (user as any)?.is_admin === true
   );
 
-  // Synchronize Tasks with Backend PHP/MySQL API — Single Source of Truth
-  const refreshTasksFromApi = useCallback(async () => {
+  // Synchronize Tasks and Daily Reports with Backend PHP/MySQL API — Single Source of Truth
+  const refreshTasksFromApi = useCallback(async (reportListOverride?: Report[]) => {
     try {
       const fetchedTasks = await taskService.fetchTasks();
-      setTasks(fetchedTasks || []);
+
+      // Retrieve current reports from parameter, state, cache, or API
+      let reportList: Report[] = reportListOverride || reports;
+      if (!reportList || reportList.length === 0) {
+        reportList = dailyReportService.getCachedReports();
+        if (!reportList || reportList.length === 0) {
+          const apiReports = await dailyReportService.fetchDailyReports(user?.email, isAdmin).catch(() => []);
+          if (Array.isArray(apiReports) && apiReports.length > 0) {
+            reportList = apiReports;
+          }
+        }
+      }
+
+      const mergedTasks: Task[] = [];
+      const processedReportIds = new Set<string>();
+
+      // 1. Process tasks fetched from backend tasks table
+      for (const t of fetchedTasks) {
+        let matchedReport: Report | undefined;
+        if (t.report_id) {
+          matchedReport = reportList.find((r) => String(r.id).trim() === String(t.report_id).trim());
+        }
+        if (!matchedReport && t.title) {
+          matchedReport = reportList.find(
+            (r) =>
+              r.task.trim().toLowerCase() === t.title.trim().toLowerCase() &&
+              (!t.proj || r.project.trim().toLowerCase() === t.proj.trim().toLowerCase())
+          );
+        }
+
+        if (matchedReport) {
+          const rId = String(matchedReport.id).trim();
+          processedReportIds.add(rId);
+          mergedTasks.push({
+            ...t,
+            report_id: rId,
+            title: matchedReport.task || t.title,
+            description: matchedReport.desc || t.description || '',
+            proj: matchedReport.project || t.proj,
+            category: matchedReport.category || t.category,
+            assignee: matchedReport.person || t.assignee,
+            assignee_email: matchedReport.user_email || t.assignee_email,
+            due: matchedReport.date || t.due,
+            progress: typeof matchedReport.progress === 'number' ? matchedReport.progress : t.progress,
+            col: reportStatusToTaskCol(matchedReport.status),
+            cover_url: matchedReport.evidence_url || t.cover_url,
+          });
+        } else {
+          mergedTasks.push(t);
+        }
+      }
+
+      // 2. Synthesize linked task for any daily report without a task row yet
+      for (const r of reportList) {
+        const rId = String(r.id).trim();
+        if (!processedReportIds.has(rId)) {
+          processedReportIds.add(rId);
+          mergedTasks.push({
+            id: `report-${rId}`,
+            report_id: rId,
+            proj: r.project || 'Creative Sprint',
+            title: r.task || 'Laporan Harian',
+            description: r.desc || '',
+            category: r.category || 'Desain & UI/UX',
+            priority: (r.progress >= 80 ? 'High' : 'Medium'),
+            assignee: r.person || r.user_name || '',
+            assignee_email: r.user_email || '',
+            due: r.date || r.report_date || 'Hari ini',
+            progress: typeof r.progress === 'number' ? r.progress : 0,
+            col: reportStatusToTaskCol(r.status),
+            cover_url: r.evidence_url || (r.evidence_urls && r.evidence_urls[0]),
+            documents: [],
+          });
+        }
+      }
+
+      setTasks(mergedTasks);
     } catch (err) {
       console.warn('Sync tasks from API notice:', err);
-      setTasks([]);
     }
-  }, []);
+  }, [reports, user?.email, isAdmin]);
 
   // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
   const refreshProjectsFromApi = useCallback(async () => {
@@ -570,15 +648,16 @@ export function App() {
 
   // Optimized Incremental Realtime Polling via /api/realtime/poll.php
   useEffect(() => {
-    // Only poll when: user is logged in, reports view is active, and browser is online
-    if (!user || currentView !== 'reports') return;
+    // Poll when: user is logged in, reports or tasks view is active, and browser is online
+    const isReportsOrTasks = currentView === 'reports' || currentView === 'tasks';
+    if (!user || !isReportsOrTasks) return;
 
     let isMounted = true;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let pollController: AbortController | null = null;
 
     const executePoll = async () => {
-      if (!isMounted || !user || currentView !== 'reports' || !navigator.onLine) {
+      if (!isMounted || !user || (!isReportsOrTasks) || !navigator.onLine) {
         return;
       }
 
@@ -606,23 +685,27 @@ export function App() {
             const deletedSet = new Set(deletedIdsRaw.map((id: any) => String(id).trim()));
             deletedSet.forEach((id) => dailyReportService.removeReportFromCache(id));
             setReports((prev) => prev.filter((r) => !deletedSet.has(String(r.id).trim())));
+            setTasks((prev) => prev.filter((t) => !deletedSet.has(String(t.report_id || '').trim())));
           }
 
-          // Check if total count changed (e.g. report deleted by another user)
+          // Check if total count changed (e.g. report deleted or added by another user)
           const serverTotal = res.total_count ?? res.count;
           if (typeof serverTotal === 'number' && reports.length > 0 && serverTotal !== reports.length) {
             console.log('[Realtime] Report count discrepancy detected (server:', serverTotal, 'local:', reports.length, '), refetching...');
             refreshReportsFromApi(true);
+            refreshTasksFromApi();
           } else {
             // Check if incremental updated reports are provided directly
             const changedItems = extractReportsArrayFromResponse(res);
             if (changedItems && changedItems.length > 0) {
               console.log('[Realtime] Received incremental reports update:', changedItems.length);
               mergeUpdatedReports(changedItems);
+              refreshTasksFromApi();
             } else if (res.changed === true || res.has_updates === true) {
               // If server indicated changes occurred without sending list, do a silent refetch
-              console.log('[Realtime] Database change flagged, fetching latest reports...');
+              console.log('[Realtime] Database change flagged, fetching latest reports and tasks...');
               refreshReportsFromApi(true);
+              refreshTasksFromApi();
             }
           }
         }
@@ -636,7 +719,7 @@ export function App() {
     };
 
     const scheduleNext = () => {
-      if (!isMounted || !user || currentView !== 'reports') return;
+      if (!isMounted || !user || (!isReportsOrTasks)) return;
       if (pollTimer) clearTimeout(pollTimer);
 
       // 5-10s (8s) when active, 30s when hidden
@@ -792,18 +875,66 @@ export function App() {
 
   const handleUpdateTask = async (updatedTask: Task) => {
     try {
+      // Determine synchronized progress and column (Rule 5: Progress laporan dan task harus sinkron)
+      let syncedProgress = typeof updatedTask.progress === 'number' ? updatedTask.progress : 0;
+      let finalCol = updatedTask.col;
+      if (finalCol === 'done' && syncedProgress < 100) {
+        syncedProgress = 100;
+      } else if (syncedProgress === 100 && finalCol !== 'done') {
+        finalCol = 'done';
+      }
+      const taskWithSyncedProgress: Task = { ...updatedTask, progress: syncedProgress, col: finalCol };
+
       // Optimistic UI update
       setTasks((prev) =>
-        prev.map((t) => (t.id === updatedTask.id ? updatedTask : t))
+        prev.map((t) => (t.id === taskWithSyncedProgress.id ? taskWithSyncedProgress : t))
       );
-      const ok = await taskService.updateTask(updatedTask);
-      if (ok) {
-        await refreshTasksFromApi();
-        await refreshAnalyticsFromApi();
-      } else {
-        addToast('Gagal memperbarui status tugas di database.');
-        await refreshTasksFromApi();
+
+      // Check if this task is linked to a daily report (Rule 7: EDIT TASK - update data laporan terkait)
+      const linkedReportId = taskWithSyncedProgress.report_id ||
+        (taskWithSyncedProgress.id.startsWith('report-') ? taskWithSyncedProgress.id.replace('report-', '') : undefined);
+
+      if (linkedReportId) {
+        const backendStatus = taskColToBackendReportStatus(taskWithSyncedProgress.col);
+        const frontendStatus = taskColToReportStatus(taskWithSyncedProgress.col);
+
+        // Optimistically update report state
+        setReports((prev) =>
+          prev.map((r) => {
+            if (String(r.id).trim() === String(linkedReportId).trim()) {
+              return {
+                ...r,
+                status: frontendStatus,
+                progress: syncedProgress,
+                task: taskWithSyncedProgress.title || r.task,
+                project: taskWithSyncedProgress.proj || r.project,
+              };
+            }
+            return r;
+          })
+        );
+
+        // Update daily report in backend MySQL API
+        await dailyReportService.updateDailyReport({
+          id: linkedReportId,
+          status: backendStatus,
+          progress: syncedProgress,
+          title: taskWithSyncedProgress.title,
+          description: taskWithSyncedProgress.description || '',
+          work_category: taskWithSyncedProgress.category || taskWithSyncedProgress.proj || 'Desain & UI/UX',
+          project_name: taskWithSyncedProgress.proj || 'Creative Sprint',
+          report_date: taskWithSyncedProgress.due || new Date().toISOString().slice(0, 10),
+        }).catch((err) => console.warn('Update linked daily report notice:', err));
       }
+
+      // If it's a backend task row, update it in tasks table
+      if (!taskWithSyncedProgress.id.startsWith('report-')) {
+        await taskService.updateTask(taskWithSyncedProgress).catch((err) => console.warn('Update backend task notice:', err));
+      }
+
+      await refreshTasksFromApi();
+      await refreshReportsFromApi(true);
+      await refreshAnalyticsFromApi();
     } catch (e: any) {
       console.error('API update task error:', e);
       addToast(e?.message || 'Gagal memperbarui tugas.');
@@ -813,14 +944,15 @@ export function App() {
 
   const handleDeleteTask = async (taskId: string) => {
     try {
-      const ok = await taskService.deleteTask(taskId);
-      if (ok) {
-        await refreshTasksFromApi();
-        addToast('Tugas berhasil dihapus.');
-        await refreshAnalyticsFromApi();
-      } else {
-        addToast('Gagal menghapus tugas dari database.');
+      // Rule 9: HAPUS TASK - laporan tetap aman, jangan menghapus laporan secara sembarangan
+      setTasks((prev) => prev.filter((t) => t.id !== taskId));
+
+      if (!taskId.startsWith('report-')) {
+        await taskService.deleteTask(taskId);
       }
+      await refreshTasksFromApi();
+      addToast('Tugas berhasil dihapus dari papan.');
+      await refreshAnalyticsFromApi();
     } catch (e: any) {
       console.error('API delete task error:', e);
       addToast(e?.message || 'Gagal menghapus tugas.');
@@ -862,6 +994,55 @@ export function App() {
 
       const createdId = String(created.id).trim();
 
+      // Rule 1: SETIAP LAPORAN MENJADI TUGAS
+      const linkedCol = reportStatusToTaskCol(reportData.status);
+      const linkedProgress = linkedCol === 'done' ? 100 : (typeof reportData.progress === 'number' ? reportData.progress : 0);
+
+      try {
+        const backendTask = await taskService.createTask({
+          report_id: createdId,
+          title: reportData.task,
+          description: reportData.desc || '',
+          proj: reportData.project || 'Creative Sprint',
+          category: reportData.category || 'Desain & UI/UX',
+          priority: linkedProgress >= 80 ? 'High' : 'Medium',
+          assignee: reportData.person || user?.name || '',
+          assignee_email: user?.email || '',
+          due: reportData.date || 'Hari ini',
+          progress: linkedProgress,
+          col: linkedCol,
+        });
+
+        if (backendTask && backendTask.id) {
+          created.task_id = backendTask.id;
+          setTasks((prev) => [
+            backendTask,
+            ...prev.filter((t) => t.id !== backendTask.id && t.report_id !== createdId),
+          ]);
+        }
+      } catch (err) {
+        console.warn('Auto create linked task notice:', err);
+        const fallbackTask: Task = {
+          id: `report-${createdId}`,
+          report_id: createdId,
+          proj: reportData.project || 'Creative Sprint',
+          title: reportData.task,
+          description: reportData.desc || '',
+          category: reportData.category || 'Desain & UI/UX',
+          priority: linkedProgress >= 80 ? 'High' : 'Medium',
+          assignee: reportData.person || user?.name || '',
+          assignee_email: user?.email || '',
+          due: reportData.date || 'Hari ini',
+          progress: linkedProgress,
+          col: linkedCol,
+          documents: [],
+        };
+        setTasks((prev) => [
+          fallbackTask,
+          ...prev.filter((t) => t.id !== fallbackTask.id && t.report_id !== createdId),
+        ]);
+      }
+
       // Immediately place new report into reports state so it is instantly available
       setReports((prev) => [
         created,
@@ -881,8 +1062,9 @@ export function App() {
         ]);
       }
 
-      // Re-fetch reports from MySQL API so new report appears immediately (Requirement 6)
+      // Re-fetch reports and tasks from MySQL API so new report appears immediately (Requirement 6)
       await refreshReportsFromApi().catch((err) => console.warn('Sync reports notice:', err));
+      await refreshTasksFromApi().catch((err) => console.warn('Sync tasks notice:', err));
 
       // Show success feedback ONLY AFTER verification succeeded (Rule 8: jangan menampilkan success palsu)
       addToast(`Laporan kerja "${reportData.task}" berhasil dikirim!`);
@@ -924,11 +1106,27 @@ export function App() {
       return;
     }
     try {
+      // Rule 8: HAPUS LAPORAN - task terkait harus ikut dihapus atau diputus
+      const linkedTask = tasks.find(
+        (t) =>
+          (t.report_id && String(t.report_id).trim() === String(reportId).trim()) ||
+          t.id === `report-${reportId}`
+      );
+      if (linkedTask) {
+        if (!linkedTask.id.startsWith('report-')) {
+          taskService.deleteTask(linkedTask.id).catch((err) => console.warn('Delete linked task error:', err));
+        }
+        setTasks((prev) =>
+          prev.filter((t) => t.id !== linkedTask.id && t.report_id !== String(reportId).trim())
+        );
+      }
+
       const ok = await dailyReportService.deleteDailyReport(reportId);
       if (ok) {
         setReports((prev) => prev.filter((r) => String(r.id).trim() !== String(reportId).trim()));
         dailyReportService.removeReportFromCache(reportId);
         await refreshReportsFromApi(true);
+        await refreshTasksFromApi();
         addToast('Laporan berhasil dihapus.');
 
         // Log activity to backend MySQL API
@@ -959,6 +1157,7 @@ export function App() {
       const ok = await dailyReportService.resetDailyReports();
       if (ok) {
         await refreshReportsFromApi();
+        await refreshTasksFromApi();
         addToast('Seluruh laporan kerja harian berhasil direset.');
 
         // Log activity to backend MySQL API
@@ -993,9 +1192,41 @@ export function App() {
     setReports((prev) =>
       prev.map((r) => (r.id === updatedReport.id ? updatedReport : r))
     );
+
+    // Rule 6: EDIT LAPORAN - update task terkait, jangan membuat task baru, pertahankan task_id
+    const targetTaskId = updatedReport.task_id;
+    const targetTask = tasks.find(
+      (t) =>
+        (t.report_id && String(t.report_id).trim() === String(updatedReport.id).trim()) ||
+        (targetTaskId && String(t.id).trim() === String(targetTaskId).trim()) ||
+        t.id === `report-${updatedReport.id}`
+    );
+
+    if (targetTask) {
+      const syncedTask: Task = {
+        ...targetTask,
+        report_id: String(updatedReport.id).trim(),
+        title: updatedReport.task,
+        description: updatedReport.desc || targetTask.description,
+        proj: updatedReport.project,
+        category: updatedReport.category,
+        assignee: updatedReport.person,
+        due: updatedReport.date,
+        progress: updatedReport.progress,
+        col: reportStatusToTaskCol(updatedReport.status),
+      };
+
+      setTasks((prev) => prev.map((t) => (t.id === syncedTask.id ? syncedTask : t)));
+
+      if (!syncedTask.id.startsWith('report-')) {
+        taskService.updateTask(syncedTask).catch((err) => console.warn('Update synced task notice:', err));
+      }
+    }
+
     // Refresh analytics summary and reports in background
-    refreshAnalyticsFromApi();
-    refreshReportsFromApi();
+    refreshAnalyticsFromApi().catch(() => {});
+    refreshReportsFromApi(true).catch(() => {});
+    refreshTasksFromApi().catch(() => {});
   };
 
   // Activities Admin CRUD strictly connected to backend MySQL API

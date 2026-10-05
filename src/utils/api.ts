@@ -1377,10 +1377,33 @@ export const fetchAnalytics = analyticsService.fetchSummary;
 // 8. TASK / KANBAN SERVICE (MySQL API)
 // ==========================================
 
+export const reportStatusToTaskCol = (status?: string): TaskStatus => {
+  if (!status) return 'review';
+  const s = status.toLowerCase();
+  if (s === 'completed' || s === 'selesai' || s === 'done') return 'done';
+  if (s === 'in_progress' || s === 'inprogress' || s === 'sedang berjalan' || s === 'sedang dikerjakan') return 'inprogress';
+  if (s === 'todo' || s === 'to do') return 'todo';
+  return 'review';
+};
+
+export const taskColToReportStatus = (col?: TaskStatus): 'Completed' | 'In Review' | 'In Progress' | 'To Do' => {
+  if (col === 'done') return 'Completed';
+  if (col === 'inprogress') return 'In Progress';
+  if (col === 'todo') return 'To Do';
+  return 'In Review';
+};
+
+export const taskColToBackendReportStatus = (col?: TaskStatus): string => {
+  if (col === 'done') return 'completed';
+  if (col === 'inprogress') return 'in_progress';
+  if (col === 'todo') return 'todo';
+  return 'in_review';
+};
+
 export const mapBackendTaskStatusToFrontend = (status?: string): TaskStatus => {
   if (!status) return 'todo';
   const s = status.toLowerCase();
-  if (s === 'in_progress' || s === 'inprogress' || s === 'sedang dikerjakan') return 'inprogress';
+  if (s === 'in_progress' || s === 'inprogress' || s === 'sedang dikerjakan' || s === 'sedang berjalan') return 'inprogress';
   if (s === 'review' || s === 'in_review' || s === 'dalam review') return 'review';
   if (s === 'completed' || s === 'done' || s === 'selesai') return 'done';
   return 'todo';
@@ -1388,7 +1411,7 @@ export const mapBackendTaskStatusToFrontend = (status?: string): TaskStatus => {
 
 export const mapFrontendTaskStatusToBackend = (col?: TaskStatus): string => {
   if (col === 'inprogress') return 'in_progress';
-  if (col === 'review') return 'review';
+  if (col === 'review') return 'in_review';
   if (col === 'done') return 'completed';
   return 'todo';
 };
@@ -1412,14 +1435,19 @@ export const taskService = {
       return res.data.map((item: any): Task => {
         return {
           id: String(item.id),
+          report_id: item.report_id ? String(item.report_id).trim() : undefined,
           proj: item.category || item.project_name || item.project || 'Creative Sprint',
           title: item.title || 'Tugas Baru',
+          description: item.description || '',
+          category: item.category || item.work_category || 'Creative Sprint',
           priority: mapBackendTaskPriorityToFrontend(item.priority),
           assignee: item.assignee_name || item.assignee || item.assignee_email || '',
+          assignee_email: item.assignee_email || item.user_email || '',
           due: (item.deadline && item.deadline !== '0000-00-00') ? item.deadline : (item.due || 'Besok'),
           progress: Number(item.progress) || 0,
           col: mapBackendTaskStatusToFrontend(item.status),
           documents: Array.isArray(item.documents) ? item.documents : [],
+          cover_url: item.cover_url || '',
         };
       });
     } catch (err) {
@@ -1429,29 +1457,40 @@ export const taskService = {
   },
 
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
-    const payload = {
+    const payload: Record<string, any> = {
       title: taskData.title || '',
-      description: '',
+      description: taskData.description || '',
       status: mapFrontendTaskStatusToBackend(taskData.col),
       priority: (taskData.priority || 'Medium').toLowerCase(),
       progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
-      category: taskData.proj || 'Creative Sprint',
+      category: taskData.category || taskData.proj || 'Creative Sprint',
+      project_name: taskData.proj || 'Creative Sprint',
       assignee_name: taskData.assignee || '',
+      assignee_email: taskData.assignee_email || '',
       deadline: taskData.due || 'Hari ini',
     };
 
+    if (taskData.report_id) {
+      payload.report_id = String(taskData.report_id);
+    }
+
     const res = await api.post('/tasks/create.php', payload);
-    const createdId = res?.data?.id ? String(res.data.id) : `t_${Date.now()}`;
+    const createdId = res?.data?.id ? String(res.data.id) : (res?.id ? String(res.id) : `t_${Date.now()}`);
     return {
       id: createdId,
+      report_id: taskData.report_id ? String(taskData.report_id) : undefined,
       proj: taskData.proj || 'Creative Sprint',
       title: taskData.title || '',
+      description: taskData.description || '',
+      category: taskData.category || taskData.proj || 'Creative Sprint',
       priority: taskData.priority || 'Medium',
       assignee: taskData.assignee || '',
+      assignee_email: taskData.assignee_email || '',
       due: taskData.due || 'Hari ini',
-      progress: taskData.progress || 0,
+      progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
       col: taskData.col || 'todo',
       documents: taskData.documents || [],
+      cover_url: taskData.cover_url || '',
     };
   },
 
@@ -1460,12 +1499,19 @@ export const taskService = {
       id: Number(taskData.id) || taskData.id,
     };
     if (taskData.title !== undefined) payload.title = taskData.title;
+    if (taskData.description !== undefined) payload.description = taskData.description;
     if (taskData.col !== undefined) payload.status = mapFrontendTaskStatusToBackend(taskData.col);
     if (taskData.priority !== undefined) payload.priority = taskData.priority.toLowerCase();
     if (taskData.progress !== undefined) payload.progress = taskData.progress;
-    if (taskData.proj !== undefined) payload.category = taskData.proj;
+    if (taskData.proj !== undefined) {
+      payload.category = taskData.proj;
+      payload.project_name = taskData.proj;
+    }
+    if (taskData.category !== undefined) payload.category = taskData.category;
     if (taskData.assignee !== undefined) payload.assignee_name = taskData.assignee;
+    if (taskData.assignee_email !== undefined) payload.assignee_email = taskData.assignee_email;
     if (taskData.due !== undefined) payload.deadline = taskData.due;
+    if (taskData.report_id !== undefined) payload.report_id = taskData.report_id;
 
     const res = await api.post('/tasks/update.php', payload);
     return Boolean(res && res.success !== false);
