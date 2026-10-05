@@ -9,15 +9,24 @@ if ($method !== 'GET' && $method !== 'POST') {
 }
 
 // Extract Authorization Bearer Token
-$headers = apache_request_headers();
-$authHeader = isset($headers['Authorization']) ? $headers['Authorization'] : (isset($_SERVER['HTTP_AUTHORIZATION']) ? $_SERVER['HTTP_AUTHORIZATION'] : '');
+$headers = function_exists('apache_request_headers') ? apache_request_headers() : [];
+$authHeader = '';
+if (isset($headers['Authorization'])) {
+    $authHeader = $headers['Authorization'];
+} elseif (isset($headers['authorization'])) {
+    $authHeader = $headers['authorization'];
+} elseif (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'];
+} elseif (isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+    $authHeader = $_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+}
 
 $token = '';
 if (preg_match('/Bearer\s+(\S+)/', $authHeader, $matches)) {
     $token = $matches[1];
 }
 
-$adminEmailHeader = isset($headers['X-Admin-Email']) ? trim($headers['X-Admin-Email']) : (isset($_SERVER['HTTP_X_ADMIN_EMAIL']) ? trim($_SERVER['HTTP_X_ADMIN_EMAIL']) : '');
+$adminEmailHeader = isset($headers['X-Admin-Email']) ? trim($headers['X-Admin-Email']) : (isset($headers['x-admin-email']) ? trim($headers['x-admin-email']) : (isset($_SERVER['HTTP_X_ADMIN_EMAIL']) ? trim($_SERVER['HTTP_X_ADMIN_EMAIL']) : ''));
 
 $user = null;
 
