@@ -646,44 +646,72 @@ export const mapFrontendStatusToBackend = (
   return 'todo';
 };
 
+export const reportProofCoverCache = new Map<string, string>();
+
 export const mapRawDailyReportToReport = (item: any): Report => {
+  const reportIdStr = String(item.id || '').trim();
+  const cachedCover = reportProofCoverCache.get(reportIdStr);
+
   let evidenceList: string[] = [];
-  if (Array.isArray(item.evidence_urls) && item.evidence_urls.length > 0) {
-    evidenceList = item.evidence_urls;
-  } else if (typeof item.evidence_urls === 'string' && item.evidence_urls.startsWith('[')) {
-    try {
-      evidenceList = JSON.parse(item.evidence_urls);
-    } catch (_) {}
+  if (item.proof_cover_url) {
+    evidenceList.push(normalizeFileUrl(item.proof_cover_url));
+  }
+  if (cachedCover && !evidenceList.includes(cachedCover)) {
+    evidenceList.push(cachedCover);
+  }
+  if (Array.isArray(item.proof_files) && item.proof_files.length > 0) {
+    const proofImgs = item.proof_files
+      .filter((f: any) => {
+        const mime = (f.mime_type || '').toLowerCase();
+        const name = (f.original_name || f.file_name || f.file_url || '').toLowerCase();
+        return mime.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name);
+      })
+      .map((f: any) => normalizeFileUrl(f.file_url || f.url))
+      .filter(Boolean);
+    if (proofImgs.length > 0) {
+      evidenceList = [...proofImgs, ...evidenceList.filter((u) => !proofImgs.includes(u))];
+    }
   }
   // Check if item has files from backend response
   if (Array.isArray(item.files) && item.files.length > 0) {
     const proofFiles = item.files.filter((f: any) => f.file_category === 'proof' || !f.file_category);
-    if (proofFiles.length > 0) {
-      evidenceList = proofFiles.map((f: any) => f.file_url || f.url).filter(Boolean);
+    const proofImgs = proofFiles
+      .filter((f: any) => {
+        const mime = (f.mime_type || '').toLowerCase();
+        const name = (f.original_name || f.file_name || f.file_url || '').toLowerCase();
+        return mime.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name);
+      })
+      .map((f: any) => normalizeFileUrl(f.file_url || f.url))
+      .filter(Boolean);
+    if (proofImgs.length > 0) {
+      evidenceList = [...proofImgs, ...evidenceList.filter((u) => !proofImgs.includes(u))];
     }
   }
-  if (evidenceList.length === 0 && item.file_url) {
-    evidenceList = [item.file_url];
-  }
-  if (evidenceList.length === 0 && item.cover_url) {
-    evidenceList = [item.cover_url];
-  }
-
-  // Normalize all evidence URLs using normalizeFileUrl so they always resolve properly
-  evidenceList = evidenceList
-    .map((url) => {
-      if (typeof url === 'string') {
-        return normalizeFileUrl(url);
+  if (Array.isArray(item.evidence_urls) && item.evidence_urls.length > 0) {
+    item.evidence_urls.forEach((u: string) => {
+      const norm = normalizeFileUrl(u);
+      if (norm && !evidenceList.includes(norm)) evidenceList.push(norm);
+    });
+  } else if (typeof item.evidence_urls === 'string' && item.evidence_urls.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(item.evidence_urls);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((u: string) => {
+          const norm = normalizeFileUrl(u);
+          if (norm && !evidenceList.includes(norm)) evidenceList.push(norm);
+        });
       }
-      return '';
-    })
-    .filter(Boolean);
+    } catch (_) {}
+  }
+  if (evidenceList.length === 0 && item.file_url) {
+    evidenceList = [normalizeFileUrl(item.file_url)];
+  }
 
-  let cover =
-    evidenceList[0] ||
-    (item.file_url ? normalizeFileUrl(item.file_url) : null) ||
-    (item.cover_url ? normalizeFileUrl(item.cover_url) : null) ||
-    null;
+  // Cover is strictly the FIRST image proof file if available (Rule 8: jika ada beberapa file proof, gunakan file proof pertama sebagai cover)
+  const cover = evidenceList.length > 0 ? evidenceList[0] : undefined;
+  if (cover && reportIdStr) {
+    reportProofCoverCache.set(reportIdStr, cover);
+  }
   let dateDisplay = item.report_date || '14 Okt 2026';
   if (item.report_date && item.report_date.includes('-')) {
     try {
@@ -894,6 +922,39 @@ export const dailyReportService = {
     // throw the error so the UI can distinguish 401, 403, 500, network error (Rule 9)
     if (fetchError && apiReports.length === 0) {
       throw fetchError;
+    }
+
+    // Enrich each report with its authentic first proof image from daily_report_files table (MySQL API)
+    if (apiReports.length > 0) {
+      await Promise.allSettled(
+        apiReports.map(async (r) => {
+          try {
+            const files = await dailyReportService.fetchReportFiles(r.id, 'proof');
+            if (files && files.length > 0) {
+              const imageFiles = files.filter((f) => {
+                const mime = (f.mime_type || '').toLowerCase();
+                const name = (f.original_name || f.file_name || f.file_url || '').toLowerCase();
+                return (
+                  mime.startsWith('image/') ||
+                  f.file_type === 'image' ||
+                  /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name)
+                );
+              });
+              if (imageFiles.length > 0) {
+                // Rule 8: Jika ada beberapa file proof, gunakan file proof pertama sebagai cover.
+                const firstProofImage = imageFiles[0];
+                const coverUrl = normalizeFileUrl(firstProofImage.file_url);
+                r.evidence_url = coverUrl;
+                r.evidence_urls = imageFiles.map((f) => normalizeFileUrl(f.file_url));
+                r.proof_files = files;
+                reportProofCoverCache.set(String(r.id), coverUrl);
+              }
+            }
+          } catch (fileErr) {
+            console.warn(`Fetch proof files for report ${r.id} notice:`, fileErr);
+          }
+        })
+      );
     }
 
     // Update local cache for offline/instant-transition optimisations
@@ -1111,7 +1172,7 @@ export const dailyReportService = {
     try {
       const res = await api.get(`/daily-reports/list.php?report_id=${reportId}&category=${category}`);
       if (res && res.success && Array.isArray(res.data)) {
-        return res.data.map((item: any): DailyReportFile => {
+        const mappedFiles = res.data.map((item: any): DailyReportFile => {
           const rawUrl = item.file_url || item.url || '';
           const normUrl = normalizeFileUrl(rawUrl);
           const mime = (item.mime_type || '').toLowerCase();
@@ -1138,6 +1199,23 @@ export const dailyReportService = {
             updated_at: item.updated_at,
           };
         });
+
+        if (category === 'proof') {
+          const firstImg = mappedFiles.find((f: DailyReportFile) => {
+            const mime = (f.mime_type || '').toLowerCase();
+            const name = (f.original_name || f.file_name || f.file_url || '').toLowerCase();
+            return (
+              mime.startsWith('image/') ||
+              f.file_type === 'image' ||
+              /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name)
+            );
+          });
+          if (firstImg) {
+            reportProofCoverCache.set(String(reportId), firstImg.file_url);
+          }
+        }
+
+        return mappedFiles;
       }
       return [];
     } catch (err) {

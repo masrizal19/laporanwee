@@ -3,6 +3,7 @@ import { Project, Task, Report, ViewType, ProjectDocument } from '../types';
 import { Icon } from '../components/icons';
 import { projectService } from '../utils/projectService';
 import { MediaViewerModal } from '../components/MediaViewerModal';
+import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -544,9 +545,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                     onNavigate('report-detail');
                   }}
                 >
-                  <div className="ric">
-                    <Icon name="doc" />
-                  </div>
+                  <ReportCoverThumbnail report={r} />
                   <div className="rmid">
                     <b>{r.task}</b>
                     <span>Oleh {r.person} &bull; {r.date}</span>

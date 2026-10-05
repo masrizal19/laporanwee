@@ -48,25 +48,34 @@ try {
         $id = trim($_GET['id']);
         $stmt = $pdo->prepare("
             SELECT
-                id,
-                title,
-                description,
-                work_category,
-                user_email,
-                user_name,
-                project_name,
-                report_date,
-                duration,
-                obstacles,
-                next_plan,
-                progress,
-                status,
-                cover_url,
-                created_by,
-                created_at,
-                updated_at
-            FROM daily_reports
-            WHERE id = :id
+                r.id,
+                r.title,
+                r.description,
+                r.work_category,
+                r.user_email,
+                r.user_name,
+                r.project_name,
+                r.report_date,
+                r.duration,
+                r.obstacles,
+                r.next_plan,
+                r.progress,
+                r.status,
+                r.cover_url,
+                r.created_by,
+                r.created_at,
+                r.updated_at,
+                (
+                    SELECT f.file_url 
+                    FROM daily_report_files f 
+                    WHERE f.report_id = r.id 
+                      AND f.file_category = 'proof' 
+                      AND (f.mime_type LIKE 'image/%' OR f.file_url LIKE '%.jpg' OR f.file_url LIKE '%.jpeg' OR f.file_url LIKE '%.png' OR f.file_url LIKE '%.webp' OR f.file_url LIKE '%.gif')
+                    ORDER BY f.id ASC 
+                    LIMIT 1
+                ) AS proof_cover_url
+            FROM daily_reports r
+            WHERE r.id = :id
             LIMIT 1
         ");
         $stmt->execute(['id' => $id]);
@@ -85,25 +94,34 @@ try {
     // NO user_email or created_by filter here - reports are GLOBAL for all logged-in users
     $stmt = $pdo->query("
         SELECT
-            id,
-            title,
-            description,
-            work_category,
-            user_email,
-            user_name,
-            project_name,
-            report_date,
-            duration,
-            obstacles,
-            next_plan,
-            progress,
-            status,
-            cover_url,
-            created_by,
-            created_at,
-            updated_at
-        FROM daily_reports
-        ORDER BY report_date DESC, created_at DESC, id DESC
+            r.id,
+            r.title,
+            r.description,
+            r.work_category,
+            r.user_email,
+            r.user_name,
+            r.project_name,
+            r.report_date,
+            r.duration,
+            r.obstacles,
+            r.next_plan,
+            r.progress,
+            r.status,
+            r.cover_url,
+            r.created_by,
+            r.created_at,
+            r.updated_at,
+            (
+                SELECT f.file_url 
+                FROM daily_report_files f 
+                WHERE f.report_id = r.id 
+                  AND f.file_category = 'proof' 
+                  AND (f.mime_type LIKE 'image/%' OR f.file_url LIKE '%.jpg' OR f.file_url LIKE '%.jpeg' OR f.file_url LIKE '%.png' OR f.file_url LIKE '%.webp' OR f.file_url LIKE '%.gif')
+                ORDER BY f.id ASC 
+                LIMIT 1
+            ) AS proof_cover_url
+        FROM daily_reports r
+        ORDER BY r.report_date DESC, r.created_at DESC, r.id DESC
     ");
     $reports = $stmt->fetchAll();
 

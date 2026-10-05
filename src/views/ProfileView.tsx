@@ -3,6 +3,7 @@ import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { API_BASE_URL, api } from '../utils/api';
+import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
 
 interface ProfileViewProps {
   projects: Project[];
@@ -332,9 +333,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   onNavigate('report-detail');
                 }}
               >
-                <div className="ric">
-                  <Icon name="doc" />
-                </div>
+                <ReportCoverThumbnail report={r} />
                 <div className="rmid">
                   <b>{r.task}</b>
                   <span>{r.project} &bull; {r.date}</span>

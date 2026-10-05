@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { normalizeFileUrl } from '../utils/api';
+import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -296,37 +297,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   onNavigate('report-detail');
                 }}
               >
-                <div className="ric">
-                  {(() => {
-                    const rawThumb =
-                      (r.evidence_urls && r.evidence_urls.length > 0 ? r.evidence_urls[0] : null) ||
-                      r.evidence_url ||
-                      null;
-                    const thumbUrl = rawThumb ? normalizeFileUrl(rawThumb) : null;
-                    if (thumbUrl) {
-                      return (
-                        <img
-                          src={thumbUrl}
-                          alt="Bukti"
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '10px' }}
-                          loading="lazy"
-                          onError={(e) => {
-                            // If load fails, hide img and display doc icon
-                            (e.currentTarget as HTMLElement).style.display = 'none';
-                            const parent = e.currentTarget.parentElement;
-                            if (parent && !parent.querySelector('.fallback-icon')) {
-                              const iconDiv = document.createElement('div');
-                              iconDiv.className = 'fallback-icon';
-                              iconDiv.innerHTML = '<span style="font-size:14px">📄</span>';
-                              parent.appendChild(iconDiv);
-                            }
-                          }}
-                        />
-                      );
-                    }
-                    return <Icon name="doc" size={17} />;
-                  })()}
-                </div>
+                <ReportCoverThumbnail report={r} />
                 <div className="rmid" style={{ flex: 1 }}>
                   <b>{r.task}</b>
                   <span>
