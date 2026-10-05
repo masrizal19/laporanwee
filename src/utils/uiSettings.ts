@@ -1,7 +1,9 @@
 import { UISettings } from '../types';
-import { API_BASE_URL, api, getHeaders } from './api';
+import { API_BASE_URL, normalizeFileUrl } from './api';
 
-export const UI_SETTINGS_API = `${API_BASE_URL}/ui/ui-settings.php`;
+export const GLOBAL_UI_SETTINGS_API = `${API_BASE_URL}/ui-settings.php`;
+export const ADMIN_UI_SETTINGS_API = `${API_BASE_URL}/ui/ui-settings.php`;
+export const UI_SETTINGS_API = GLOBAL_UI_SETTINGS_API;
 export const UI_UPLOAD_API = `${API_BASE_URL}/ui/ui-upload.php`;
 export const ADMIN_EMAIL = 'rizalsaragih498@gmail.com';
 
@@ -18,6 +20,48 @@ export const DEFAULT_UI_SETTINGS: UISettings = {
   logo_url: null,
   menu_icon_url: null,
   signout_icon_url: null,
+};
+
+/**
+ * Cache-busting helper for asset URLs (Rule 18)
+ */
+export const formatAssetUrlWithCacheBust = (
+  rawUrl?: string | null,
+  version?: string | number
+): string | null => {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const clean = normalizeFileUrl(rawUrl);
+  if (!clean) return null;
+  if (clean.startsWith('data:') || clean.startsWith('blob:')) return clean;
+  // Always strip any existing v= query param to prevent stale cache-busting
+  const baseUrl = clean.replace(/([?&])v=[^&]*(&|$)/, '$1').replace(/[?&]$/, '');
+  if (!version) return baseUrl;
+  const separator = baseUrl.includes('?') ? '&' : '?';
+  return `${baseUrl}${separator}v=${encodeURIComponent(String(version))}`;
+};
+
+/**
+ * Extracts a reliable cache-busting version from updated_at, timestamp, or asset hash
+ */
+export const extractAssetVersion = (data: any): string | number => {
+  if (!data) return Date.now();
+  if (data.updated_at) {
+    const parsed = new Date(data.updated_at).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+    return String(data.updated_at).replace(/[^a-zA-Z0-9]/g, '');
+  }
+  if (data.updatedAt) {
+    const parsed = new Date(data.updatedAt).getTime();
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+    return String(data.updatedAt).replace(/[^a-zA-Z0-9]/g, '');
+  }
+  if (data.logo_url && typeof data.logo_url === 'string') {
+    const match = data.logo_url.match(/_([a-zA-Z0-9]+)\.(png|jpg|jpeg|webp|svg)/i);
+    if (match && match[1]) {
+      return match[1];
+    }
+  }
+  return data.id || Date.now();
 };
 
 /**
@@ -157,58 +201,142 @@ export const uploadUIAsset = async (
     };
   }
 
+  // Ensure absolute public HTTPS url (Rule 16, 17)
+  if (data.data?.url) {
+    data.data.url = normalizeFileUrl(data.data.url);
+  }
+
   console.log('[UI UPLOAD] Asset URL:', data.data?.url);
   return data;
 };
 
 /**
- * Fetches UI Settings from Backend API
+ * Fetches UI Settings from Backend API - Accessible by all users (Rule 5, 9, 10)
  */
 export const fetchUISettings = async (adminEmailParam?: string): Promise<UISettings> => {
-  const adminEmail = getAdminEmail(adminEmailParam);
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-  };
-  if (adminEmail) {
-    headers['X-Admin-Email'] = adminEmail;
-  }
-  const token = localStorage.getItem('laporanwee_token');
-  if (token && token !== 'undefined' && token !== 'null') {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  console.log('[UI API] GET', UI_SETTINGS_API);
-  console.log('[API REQUEST]', { method: 'GET', url: UI_SETTINGS_API });
-  const response = await fetch(UI_SETTINGS_API, {
-    method: 'GET',
-    headers,
-  });
-  const text = await response.text();
-  let res: any = {};
+  // 1. Primary request: public GET /api/ui-settings.php without authentication restriction (Rule 5, 9, 10)
   try {
-    res = text ? JSON.parse(text) : {};
-  } catch {
-    res = {};
+    const url = `${GLOBAL_UI_SETTINGS_API}?_t=${Date.now()}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+      cache: 'no-store',
+    });
+
+    if (response.ok) {
+      const res = await response.json().catch(() => null);
+      if (res && res.data) {
+        console.log('[UISettings] Berhasil memuat global UI settings dari /api/ui-settings.php:', res.data);
+        const version = extractAssetVersion(res.data);
+        const mapped: UISettings = {
+          ...DEFAULT_UI_SETTINGS,
+          ...res.data,
+          primary_color: res.data.primary_color || DEFAULT_UI_SETTINGS.primary_color,
+          secondary_color: res.data.secondary_color || DEFAULT_UI_SETTINGS.secondary_color,
+          text_color: res.data.text_color || DEFAULT_UI_SETTINGS.text_color,
+          background_color: res.data.background_color || DEFAULT_UI_SETTINGS.background_color,
+          font_family: res.data.font_family || DEFAULT_UI_SETTINGS.font_family,
+          heading_font: res.data.heading_font || DEFAULT_UI_SETTINGS.heading_font,
+          menu_icon_size: Number(res.data.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
+          menu_icon_stroke: Number(res.data.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
+          signout_icon_size: Number(res.data.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
+          logo_url: formatAssetUrlWithCacheBust(res.data.logo_url, version),
+          menu_icon_url: formatAssetUrlWithCacheBust(res.data.menu_icon_url, version),
+          signout_icon_url: formatAssetUrlWithCacheBust(res.data.signout_icon_url, version),
+        };
+
+        // Cache locally for instant loading on next visit (Rule 8)
+        try {
+          localStorage.setItem('laporanwee_ui_settings', JSON.stringify(mapped));
+        } catch (_) {}
+
+        // Global DOM application & event notification
+        applyUISettingsToDocument(mapped);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ui-settings-updated', { detail: mapped }));
+        }
+
+        return mapped;
+      }
+    }
+  } catch (err) {
+    console.warn('[UISettings] Global GET from /api/ui-settings.php notice:', err);
   }
 
-  if (res && res.data) {
-    console.log('[UISettings] Berhasil mengambil settings dari API:', res.data);
-    return {
-      ...DEFAULT_UI_SETTINGS,
-      ...res.data,
-      menu_icon_size: Number(res.data.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
-      menu_icon_stroke: Number(res.data.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
-      signout_icon_size: Number(res.data.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
-      logo_url: res.data.logo_url ?? null,
-      menu_icon_url: res.data.menu_icon_url ?? null,
-      signout_icon_url: res.data.signout_icon_url ?? null,
+  // 2. Secondary fallback request: /api/ui/ui-settings.php with optional auth
+  try {
+    const adminEmail = getAdminEmail(adminEmailParam);
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
     };
+    if (adminEmail) {
+      headers['X-Admin-Email'] = adminEmail;
+    }
+    const token = localStorage.getItem('laporanwee_token');
+    if (token && token !== 'undefined' && token !== 'null') {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${ADMIN_UI_SETTINGS_API}?_t=${Date.now()}`, {
+      method: 'GET',
+      headers,
+      cache: 'no-store',
+    });
+    if (response.ok) {
+      const res = await response.json().catch(() => null);
+      if (res && res.data) {
+        console.log('[UISettings] Berhasil memuat settings dari fallback /api/ui/ui-settings.php:', res.data);
+        const version = extractAssetVersion(res.data);
+        const mapped: UISettings = {
+          ...DEFAULT_UI_SETTINGS,
+          ...res.data,
+          primary_color: res.data.primary_color || DEFAULT_UI_SETTINGS.primary_color,
+          secondary_color: res.data.secondary_color || DEFAULT_UI_SETTINGS.secondary_color,
+          text_color: res.data.text_color || DEFAULT_UI_SETTINGS.text_color,
+          background_color: res.data.background_color || DEFAULT_UI_SETTINGS.background_color,
+          font_family: res.data.font_family || DEFAULT_UI_SETTINGS.font_family,
+          heading_font: res.data.heading_font || DEFAULT_UI_SETTINGS.heading_font,
+          menu_icon_size: Number(res.data.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
+          menu_icon_stroke: Number(res.data.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
+          signout_icon_size: Number(res.data.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
+          logo_url: formatAssetUrlWithCacheBust(res.data.logo_url, version),
+          menu_icon_url: formatAssetUrlWithCacheBust(res.data.menu_icon_url, version),
+          signout_icon_url: formatAssetUrlWithCacheBust(res.data.signout_icon_url, version),
+        };
+        try {
+          localStorage.setItem('laporanwee_ui_settings', JSON.stringify(mapped));
+        } catch (_) {}
+
+        applyUISettingsToDocument(mapped);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('ui-settings-updated', { detail: mapped }));
+        }
+
+        return mapped;
+      }
+    }
+  } catch (fallbackErr) {
+    console.warn('[UISettings] Fallback GET error:', fallbackErr);
   }
+
+  // 3. Fallback from cached settings in localStorage (Rule 8)
+  try {
+    const cached = localStorage.getItem('laporanwee_ui_settings');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      applyUISettingsToDocument(parsed);
+      return parsed;
+    }
+  } catch (_) {}
+
+  applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
   return DEFAULT_UI_SETTINGS;
 };
 
 /**
- * Saves UI Settings to Backend API
+ * Saves UI Settings to Backend API (Admin flow)
  */
 export const saveUISettings = async (
   settings: Partial<UISettings>,
@@ -223,6 +351,20 @@ export const saveUISettings = async (
     };
   }
 
+  // Clean asset URLs from query params before saving to MySQL
+  let cleanLogo = settings.logo_url !== undefined ? settings.logo_url : null;
+  if (cleanLogo && typeof cleanLogo === 'string') {
+    cleanLogo = cleanLogo.split('?')[0];
+  }
+  let cleanMenuIcon = settings.menu_icon_url !== undefined ? settings.menu_icon_url : null;
+  if (cleanMenuIcon && typeof cleanMenuIcon === 'string') {
+    cleanMenuIcon = cleanMenuIcon.split('?')[0];
+  }
+  let cleanSignoutIcon = settings.signout_icon_url !== undefined ? settings.signout_icon_url : null;
+  if (cleanSignoutIcon && typeof cleanSignoutIcon === 'string') {
+    cleanSignoutIcon = cleanSignoutIcon.split('?')[0];
+  }
+
   const payload = {
     primary_color: settings.primary_color || DEFAULT_UI_SETTINGS.primary_color,
     secondary_color: settings.secondary_color || DEFAULT_UI_SETTINGS.secondary_color,
@@ -233,12 +375,11 @@ export const saveUISettings = async (
     menu_icon_size: Number(settings.menu_icon_size) || DEFAULT_UI_SETTINGS.menu_icon_size,
     menu_icon_stroke: Number(settings.menu_icon_stroke) || DEFAULT_UI_SETTINGS.menu_icon_stroke,
     signout_icon_size: Number(settings.signout_icon_size) || DEFAULT_UI_SETTINGS.signout_icon_size,
-    logo_url: settings.logo_url !== undefined ? settings.logo_url : null,
-    menu_icon_url: settings.menu_icon_url !== undefined ? settings.menu_icon_url : null,
-    signout_icon_url: settings.signout_icon_url !== undefined ? settings.signout_icon_url : null,
+    logo_url: cleanLogo,
+    menu_icon_url: cleanMenuIcon,
+    signout_icon_url: cleanSignoutIcon,
   };
 
-  // Logging required by user specifications
   console.log('[UI SETTINGS] Admin email:', adminEmail);
   console.log('[UI SETTINGS] Saving payload:', payload);
 
@@ -253,9 +394,9 @@ export const saveUISettings = async (
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  console.log('[UI API] POST', UI_SETTINGS_API);
-  console.log('[API REQUEST]', { method: 'POST', url: UI_SETTINGS_API });
-  const response = await fetch(UI_SETTINGS_API, {
+  console.log('[UI API] POST', ADMIN_UI_SETTINGS_API);
+  console.log('[API REQUEST]', { method: 'POST', url: ADMIN_UI_SETTINGS_API });
+  const response = await fetch(ADMIN_UI_SETTINGS_API, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload),
@@ -291,5 +432,15 @@ export const saveUISettings = async (
   }
 
   console.log('[UI SETTINGS] Save response:', data);
+
+  // Immediately re-fetch and re-apply settings
+  const fresh = await fetchUISettings(adminEmail).catch(() => null);
+  if (fresh) {
+    applyUISettingsToDocument(fresh);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ui-settings-updated', { detail: fresh }));
+    }
+  }
+
   return data;
 };

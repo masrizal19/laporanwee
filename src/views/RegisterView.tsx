@@ -6,11 +6,13 @@ import { maskEmail, openWebmail, resendVerificationEmail } from '../utils/authSe
 interface RegisterViewProps {
   onRegisterSuccess: () => void;
   onNavigateToLogin: () => void;
+  logoUrl?: string | null;
 }
 
 export const RegisterView: React.FC<RegisterViewProps> = ({
   onRegisterSuccess,
   onNavigateToLogin,
+  logoUrl,
 }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -203,7 +205,17 @@ export const RegisterView: React.FC<RegisterViewProps> = ({
       <div className={`stage ${isVerificationPending ? 'verification-pending' : ''}`} id="stage">
         {/* Left Sidebar */}
         <div className="sidebar">
-          <div className="logo-auth"></div>
+          {logoUrl ? (
+            <div style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img
+                src={logoUrl}
+                alt="Logo"
+                style={{ maxWidth: '38px', maxHeight: '38px', objectFit: 'contain' }}
+              />
+            </div>
+          ) : (
+            <div className="logo-auth"></div>
+          )}
           <div className="side-nav">
             <button
               className="nav-item-auth"

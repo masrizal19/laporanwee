@@ -31,6 +31,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
   const [unreadCount, setUnreadCount] = useState(3);
+  const [logoError, setLogoError] = useState(false);
+
+  useEffect(() => {
+    setLogoError(false);
+  }, [logoUrl]);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -68,8 +73,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           onClick={() => onNavigate('dashboard')}
           title="Kembali ke Dashboard"
         >
-          {logoUrl ? (
-            <img src={logoUrl} alt="Logo" style={{ maxHeight: '32px', objectFit: 'contain' }} />
+          {logoUrl && !logoError ? (
+            <img
+              src={logoUrl}
+              alt="Logo"
+              style={{ maxHeight: '32px', objectFit: 'contain' }}
+              onError={() => setLogoError(true)}
+            />
           ) : (
             <>
               <span>Laporan</span>

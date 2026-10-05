@@ -174,9 +174,21 @@ export function App() {
 
   const [currentPath, setCurrentPath] = useState<string>(getPathFromLocation);
 
-  const [uiSettings, setUiSettings] = useState<UISettings | null>(null);
+  // Initialize UI Settings with cached settings or defaults for instant rendering (Rule 8, 11)
+  const [uiSettings, setUiSettings] = useState<UISettings>(() => {
+    try {
+      const cached = localStorage.getItem('laporanwee_ui_settings');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        applyUISettingsToDocument(parsed);
+        return parsed;
+      }
+    } catch (_) {}
+    applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
+    return DEFAULT_UI_SETTINGS;
+  });
 
-  // Apply UI Settings from server on initial load
+  // Revalidate UI Settings from MySQL backend on app start (Rule 8, 9, 10, 11)
   useEffect(() => {
     fetchUISettings(user?.email)
       .then((data) => {
@@ -185,10 +197,65 @@ export function App() {
           applyUISettingsToDocument(data);
         }
       })
-      .catch(() => {
-        applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
-      });
-  }, [user]);
+      .catch(() => {});
+  }, []);
+
+  // Revalidate whenever user logs in, logs out, or switches profile (Rule 5, 9)
+  useEffect(() => {
+    if (user?.email) {
+      fetchUISettings(user.email)
+        .then((data) => {
+          if (data) {
+            setUiSettings(data);
+            applyUISettingsToDocument(data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [user?.email]);
+
+  // Real-time SPA sync: Listen for custom events, tab visibility changes, and window focus (Rule 14, 15)
+  useEffect(() => {
+    const handleSettingsUpdated = (e: any) => {
+      if (e.detail) {
+        setUiSettings(e.detail);
+        applyUISettingsToDocument(e.detail);
+      }
+    };
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'laporanwee_ui_settings' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          setUiSettings(parsed);
+          applyUISettingsToDocument(parsed);
+        } catch (_) {}
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchUISettings(user?.email)
+          .then((data) => {
+            if (data) {
+              setUiSettings(data);
+              applyUISettingsToDocument(data);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    window.addEventListener('ui-settings-updated', handleSettingsUpdated);
+    window.addEventListener('storage', handleStorageChange);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('ui-settings-updated', handleSettingsUpdated);
+      window.removeEventListener('storage', handleStorageChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+    };
+  }, [user?.email]);
 
   const navigateToPath = (path: string) => {
     window.history.pushState({}, '', path);
@@ -1547,6 +1614,7 @@ export function App() {
     return (
       <>
         <RegisterView
+          logoUrl={uiSettings?.logo_url}
           onRegisterSuccess={() => {
             addToast('Akun berhasil dibuat! Silakan masuk.');
             navigateToPath('/login');
@@ -1562,6 +1630,7 @@ export function App() {
     return (
       <>
         <LoginView
+          logoUrl={uiSettings?.logo_url}
           onLoginSuccess={(email, name, fullUser) => {
             clearReportCache();
             setReports([]);
@@ -1581,6 +1650,15 @@ export function App() {
               email: loggedInUser.email,
               role: loggedInUser.role,
             });
+            // Revalidate UI Settings immediately on login (Rule 9)
+            fetchUISettings(email)
+              .then((data) => {
+                if (data) {
+                  setUiSettings(data);
+                  applyUISettingsToDocument(data);
+                }
+              })
+              .catch(() => {});
             addToast(`Selamat datang kembali, ${name}!`);
             navigateToPath('/dashboard');
           }}

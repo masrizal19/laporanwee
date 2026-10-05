@@ -6,11 +6,13 @@ import { resendVerificationEmail } from '../utils/authService';
 interface LoginViewProps {
   onLoginSuccess: (email: string, name: string, fullUser?: any) => void;
   onNavigateToRegister: () => void;
+  logoUrl?: string | null;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({
   onLoginSuccess,
   onNavigateToRegister,
+  logoUrl,
 }) => {
   const [email, setEmail] = useState(() => {
     return localStorage.getItem('laporanwee_registered_email') || '';
@@ -218,7 +220,17 @@ export const LoginView: React.FC<LoginViewProps> = ({
       <div className={`stage ${isSuccess ? 'success' : ''}`} id="stage">
         {/* Left Sidebar */}
         <div className="sidebar">
-          <div className="logo-auth"></div>
+          {logoUrl ? (
+            <div style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <img
+                src={logoUrl}
+                alt="Logo"
+                style={{ maxWidth: '38px', maxHeight: '38px', objectFit: 'contain' }}
+              />
+            </div>
+          ) : (
+            <div className="logo-auth"></div>
+          )}
           <div className="side-nav">
             <button className="nav-item-auth active" type="button" aria-label="Sign In">
               <span className="icon">

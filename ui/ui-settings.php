@@ -34,6 +34,7 @@ try {
 
         response(true, 'Berhasil mengambil pengaturan UI', [
             'data' => [
+                'id' => (int)($settings['id'] ?? 1),
                 'primary_color' => $settings['primary_color'] ?? '#4A55FF',
                 'secondary_color' => $settings['secondary_color'] ?? '#19194D',
                 'text_color' => $settings['text_color'] ?? '#19194D',
@@ -46,6 +47,7 @@ try {
                 'logo_url' => $settings['logo_url'] ?? null,
                 'menu_icon_url' => $settings['menu_icon_url'] ?? null,
                 'signout_icon_url' => $settings['signout_icon_url'] ?? null,
+                'updated_at' => $settings['updated_at'] ?? null,
             ]
         ], 200);
     }
