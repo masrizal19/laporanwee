@@ -38,7 +38,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Cropper states
+  // Cropper states & high-performance pointer tracking refs
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
   const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
   const [croppedPreviewUrl, setCroppedPreviewUrl] = useState<string | null>(null);
@@ -47,7 +47,99 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [panY, setPanY] = useState<number>(0);
   const [imageDims, setImageDims] = useState<{ width: number; height: number; baseScale: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
-  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const CONTAINER_SIZE = 240;
+
+  const isDraggingRef = useRef<boolean>(false);
+  const dragStartRef = useRef<{
+    startX: number;
+    startY: number;
+    initialPanX: number;
+    initialPanY: number;
+  }>({ startX: 0, startY: 0, initialPanX: 0, initialPanY: 0 });
+  const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const zoomRef = useRef<number>(1);
+  const imageDimsRef = useRef<{ width: number; height: number; baseScale: number } | null>(null);
+
+  useEffect(() => {
+    panRef.current = { x: panX, y: panY };
+  }, [panX, panY]);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    imageDimsRef.current = imageDims;
+  }, [imageDims]);
+
+  // Compute maximum allowable pan so circle is ALWAYS completely covered by image (Target 2)
+  const computeMaxPan = (currentZoom: number, dims = imageDimsRef.current) => {
+    if (!dims) return { maxPanX: 0, maxPanY: 0 };
+    const displayedW = dims.width * dims.baseScale * currentZoom;
+    const displayedH = dims.height * dims.baseScale * currentZoom;
+    const maxPanX = Math.max(0, (displayedW - CONTAINER_SIZE) / 2);
+    const maxPanY = Math.max(0, (displayedH - CONTAINER_SIZE) / 2);
+    return { maxPanX, maxPanY };
+  };
+
+  const loadImageIntoCropper = (src: string) => {
+    const img = new Image();
+    if (!src.startsWith('blob:') && !src.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
+    img.onload = () => {
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+      if (width <= 0 || height <= 0) return;
+
+      const scaleX = CONTAINER_SIZE / width;
+      const scaleY = CONTAINER_SIZE / height;
+      // Target 2: Math.max ensures image completely covers circle at min zoom = 1 without transparent/empty areas
+      const baseScale = Math.max(scaleX, scaleY);
+
+      const newDims = { width, height, baseScale };
+      setImageDims(newDims);
+      imageDimsRef.current = newDims;
+      setZoom(1);
+      zoomRef.current = 1;
+      setPanX(0);
+      setPanY(0);
+      panRef.current = { x: 0, y: 0 };
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      setRawImageSrc(src);
+    };
+    img.onerror = () => {
+      if (img.crossOrigin) {
+        const retryImg = new Image();
+        retryImg.onload = () => {
+          const width = retryImg.naturalWidth || retryImg.width;
+          const height = retryImg.naturalHeight || retryImg.height;
+          if (width <= 0 || height <= 0) return;
+          const scaleX = CONTAINER_SIZE / width;
+          const scaleY = CONTAINER_SIZE / height;
+          const baseScale = Math.max(scaleX, scaleY);
+          const newDims = { width, height, baseScale };
+          setImageDims(newDims);
+          imageDimsRef.current = newDims;
+          setZoom(1);
+          zoomRef.current = 1;
+          setPanX(0);
+          setPanY(0);
+          panRef.current = { x: 0, y: 0 };
+          setRawImageSrc(src);
+        };
+        retryImg.onerror = () => {
+          onAddToast('Gagal memuat foto profil untuk diatur.');
+        };
+        retryImg.src = src;
+      } else {
+        onAddToast('Gagal memuat foto profil untuk diatur.');
+      }
+    };
+    img.src = src;
+  };
 
   // Fetch profile from backend on mount
   useEffect(() => {
@@ -88,88 +180,166 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
 
       const src = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        const containerSize = 240;
-        const scaleX = containerSize / img.width;
-        const scaleY = containerSize / img.height;
-        const baseScale = Math.min(scaleX, scaleY);
-        setImageDims({ width: img.width, height: img.height, baseScale });
-        setZoom(1); // 1 = fit contain, entire image visible
-        setPanX(0);
-        setPanY(0);
-        setRawImageSrc(src);
-      };
-      img.src = src;
+      loadImageIntoCropper(src);
+      e.target.value = '';
     }
   };
 
-  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
+  // Zoom control with boundary clamping (Target 2, 3, 4)
+  const handleZoomChange = (nextZoom: number) => {
+    const clampedZoom = Math.max(1, Math.min(3, Math.round(nextZoom * 100) / 100));
+    setZoom(clampedZoom);
+    zoomRef.current = clampedZoom;
+
+    // Recalculate pan bounds to ensure image never detaches from circle edges
+    const { maxPanX, maxPanY } = computeMaxPan(clampedZoom);
+    setPanX((prevX) => {
+      const nextX = Math.max(-maxPanX, Math.min(maxPanX, prevX));
+      panRef.current.x = nextX;
+      return nextX;
+    });
+    setPanY((prevY) => {
+      const nextY = Math.max(-maxPanY, Math.min(maxPanY, prevY));
+      panRef.current.y = nextY;
+      return nextY;
+    });
+  };
+
+  // Pointer Events for smooth drag across desktop mouse and touch (Target 1, 8, 9, 13)
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch (_) {}
+
+    isDraggingRef.current = true;
     setIsDragging(true);
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    dragStartRef.current = { x: clientX - panX, y: clientY - panY };
+    dragStartRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initialPanX: panRef.current.x,
+      initialPanY: panRef.current.y,
+    };
   };
 
-  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDragging) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    setPanX(clientX - dragStartRef.current.x);
-    setPanY(clientY - dragStartRef.current.y);
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    e.preventDefault();
+    const dx = e.clientX - dragStartRef.current.startX;
+    const dy = e.clientY - dragStartRef.current.startY;
+    const rawTargetX = dragStartRef.current.initialPanX + dx;
+    const rawTargetY = dragStartRef.current.initialPanY + dy;
+
+    const { maxPanX, maxPanY } = computeMaxPan(zoomRef.current);
+    const clampedX = Math.max(-maxPanX, Math.min(maxPanX, rawTargetX));
+    const clampedY = Math.max(-maxPanY, Math.min(maxPanY, rawTargetY));
+
+    setPanX(clampedX);
+    setPanY(clampedY);
+    panRef.current = { x: clampedX, y: clampedY };
   };
 
-  const handleMouseUp = () => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) {
+      isDraggingRef.current = false;
+      setIsDragging(false);
+      try {
+        if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
+          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        }
+      } catch (_) {}
+    }
+  };
+
+  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    handlePointerUp(e);
+  };
+
+  const handleLostPointerCapture = () => {
+    isDraggingRef.current = false;
     setIsDragging(false);
   };
 
-  const handleResetCrop = () => {
-    setZoom(1);
-    setPanX(0);
-    setPanY(0);
+  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.08 : -0.08;
+    handleZoomChange(zoomRef.current + delta);
   };
 
+  // Reset to initial valid state (Target 5)
+  const handleResetCrop = () => {
+    setZoom(1);
+    zoomRef.current = 1;
+    setPanX(0);
+    setPanY(0);
+    panRef.current = { x: 0, y: 0 };
+    isDraggingRef.current = false;
+    setIsDragging(false);
+  };
+
+  // Generate 1:1 Pixel-Perfect Crop based on final position and zoom (Target 7)
   const handleGenerateCrop = () => {
-    if (!rawImageSrc || !imageDims) return;
+    if (!rawImageSrc || !imageDimsRef.current) return;
+    const dims = imageDimsRef.current;
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (!rawImageSrc.startsWith('blob:') && !rawImageSrc.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => {
+      const outputSize = 400; // High-resolution avatar canvas
       const canvas = document.createElement('canvas');
-      const size = 300;
-      canvas.width = size;
-      canvas.height = size;
+      canvas.width = outputSize;
+      canvas.height = outputSize;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      ctx.clearRect(0, 0, size, size);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
-      ctx.clip();
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
 
-      const previewContainerSize = 240;
-      const canvasScale = size / previewContainerSize;
+      const canvasScale = outputSize / CONTAINER_SIZE;
+      const currentZoom = zoomRef.current;
+      const currentPanX = panRef.current.x;
+      const currentPanY = panRef.current.y;
 
-      const displayedWidth = imageDims.width * imageDims.baseScale * zoom * canvasScale;
-      const displayedHeight = imageDims.height * imageDims.baseScale * zoom * canvasScale;
+      const displayedW = dims.width * dims.baseScale * currentZoom;
+      const displayedH = dims.height * dims.baseScale * currentZoom;
 
-      const centerX = size / 2 + panX * canvasScale;
-      const centerY = size / 2 + panY * canvasScale;
+      const centerX = CONTAINER_SIZE / 2 + currentPanX;
+      const centerY = CONTAINER_SIZE / 2 + currentPanY;
 
-      const drawX = centerX - displayedWidth / 2;
-      const drawY = centerY - displayedHeight / 2;
+      const drawX = (centerX - displayedW / 2) * canvasScale;
+      const drawY = (centerY - displayedH / 2) * canvasScale;
+      const drawW = displayedW * canvasScale;
+      const drawH = displayedH * canvasScale;
 
-      ctx.drawImage(img, 0, 0, img.width, img.height, drawX, drawY, displayedWidth, displayedHeight);
-      ctx.restore();
+      ctx.drawImage(
+        img,
+        0,
+        0,
+        img.naturalWidth || dims.width,
+        img.naturalHeight || dims.height,
+        drawX,
+        drawY,
+        drawW,
+        drawH
+      );
 
-      canvas.toBlob((blob) => {
-        if (blob) {
-          setCroppedBlob(blob);
-          setCroppedPreviewUrl(URL.createObjectURL(blob));
-          setRawImageSrc(null);
-          onAddToast('Crop foto berhasil diatur!');
-        }
-      }, 'image/jpeg', 0.92);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            setCroppedBlob(blob);
+            setCroppedPreviewUrl(URL.createObjectURL(blob));
+            setRawImageSrc(null);
+            onAddToast('Crop foto berhasil diatur!');
+          }
+        },
+        'image/jpeg',
+        0.95
+      );
+    };
+    img.onerror = () => {
+      onAddToast('Gagal memproses crop foto.');
     };
     img.src = rawImageSrc;
   };
@@ -491,30 +661,35 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 cursor: isDragging ? 'grabbing' : 'grab',
                 border: '3px solid var(--primary-color, #4A55FF)',
                 boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                touchAction: 'none',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
               }}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onTouchStart={handleMouseDown}
-              onTouchMove={handleMouseMove}
-              onTouchEnd={handleMouseUp}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerCancel}
+              onLostPointerCapture={handleLostPointerCapture}
+              onWheel={handleWheel}
             >
               <img
                 src={rawImageSrc}
                 alt="Crop preview"
+                draggable={false}
                 style={{
                   position: 'absolute',
                   top: '50%',
                   left: '50%',
                   width: imageDims ? `${imageDims.width * imageDims.baseScale}px` : 'auto',
                   height: imageDims ? `${imageDims.height * imageDims.baseScale}px` : 'auto',
-                  transform: `translate(-50%, -50%) translate(${panX}px, ${panY}px) scale(${zoom})`,
+                  transform: `translate3d(calc(-50% + ${panX}px), calc(-50% + ${panY}px), 0) scale(${zoom})`,
                   maxWidth: 'none',
                   maxHeight: 'none',
                   pointerEvents: 'none',
                   userSelect: 'none',
-                  transition: isDragging ? 'none' : 'transform 0.05s ease-out',
+                  WebkitUserSelect: 'none',
+                  transition: isDragging ? 'none' : 'transform 0.08s ease-out',
+                  willChange: isDragging ? 'transform' : 'auto',
                 }}
               />
             </div>
@@ -523,23 +698,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
-                onClick={() => setZoom((z) => Math.max(0.2, z - 0.1))}
+                onClick={() => handleZoomChange(zoom - 0.1)}
+                title="Perkecil (-)"
+                aria-label="Perkecil zoom"
+                style={{ minWidth: '32px', fontWeight: 700 }}
               >
                 -
               </button>
               <input
                 type="range"
-                min="0.2"
+                min="1"
                 max="3"
-                step="0.05"
+                step="0.02"
                 value={zoom}
-                onChange={(e) => setZoom(parseFloat(e.target.value))}
-                style={{ width: '120px', accentColor: 'var(--primary-color)' }}
+                onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
+                style={{ width: '130px', accentColor: 'var(--primary-color, #4A55FF)', cursor: 'pointer' }}
+                aria-label="Zoom slider"
               />
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
-                onClick={() => setZoom((z) => Math.min(3, z + 0.1))}
+                onClick={() => handleZoomChange(zoom + 0.1)}
+                title="Perbesar (+)"
+                aria-label="Perbesar zoom"
+                style={{ minWidth: '32px', fontWeight: 700 }}
               >
                 +
               </button>
@@ -573,16 +755,51 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         ) : (
           <form onSubmit={handleSaveProfile}>
             <div className="field" style={{ textAlign: 'center', marginBottom: '16px' }}>
-              <div style={{ margin: '0 auto 10px', width: '80px', height: '80px', borderRadius: '50%', overflow: 'hidden', background: '#eee' }}>
+              <div
+                style={{
+                  margin: '0 auto 10px',
+                  width: '80px',
+                  height: '80px',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  background: '#eee',
+                  cursor: (croppedPreviewUrl || avatarUrl) ? 'pointer' : 'default',
+                  border: '2px solid rgba(0,0,0,0.08)'
+                }}
+                title={croppedPreviewUrl || avatarUrl ? 'Klik untuk atur / sesuaikan crop foto saat ini' : undefined}
+                onClick={() => {
+                  const currentImg = croppedPreviewUrl || avatarUrl;
+                  if (currentImg) {
+                    loadImageIntoCropper(currentImg);
+                  }
+                }}
+              >
                 <img
                   src={croppedPreviewUrl || avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80"}
                   alt="Avatar"
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
               </div>
-              <label htmlFor="avatar-file-input" className="btn btn-outline btn-sm" style={{ display: 'inline-block', cursor: 'pointer' }}>
-                Pilih &amp; Crop Foto Baru
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <label htmlFor="avatar-file-input" className="btn btn-outline btn-sm" style={{ display: 'inline-block', cursor: 'pointer' }}>
+                  Pilih &amp; Crop Foto Baru
+                </label>
+                {(croppedPreviewUrl || avatarUrl) && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: '12px' }}
+                    onClick={() => {
+                      const currentImg = croppedPreviewUrl || avatarUrl;
+                      if (currentImg) {
+                        loadImageIntoCropper(currentImg);
+                      }
+                    }}
+                  >
+                    Atur Crop Foto
+                  </button>
+                )}
+              </div>
               <input
                 id="avatar-file-input"
                 type="file"
