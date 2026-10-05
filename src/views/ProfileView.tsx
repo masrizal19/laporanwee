@@ -60,6 +60,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
   const imageDimsRef = useRef<{ width: number; height: number; baseScale: number } | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     panRef.current = { x: panX, y: panY };
@@ -73,11 +74,55 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     imageDimsRef.current = imageDims;
   }, [imageDims]);
 
+  // Global window listeners while dragging to guarantee smooth dragging even outside container
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const onGlobalPointerMove = (e: PointerEvent) => {
+      if (!isDraggingRef.current) return;
+      const dx = e.clientX - dragStartRef.current.startX;
+      const dy = e.clientY - dragStartRef.current.startY;
+      const nextX = dragStartRef.current.initialPanX + dx;
+      const nextY = dragStartRef.current.initialPanY + dy;
+
+      const dims = imageDimsRef.current;
+      if (dims) {
+        const currentZoom = zoomRef.current;
+        const scaledW = dims.width * dims.baseScale * currentZoom;
+        const scaledH = dims.height * dims.baseScale * currentZoom;
+        const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
+        const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
+        const clampedX = Math.max(-maxX, Math.min(maxX, nextX));
+        const clampedY = Math.max(-maxY, Math.min(maxY, nextY));
+
+        setPanX(clampedX);
+        setPanY(clampedY);
+        panRef.current = { x: clampedX, y: clampedY };
+      } else {
+        setPanX(nextX);
+        setPanY(nextY);
+        panRef.current = { x: nextX, y: nextY };
+      }
+    };
+
+    const onGlobalPointerUp = () => {
+      isDraggingRef.current = false;
+      setIsDragging(false);
+    };
+
+    window.addEventListener('pointermove', onGlobalPointerMove);
+    window.addEventListener('pointerup', onGlobalPointerUp);
+    window.addEventListener('pointercancel', onGlobalPointerUp);
+
+    return () => {
+      window.removeEventListener('pointermove', onGlobalPointerMove);
+      window.removeEventListener('pointerup', onGlobalPointerUp);
+      window.removeEventListener('pointercancel', onGlobalPointerUp);
+    };
+  }, [isDragging]);
+
   const loadImageIntoCropper = (src: string) => {
     const img = new Image();
-    if (!src.startsWith('blob:') && !src.startsWith('data:')) {
-      img.crossOrigin = 'anonymous';
-    }
     img.onload = () => {
       const width = img.naturalWidth || img.width;
       const height = img.naturalHeight || img.height;
@@ -85,7 +130,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       const scaleX = CONTAINER_SIZE / width;
       const scaleY = CONTAINER_SIZE / height;
-      // Target 2: Math.max ensures image completely covers circle at min zoom = 1 without transparent/empty areas
       const baseScale = Math.max(scaleX, scaleY);
 
       const newDims = { width, height, baseScale };
@@ -100,33 +144,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setIsDragging(false);
       setRawImageSrc(src);
     };
-    img.onerror = () => {
-      if (img.crossOrigin) {
-        const retryImg = new Image();
-        retryImg.onload = () => {
-          const width = retryImg.naturalWidth || retryImg.width;
-          const height = retryImg.naturalHeight || retryImg.height;
-          if (width <= 0 || height <= 0) return;
-          const scaleX = CONTAINER_SIZE / width;
-          const scaleY = CONTAINER_SIZE / height;
-          const baseScale = Math.max(scaleX, scaleY);
-          const newDims = { width, height, baseScale };
-          setImageDims(newDims);
-          imageDimsRef.current = newDims;
-          setZoom(1);
-          zoomRef.current = 1;
-          setPanX(0);
-          setPanY(0);
-          panRef.current = { x: 0, y: 0 };
-          setRawImageSrc(src);
-        };
-        retryImg.onerror = () => {
-          onAddToast('Gagal memuat foto profil untuk diatur.');
-        };
-        retryImg.src = src;
-      } else {
-        onAddToast('Gagal memuat foto profil untuk diatur.');
-      }
+    img.onerror = (e) => {
+      console.error('[LOAD CROPPER ERROR] Gagal memuat foto profil:', e);
+      onAddToast('Gagal memuat foto profil untuk diatur.');
     };
     img.src = src;
   };
@@ -262,11 +282,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     handlePointerUp(e);
   };
 
-  const handleLostPointerCapture = () => {
-    isDraggingRef.current = false;
-    setIsDragging(false);
-  };
-
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     const delta = e.deltaY < 0 ? 0.08 : -0.08;
@@ -284,24 +299,39 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setIsDragging(false);
   };
 
-  // Generate 1:1 Pixel-Perfect Crop based on final position and zoom (Target 7)
-  const handleGenerateCrop = () => {
-    if (!rawImageSrc || !imageDimsRef.current) return;
-    const dims = imageDimsRef.current;
-    const img = new Image();
-    if (!rawImageSrc.startsWith('blob:') && !rawImageSrc.startsWith('data:')) {
-      img.crossOrigin = 'anonymous';
+  // Generate 1:1 Pixel-Perfect Crop based on final position and zoom, then directly upload to /api/profile.php
+  const handleGenerateCrop = async () => {
+    if (!rawImageSrc) {
+      console.warn('[CROP] rawImageSrc tidak tersedia');
+      return;
     }
-    img.onload = () => {
-      const outputSize = 400; // High-resolution avatar canvas
+
+    try {
+      const activeImg = imgRef.current;
+      const naturalW = activeImg?.naturalWidth || imageDimsRef.current?.width || CONTAINER_SIZE;
+      const naturalH = activeImg?.naturalHeight || imageDimsRef.current?.height || CONTAINER_SIZE;
+
+      if (naturalW <= 0 || naturalH <= 0) {
+        throw new Error('Dimensi gambar tidak valid untuk crop');
+      }
+
+      const outputSize = 400; // Resolusi tinggi avatar (1:1)
       const canvas = document.createElement('canvas');
       canvas.width = outputSize;
       canvas.height = outputSize;
       const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+      if (!ctx) {
+        throw new Error('Canvas 2D context tidak tersedia');
+      }
 
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
+
+      const dims = imageDimsRef.current || {
+        width: naturalW,
+        height: naturalH,
+        baseScale: Math.max(CONTAINER_SIZE / naturalW, CONTAINER_SIZE / naturalH),
+      };
 
       const canvasScale = outputSize / CONTAINER_SIZE;
       const currentZoom = zoomRef.current;
@@ -319,35 +349,137 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const drawW = displayedW * canvasScale;
       const drawH = displayedH * canvasScale;
 
-      ctx.drawImage(
-        img,
-        0,
-        0,
-        img.naturalWidth || dims.width,
-        img.naturalHeight || dims.height,
-        drawX,
-        drawY,
-        drawW,
-        drawH
-      );
+      // Draw the image onto canvas
+      if (activeImg && activeImg.complete && activeImg.naturalWidth > 0) {
+        ctx.drawImage(
+          activeImg,
+          0,
+          0,
+          naturalW,
+          naturalH,
+          drawX,
+          drawY,
+          drawW,
+          drawH
+        );
+      } else {
+        // Fallback using new Image instance
+        const fallbackImg = new Image();
+        await new Promise<void>((resolve, reject) => {
+          fallbackImg.onload = () => resolve();
+          fallbackImg.onerror = (e) => reject(e);
+          fallbackImg.src = rawImageSrc;
+        });
+        ctx.drawImage(
+          fallbackImg,
+          0,
+          0,
+          fallbackImg.naturalWidth,
+          fallbackImg.naturalHeight,
+          drawX,
+          drawY,
+          drawW,
+          drawH
+        );
+      }
 
       canvas.toBlob(
-        (blob) => {
-          if (blob) {
-            setCroppedBlob(blob);
-            setCroppedPreviewUrl(URL.createObjectURL(blob));
-            setRawImageSrc(null);
-            onAddToast('Crop foto berhasil diatur!');
+        async (blob) => {
+          if (!blob) {
+            console.error('[CROP ERROR] canvas.toBlob menghasilkan null');
+            onAddToast('Gagal memproses crop foto.');
+            return;
           }
+
+          if (blob.size === 0) {
+            console.error('[CROP ERROR] Blob hasil crop berukuran 0 bytes');
+            onAddToast('Gagal memproses crop foto.');
+            return;
+          }
+
+          // Validasi MIME & file
+          const croppedFile = new File([blob], 'profile.jpg', { type: 'image/jpeg' });
+          console.log('[CROP GENERATED]', {
+            name: croppedFile.name,
+            size: croppedFile.size,
+            type: croppedFile.type,
+          });
+
+          await uploadCroppedProfile(croppedFile, blob);
         },
         'image/jpeg',
         0.95
       );
-    };
-    img.onerror = () => {
+    } catch (err: any) {
+      console.error('[CROP ERROR] Gagal memproses canvas crop:', err);
       onAddToast('Gagal memproses crop foto.');
-    };
-    img.src = rawImageSrc;
+    }
+  };
+
+  const uploadCroppedProfile = async (file: File, blob: Blob) => {
+    setIsSubmitting(true);
+    try {
+      const formData = new FormData();
+      // Field wajib avatar sesuai backend PHP $_FILES['avatar']
+      formData.append('avatar', file, 'profile.jpg');
+      if (name && name.trim()) {
+        formData.append('full_name', name.trim());
+      }
+
+      console.log('[API REQUEST] POST /api/profile.php upload avatar:', {
+        fieldName: 'avatar',
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        fullName: name,
+      });
+
+      const res = await api.upload('/profile.php', formData);
+      console.log('[API RESPONSE] POST /api/profile.php:', res);
+
+      if (res && res.success) {
+        onAddToast('Profil berhasil diperbarui!');
+        const returnedUrl = res.data?.avatar_url || res.data?.avatar;
+        const finalAvatar = returnedUrl ? `${returnedUrl}?v=${Date.now()}` : URL.createObjectURL(blob);
+
+        setAvatarUrl(finalAvatar);
+        setCroppedBlob(blob);
+        setCroppedPreviewUrl(finalAvatar);
+        setRawImageSrc(null);
+        setIsEditOpen(false);
+
+        if (res.data?.full_name) {
+          setName(res.data.full_name);
+        }
+
+        if (onUpdateUser) {
+          onUpdateUser({
+            email: email,
+            name: res.data?.full_name || name,
+            avatar_url: finalAvatar,
+          });
+        }
+
+        const storedUser = localStorage.getItem('laporanwee_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            parsed.avatar_url = finalAvatar;
+            if (res.data?.full_name) parsed.name = res.data.full_name;
+            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
+          } catch (_) {}
+        }
+      } else {
+        const errorMsg = res?.message || 'Gagal memperbarui profil.';
+        console.error('[API ERROR] Response upload tidak sukses:', res);
+        onAddToast(errorMsg);
+      }
+    } catch (err: any) {
+      console.error('[API ERROR] Exception upload profil:', err);
+      onAddToast(err?.message || 'Gagal memperbarui profil.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -362,14 +494,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         formData.append('avatar', croppedBlob, 'profile_cropped.jpg');
       }
 
-      const uploadUrl = `${API_BASE_URL}/profile.php`;
-      console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url: uploadUrl });
+      console.log('[API REQUEST] POST /api/profile.php (form save):', { name, hasBlob: !!croppedBlob });
 
       const res = await api.upload('/profile.php', formData);
 
       if (res && res.success) {
         onAddToast('Profil berhasil diperbarui!');
-        const finalAvatar = res.data?.avatar_url ? `${res.data.avatar_url}?t=${Date.now()}` : null;
+        const finalAvatar = res.data?.avatar_url ? `${res.data.avatar_url}?v=${Date.now()}` : null;
         if (finalAvatar) {
           setAvatarUrl(finalAvatar);
         }
@@ -682,10 +813,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   onPointerMove={handlePointerMove}
                   onPointerUp={handlePointerUp}
                   onPointerCancel={handlePointerCancel}
-                  onLostPointerCapture={handleLostPointerCapture}
                   onWheel={handleWheel}
                 >
                   <img
+                    ref={imgRef}
                     src={rawImageSrc}
                     alt="Crop preview"
                     draggable={false}
@@ -769,6 +900,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 type="button"
                 className="btn btn-outline"
                 onClick={() => setRawImageSrc(null)}
+                disabled={isSubmitting}
               >
                 Batal / Pilih Ulang
               </button>
@@ -776,8 +908,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 type="button"
                 className="btn btn-dark"
                 onClick={handleGenerateCrop}
+                disabled={isSubmitting}
               >
-                Terapkan Crop
+                {isSubmitting ? 'Menyimpan...' : 'Terapkan Crop'}
               </button>
             </div>
           </div>
