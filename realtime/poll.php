@@ -72,10 +72,16 @@ try {
         $stmt->execute(['since1' => $since, 'since2' => $since]);
         $changedReports = $stmt->fetchAll();
 
+        $countStmt = $pdo->query("SELECT COUNT(*) as total FROM daily_reports");
+        $countRow = $countStmt->fetch();
+        $totalCount = (int)($countRow ? $countRow['total'] : 0);
+
         response(true, 'Sinkronisasi realtime berhasil.', [
             'changed' => count($changedReports) > 0,
             'reports' => $changedReports,
             'data' => $changedReports,
+            'count' => $totalCount,
+            'total_count' => $totalCount,
             'server_time' => $serverTime,
             'last_sync' => $serverTime
         ], 200);
@@ -85,10 +91,16 @@ try {
         $latestRow = $stmt->fetch();
         $latest = $latestRow && $latestRow['latest'] ? $latestRow['latest'] : $serverTime;
 
+        $countStmt = $pdo->query("SELECT COUNT(*) as total FROM daily_reports");
+        $countRow = $countStmt->fetch();
+        $totalCount = (int)($countRow ? $countRow['total'] : 0);
+
         response(true, 'Status realtime siap.', [
             'changed' => false,
             'reports' => [],
             'data' => [],
+            'count' => $totalCount,
+            'total_count' => $totalCount,
             'server_time' => $latest,
             'last_sync' => $latest
         ], 200);

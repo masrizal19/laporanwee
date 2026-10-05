@@ -600,15 +600,30 @@ export function App() {
             localStorage.setItem('laporanwee_last_sync', nextCursor);
           }
 
-          // Check if incremental updated reports are provided directly
-          const changedItems = extractReportsArrayFromResponse(res);
-          if (changedItems && changedItems.length > 0) {
-            console.log('[Realtime] Received incremental reports update:', changedItems.length);
-            mergeUpdatedReports(changedItems);
-          } else if (res.changed === true || res.has_updates === true) {
-            // If server indicated changes occurred without sending list, do a silent refetch
-            console.log('[Realtime] Database change flagged, fetching latest reports...');
+          // Check if deleted reports are indicated directly
+          const deletedIdsRaw = res.deleted_ids || res.deleted_reports || res.deleted || res.removed || [];
+          if (Array.isArray(deletedIdsRaw) && deletedIdsRaw.length > 0) {
+            const deletedSet = new Set(deletedIdsRaw.map((id: any) => String(id).trim()));
+            deletedSet.forEach((id) => dailyReportService.removeReportFromCache(id));
+            setReports((prev) => prev.filter((r) => !deletedSet.has(String(r.id).trim())));
+          }
+
+          // Check if total count changed (e.g. report deleted by another user)
+          const serverTotal = res.total_count ?? res.count;
+          if (typeof serverTotal === 'number' && reports.length > 0 && serverTotal !== reports.length) {
+            console.log('[Realtime] Report count discrepancy detected (server:', serverTotal, 'local:', reports.length, '), refetching...');
             refreshReportsFromApi(true);
+          } else {
+            // Check if incremental updated reports are provided directly
+            const changedItems = extractReportsArrayFromResponse(res);
+            if (changedItems && changedItems.length > 0) {
+              console.log('[Realtime] Received incremental reports update:', changedItems.length);
+              mergeUpdatedReports(changedItems);
+            } else if (res.changed === true || res.has_updates === true) {
+              // If server indicated changes occurred without sending list, do a silent refetch
+              console.log('[Realtime] Database change flagged, fetching latest reports...');
+              refreshReportsFromApi(true);
+            }
           }
         }
       } catch (err: any) {
@@ -895,14 +910,25 @@ export function App() {
   };
 
   const handleDeleteReport = async (reportId: string) => {
-    if (!isAdmin) {
-      addToast('Akses ditolak: Hanya Administrator yang dapat menghapus laporan.');
+    const targetReport = reports.find((r) => String(r.id).trim() === String(reportId).trim());
+    const isOwner = Boolean(
+      user?.email &&
+      targetReport &&
+      ((targetReport.user_email && targetReport.user_email.toLowerCase() === user.email.toLowerCase()) ||
+       (targetReport.created_by && targetReport.created_by.toLowerCase() === user.email.toLowerCase()) ||
+       (targetReport.person && targetReport.person.toLowerCase() === (user.name || '').toLowerCase()))
+    );
+
+    if (!isAdmin && !isOwner) {
+      addToast('Akses ditolak: Hanya Administrator atau pemilik laporan yang dapat menghapus laporan.');
       return;
     }
     try {
       const ok = await dailyReportService.deleteDailyReport(reportId);
       if (ok) {
-        await refreshReportsFromApi();
+        setReports((prev) => prev.filter((r) => String(r.id).trim() !== String(reportId).trim()));
+        dailyReportService.removeReportFromCache(reportId);
+        await refreshReportsFromApi(true);
         addToast('Laporan berhasil dihapus.');
 
         // Log activity to backend MySQL API
@@ -1231,6 +1257,7 @@ export function App() {
             reports={reports}
             isLoading={isReportsLoading}
             isAdmin={isAdmin}
+            currentUserEmail={user.email}
             reportsError={reportsError}
             onRetry={() => refreshReportsFromApi()}
             onNavigate={handleNavigate}

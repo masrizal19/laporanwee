@@ -6,6 +6,7 @@ interface ReportsViewProps {
   reports: Report[];
   isLoading?: boolean;
   isAdmin?: boolean;
+  currentUserEmail?: string;
   reportsError?: {
     status?: number;
     message: string;
@@ -23,6 +24,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   reports,
   isLoading = false,
   isAdmin = false,
+  currentUserEmail = '',
   reportsError = null,
   onNavigate,
   onSelectReport,
@@ -320,7 +322,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   <span className={`rstat ${r.status.replace(/\s+/g, '')}`}>
                     {r.status}
                   </span>
-                  {isAdmin && (
+                  {(isAdmin || Boolean(currentUserEmail && ((r.user_email && r.user_email.toLowerCase() === currentUserEmail.toLowerCase()) || (r.created_by && r.created_by.toLowerCase() === currentUserEmail.toLowerCase())))) && (
                     <button
                       type="button"
                       title="Hapus laporan ini"

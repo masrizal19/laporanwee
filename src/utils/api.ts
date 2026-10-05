@@ -1096,13 +1096,15 @@ export const dailyReportService = {
 
   deleteDailyReport: async (id: string | number): Promise<boolean> => {
     const numericId = Number(id);
-    const res = await api.post('/daily-reports/delete.php', {
-      id: isNaN(numericId) ? id : numericId,
+    const reportIdVal = isNaN(numericId) ? String(id).trim() : numericId;
+    const res = await api.post('/reports/delete.php', {
+      report_id: reportIdVal,
+      id: reportIdVal,
     });
     if (res && res.success !== false) {
       removeReportFromCache(id);
     }
-    return res && res.success !== false;
+    return Boolean(res && res.success !== false);
   },
 
   resetDailyReports: async (): Promise<boolean> => {
