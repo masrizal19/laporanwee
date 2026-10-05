@@ -554,23 +554,53 @@ export const calendarService = {
 // ==========================================
 // 5. DAILY REPORTS SERVICE (MySQL API)
 // ==========================================
+
+export const normalizeCanonicalStatus = (status?: string | null): TaskStatus => {
+  if (!status) return 'todo';
+  const clean = String(status).toLowerCase().replace(/[\s_-]+/g, '');
+  if (clean === 'completed' || clean === 'complete' || clean === 'done' || clean === 'selesai') {
+    return 'done';
+  }
+  if (
+    clean === 'inprogress' ||
+    clean === 'progress' ||
+    clean === 'sedangberjalan' ||
+    clean === 'sedangdikerjakan' ||
+    clean === 'berjalan' ||
+    clean === 'ongoing' ||
+    clean === 'proses' ||
+    clean === 'working'
+  ) {
+    return 'inprogress';
+  }
+  if (
+    clean === 'review' ||
+    clean === 'inreview' ||
+    clean === 'dalamreview'
+  ) {
+    return 'review';
+  }
+  return 'todo';
+};
+
 export const mapBackendStatusToFrontend = (
   status?: string
 ): Report['status'] => {
-  const s = (status || '').toLowerCase().replace(/\s+/g, '_');
-  if (s === 'completed' || s === 'selesai') return 'Completed';
-  if (s === 'in_progress' || s === 'sedang_berjalan' || s === 'ongoing') return 'In Progress';
-  if (s === 'todo' || s === 'to_do') return 'To Do';
-  return 'In Review';
+  const col = normalizeCanonicalStatus(status);
+  if (col === 'done') return 'Completed';
+  if (col === 'inprogress') return 'In Progress';
+  if (col === 'review') return 'In Review';
+  return 'To Do';
 };
 
 export const mapFrontendStatusToBackend = (
   status?: Report['status'] | string
 ): string => {
-  if (status === 'Completed') return 'completed';
-  if (status === 'In Progress') return 'in_progress';
-  if (status === 'To Do') return 'todo';
-  return 'in_review';
+  const col = normalizeCanonicalStatus(status);
+  if (col === 'done') return 'completed';
+  if (col === 'inprogress') return 'in_progress';
+  if (col === 'review') return 'in_review';
+  return 'todo';
 };
 
 export const mapRawDailyReportToReport = (item: any): Report => {
@@ -1378,26 +1408,23 @@ export const fetchAnalytics = analyticsService.fetchSummary;
 // ==========================================
 
 export const reportStatusToTaskCol = (status?: string): TaskStatus => {
-  if (!status) return 'review';
-  const s = status.toLowerCase();
-  if (s === 'completed' || s === 'selesai' || s === 'done') return 'done';
-  if (s === 'in_progress' || s === 'inprogress' || s === 'sedang berjalan' || s === 'sedang dikerjakan') return 'inprogress';
-  if (s === 'todo' || s === 'to do') return 'todo';
-  return 'review';
+  return normalizeCanonicalStatus(status);
 };
 
 export const taskColToReportStatus = (col?: TaskStatus): 'Completed' | 'In Review' | 'In Progress' | 'To Do' => {
-  if (col === 'done') return 'Completed';
-  if (col === 'inprogress') return 'In Progress';
-  if (col === 'todo') return 'To Do';
-  return 'In Review';
+  const c = normalizeCanonicalStatus(col);
+  if (c === 'done') return 'Completed';
+  if (c === 'inprogress') return 'In Progress';
+  if (c === 'review') return 'In Review';
+  return 'To Do';
 };
 
 export const taskColToBackendReportStatus = (col?: TaskStatus): string => {
-  if (col === 'done') return 'completed';
-  if (col === 'inprogress') return 'in_progress';
-  if (col === 'todo') return 'todo';
-  return 'in_review';
+  const c = normalizeCanonicalStatus(col);
+  if (c === 'done') return 'completed';
+  if (c === 'inprogress') return 'in_progress';
+  if (c === 'review') return 'in_review';
+  return 'todo';
 };
 
 // Compute progress cleanly according to status rules:
@@ -1424,18 +1451,14 @@ export const computeTargetProgress = (currentProgress: number, targetCol: TaskSt
 };
 
 export const mapBackendTaskStatusToFrontend = (status?: string): TaskStatus => {
-  if (!status) return 'todo';
-  const s = status.toLowerCase();
-  if (s === 'in_progress' || s === 'inprogress' || s === 'sedang dikerjakan' || s === 'sedang berjalan') return 'inprogress';
-  if (s === 'review' || s === 'in_review' || s === 'dalam review') return 'review';
-  if (s === 'completed' || s === 'done' || s === 'selesai') return 'done';
-  return 'todo';
+  return normalizeCanonicalStatus(status);
 };
 
 export const mapFrontendTaskStatusToBackend = (col?: TaskStatus): string => {
-  if (col === 'inprogress') return 'in_progress';
-  if (col === 'review') return 'in_review';
-  if (col === 'done') return 'completed';
+  const c = normalizeCanonicalStatus(col);
+  if (c === 'done') return 'completed';
+  if (c === 'inprogress') return 'in_progress';
+  if (c === 'review') return 'in_review';
   return 'todo';
 };
 

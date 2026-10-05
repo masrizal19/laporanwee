@@ -34,6 +34,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [filter, setFilter] = useState<'All' | 'High' | 'Done'>('All');
   const [search, setSearch] = useState('');
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
+  const [activeDropZone, setActiveDropZone] = useState<TaskStatus | null>(null);
+  const isSubmittingDropRef = useRef(false);
+  const touchStartRef = useRef<{ id: string; startX: number; startY: number } | null>(null);
 
   // Modal State for New Task
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -208,21 +211,33 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     e.dataTransfer.setData('text/plain', id);
+    e.dataTransfer.effectAllowed = 'move';
     setDraggingTaskId(id);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, col: TaskStatus) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (activeDropZone !== col) {
+      setActiveDropZone(col);
+    }
   };
 
-  const handleDrop = async (e: React.DragEvent, targetCol: TaskStatus) => {
-    e.preventDefault();
-    const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
-    setDraggingTaskId(null);
+  const handleDragLeave = (e: React.DragEvent, col: TaskStatus) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      if (activeDropZone === col) {
+        setActiveDropZone(null);
+      }
+    }
+  };
 
-    if (!taskId) return;
-    const task = tasks.find((t) => t.id === taskId);
-    if (!task || task.col === targetCol) return;
+  const handleDragEnd = () => {
+    setDraggingTaskId(null);
+    setActiveDropZone(null);
+  };
+
+  const executeDrop = async (task: Task, targetCol: TaskStatus) => {
+    if (task.col === targetCol || isSubmittingDropRef.current) return;
 
     const targetProgress = computeTargetProgress(task.progress, targetCol);
     const updated: Task = {
@@ -240,10 +255,100 @@ export const TasksView: React.FC<TasksViewProps> = ({
         ? 'Dalam Review'
         : 'To Do';
 
-    const ok = await onUpdateTask(updated);
-    if (ok !== false) {
-      onAddToast(`Status tugas dan laporan kerja berhasil diperbarui ke "${statusLabel}".`);
+    isSubmittingDropRef.current = true;
+    try {
+      const ok = await onUpdateTask(updated);
+      if (ok !== false) {
+        onAddToast(`Status tugas dan laporan kerja berhasil diperbarui ke "${statusLabel}".`);
+      }
+    } finally {
+      isSubmittingDropRef.current = false;
     }
+  };
+
+  const handleDrop = async (e: React.DragEvent, colFromProp: TaskStatus) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Accurately detect target column based on client pointer coordinates
+    let targetCol: TaskStatus = colFromProp;
+    try {
+      const dropEl = document.elementFromPoint(e.clientX, e.clientY);
+      const colEl = dropEl?.closest('[data-col-id]') as HTMLElement | null;
+      const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
+      if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
+        targetCol = detected;
+      }
+    } catch (_) {}
+
+    const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
+    setDraggingTaskId(null);
+    setActiveDropZone(null);
+
+    if (!taskId) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    await executeDrop(task, targetCol);
+  };
+
+  // Touch device support (mobile / tablet drag & drop)
+  const handleTouchStart = (e: React.TouchEvent, id: string) => {
+    const touch = e.touches[0];
+    touchStartRef.current = { id, startX: touch.clientX, startY: touch.clientY };
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+    const touch = e.touches[0];
+    const diffX = Math.abs(touch.clientX - touchStartRef.current.startX);
+    const diffY = Math.abs(touch.clientY - touchStartRef.current.startY);
+
+    if (diffX > 12 || diffY > 12) {
+      if (draggingTaskId !== touchStartRef.current.id) {
+        setDraggingTaskId(touchStartRef.current.id);
+      }
+      try {
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        const colEl = element?.closest('[data-col-id]') as HTMLElement | null;
+        const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
+        if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
+          setActiveDropZone(detected);
+        }
+      } catch (_) {}
+    }
+  };
+
+  const handleTouchEnd = async (e: React.TouchEvent) => {
+    if (!touchStartRef.current || !draggingTaskId) {
+      touchStartRef.current = null;
+      setDraggingTaskId(null);
+      setActiveDropZone(null);
+      return;
+    }
+
+    const taskId = touchStartRef.current.id;
+    touchStartRef.current = null;
+    const touch = e.changedTouches[0];
+    let targetCol: TaskStatus | null = activeDropZone;
+    try {
+      const element = document.elementFromPoint(touch.clientX, touch.clientY);
+      const colEl = element?.closest('[data-col-id]') as HTMLElement | null;
+      const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
+      if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
+        targetCol = detected;
+      }
+    } catch (_) {}
+
+    setDraggingTaskId(null);
+    setActiveDropZone(null);
+
+    if (!targetCol || !['todo', 'inprogress', 'review', 'done'].includes(targetCol)) return;
+
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+
+    await executeDrop(task, targetCol);
   };
 
   const handleCreateTask = (e: React.FormEvent) => {
@@ -495,12 +600,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
       <div className="kanban-wrap" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         {columns.map((colDef) => {
           const colTasks = filteredTasks.filter((t) => t.col === colDef.col);
+          const isDropActive = activeDropZone === colDef.col;
 
           return (
             <div
               key={colDef.col}
-              className="kcol"
-              onDragOver={handleDragOver}
+              data-col-id={colDef.col}
+              className={`kcol ${isDropActive ? 'dragover active-drop-zone' : ''}`}
+              onDragOver={(e) => handleDragOver(e, colDef.col)}
+              onDragLeave={(e) => handleDragLeave(e, colDef.col)}
               onDrop={(e) => handleDrop(e, colDef.col)}
             >
               <div className="kcol-head">
@@ -512,12 +620,22 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 <span className="kcol-count">{colTasks.length}</span>
               </div>
 
+              {colTasks.length === 0 && draggingTaskId && (
+                <div className="kcol-drop-target">
+                  Lepas di sini untuk pindah ke {colDef.label}
+                </div>
+              )}
+
               {colTasks.map((t) => (
                 <div
                   key={t.id}
                   className={`kcard ${draggingTaskId === t.id ? 'dragging' : ''}`}
                   draggable
                   onDragStart={(e) => handleDragStart(e, t.id)}
+                  onDragEnd={handleDragEnd}
+                  onTouchStart={(e) => handleTouchStart(e, t.id)}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
                   onClick={() => setEditingTask(t)}
                 >
                   <div className="kcard-top">

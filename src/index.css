@@ -1763,11 +1763,33 @@ input[type=range]::-webkit-slider-thumb:active {
   border-radius: 18px;
   padding: 14px;
   min-height: 200px;
-  transition: background .15s;
+  transition: background 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-.kcol.dragover {
-  background: #f1eeff;
+.kcol.dragover,
+.kcol.active-drop-zone {
+  background: #f4f1ff !important;
+  border-color: #8b5cf6 !important;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.25);
+}
+
+.kcol-drop-target {
+  min-height: 80px;
+  border: 2px dashed rgba(139, 92, 246, 0.35);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--violet);
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 6px;
+  margin-bottom: 10px;
+  padding: 12px;
+  text-align: center;
+  pointer-events: none;
+  background: rgba(139, 92, 246, 0.04);
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .kcol-head {
@@ -1803,7 +1825,10 @@ input[type=range]::-webkit-slider-thumb:active {
   margin-bottom: 10px;
   cursor: grab;
   box-shadow: var(--shadow-card);
-  transition: transform .15s var(--ease), box-shadow .15s var(--ease), opacity .15s;
+  transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s ease;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
+  user-select: none;
 }
 
 .kcard:active {
@@ -1811,9 +1836,10 @@ input[type=range]::-webkit-slider-thumb:active {
 }
 
 .kcard.dragging {
-  opacity: .4;
-  transform: scale(1.03) rotate(1deg);
-  box-shadow: var(--shadow-float);
+  opacity: 0.45;
+  transform: translate3d(0, -4px, 0) scale(1.02);
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12), 0 10px 10px rgba(0, 0, 0, 0.08);
+  cursor: grabbing !important;
 }
 
 .kcard-top {
