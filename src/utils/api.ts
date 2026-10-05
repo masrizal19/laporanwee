@@ -1400,6 +1400,29 @@ export const taskColToBackendReportStatus = (col?: TaskStatus): string => {
   return 'in_review';
 };
 
+// Compute progress cleanly according to status rules:
+// - Selesai: 100%
+// - Sedang Dikerjakan: 1-99%
+// - Dalam Review: retain existing progress
+// - To Do: retain manual progress or keep 0
+export const computeTargetProgress = (currentProgress: number, targetCol: TaskStatus): number => {
+  if (targetCol === 'done') {
+    return 100;
+  }
+  if (targetCol === 'inprogress') {
+    if (currentProgress <= 0) return 25;
+    if (currentProgress >= 100) return 85;
+    return currentProgress;
+  }
+  if (targetCol === 'review') {
+    if (currentProgress <= 0) return 80;
+    if (currentProgress >= 100) return 90;
+    return currentProgress;
+  }
+  if (currentProgress >= 100) return 0;
+  return currentProgress;
+};
+
 export const mapBackendTaskStatusToFrontend = (status?: string): TaskStatus => {
   if (!status) return 'todo';
   const s = status.toLowerCase();
@@ -1517,6 +1540,79 @@ export const taskService = {
     return Boolean(res && res.success !== false);
   },
 
+  updateTaskStatus: async (params: {
+    taskId: string | number;
+    col: TaskStatus;
+    progress?: number;
+    reportId?: string | number;
+  }): Promise<{ success: boolean; data?: any; message?: string }> => {
+    const backendStatus = mapFrontendTaskStatusToBackend(params.col);
+    const payload: Record<string, any> = {
+      task_id: params.taskId,
+      status: backendStatus,
+    };
+    if (params.progress !== undefined) {
+      payload.progress = params.progress;
+    }
+    if (params.reportId !== undefined) {
+      payload.daily_report_id = params.reportId;
+      payload.report_id = params.reportId;
+    }
+
+    // 1. Try dedicated endpoint /tasks/update-status.php
+    try {
+      const res = await api.post('/tasks/update-status.php', payload);
+      if (res && res.success) {
+        return { success: true, data: res.data, message: res.message };
+      }
+    } catch (err: any) {
+      console.warn('/tasks/update-status.php not reachable or failed, using multi-endpoint sync fallback:', err?.message);
+    }
+
+    // 2. Fallback: update both /tasks/update.php and /daily-reports/update.php
+    let taskOk = true;
+    let reportOk = true;
+
+    const isSynthetic = String(params.taskId).startsWith('report-');
+    if (!isSynthetic) {
+      const taskRes = await api.post('/tasks/update.php', {
+        id: params.taskId,
+        status: backendStatus,
+        ...(params.progress !== undefined ? { progress: params.progress } : {}),
+        ...(params.reportId !== undefined ? { report_id: params.reportId } : {}),
+      }).catch((e) => {
+        console.warn('Update task error in fallback:', e);
+        return null;
+      });
+      taskOk = Boolean(taskRes && taskRes.success !== false);
+    }
+
+    const realReportId = params.reportId || (isSynthetic ? String(params.taskId).replace('report-', '') : undefined);
+    if (realReportId) {
+      const reportStatusBackend = taskColToBackendReportStatus(params.col);
+      const reportRes = await api.post('/daily-reports/update.php', {
+        id: realReportId,
+        status: reportStatusBackend,
+        ...(params.progress !== undefined ? { progress: params.progress } : {}),
+      }).catch((e) => {
+        console.warn('Update daily report error in fallback:', e);
+        return null;
+      });
+      reportOk = Boolean(reportRes && reportRes.success !== false);
+    }
+
+    const overallSuccess = isSynthetic ? reportOk : (taskOk && reportOk);
+    return {
+      success: overallSuccess,
+      data: {
+        task_id: params.taskId,
+        status: backendStatus,
+        progress: params.progress,
+        daily_report_id: realReportId,
+      },
+    };
+  },
+
   deleteTask: async (id: string | number): Promise<boolean> => {
     const numericId = Number(id);
     const res = await api.post('/tasks/delete.php', {
@@ -1534,6 +1630,7 @@ export const taskService = {
 export const fetchTasks = taskService.fetchTasks;
 export const createTask = taskService.createTask;
 export const updateTask = taskService.updateTask;
+export const updateTaskStatus = taskService.updateTaskStatus;
 export const deleteTask = taskService.deleteTask;
 export const resetTasks = taskService.resetTasks;
 

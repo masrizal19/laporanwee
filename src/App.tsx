@@ -54,6 +54,7 @@ import {
   reportStatusToTaskCol,
   taskColToReportStatus,
   taskColToBackendReportStatus,
+  computeTargetProgress,
 } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
@@ -873,29 +874,32 @@ export function App() {
     }
   };
 
-  const handleUpdateTask = async (updatedTask: Task) => {
-    try {
-      // Determine synchronized progress and column (Rule 5: Progress laporan dan task harus sinkron)
-      let syncedProgress = typeof updatedTask.progress === 'number' ? updatedTask.progress : 0;
-      let finalCol = updatedTask.col;
-      if (finalCol === 'done' && syncedProgress < 100) {
-        syncedProgress = 100;
-      } else if (syncedProgress === 100 && finalCol !== 'done') {
-        finalCol = 'done';
-      }
-      const taskWithSyncedProgress: Task = { ...updatedTask, progress: syncedProgress, col: finalCol };
+  const handleUpdateTask = async (updatedTask: Task): Promise<boolean> => {
+    // 1. Save previous state snapshots for reliable rollback if backend fails
+    const previousTasks = [...tasks];
+    const previousReports = [...reports];
 
-      // Optimistic UI update
+    try {
+      // 2. Compute canonical progress according to status rules
+      const syncedProgress = computeTargetProgress(
+        typeof updatedTask.progress === 'number' ? updatedTask.progress : 0,
+        updatedTask.col
+      );
+      const taskWithSyncedProgress: Task = { ...updatedTask, progress: syncedProgress };
+
+      // 3. Optimistic UI update for tasks
       setTasks((prev) =>
         prev.map((t) => (t.id === taskWithSyncedProgress.id ? taskWithSyncedProgress : t))
       );
 
       // Check if this task is linked to a daily report (Rule 7: EDIT TASK - update data laporan terkait)
-      const linkedReportId = taskWithSyncedProgress.report_id ||
-        (taskWithSyncedProgress.id.startsWith('report-') ? taskWithSyncedProgress.id.replace('report-', '') : undefined);
+      const linkedReportId =
+        taskWithSyncedProgress.report_id ||
+        (taskWithSyncedProgress.id.startsWith('report-')
+          ? taskWithSyncedProgress.id.replace('report-', '')
+          : undefined);
 
       if (linkedReportId) {
-        const backendStatus = taskColToBackendReportStatus(taskWithSyncedProgress.col);
         const frontendStatus = taskColToReportStatus(taskWithSyncedProgress.col);
 
         // Optimistically update report state
@@ -913,32 +917,32 @@ export function App() {
             return r;
           })
         );
-
-        // Update daily report in backend MySQL API
-        await dailyReportService.updateDailyReport({
-          id: linkedReportId,
-          status: backendStatus,
-          progress: syncedProgress,
-          title: taskWithSyncedProgress.title,
-          description: taskWithSyncedProgress.description || '',
-          work_category: taskWithSyncedProgress.category || taskWithSyncedProgress.proj || 'Desain & UI/UX',
-          project_name: taskWithSyncedProgress.proj || 'Creative Sprint',
-          report_date: taskWithSyncedProgress.due || new Date().toISOString().slice(0, 10),
-        }).catch((err) => console.warn('Update linked daily report notice:', err));
       }
 
-      // If it's a backend task row, update it in tasks table
-      if (!taskWithSyncedProgress.id.startsWith('report-')) {
-        await taskService.updateTask(taskWithSyncedProgress).catch((err) => console.warn('Update backend task notice:', err));
+      // 4. Send atomic update to backend API
+      const result = await taskService.updateTaskStatus({
+        taskId: taskWithSyncedProgress.id,
+        col: taskWithSyncedProgress.col,
+        progress: syncedProgress,
+        reportId: linkedReportId,
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || 'Gagal memperbarui status tugas di server backend.');
       }
 
+      // 5. On success: refresh lists to ensure total consistency from MySQL database
       await refreshTasksFromApi();
       await refreshReportsFromApi(true);
       await refreshAnalyticsFromApi();
+      return true;
     } catch (e: any) {
-      console.error('API update task error:', e);
-      addToast(e?.message || 'Gagal memperbarui tugas.');
-      await refreshTasksFromApi();
+      console.error('API update task status error:', e);
+      // 6. On failure: ROLLBACK UI to previous state!
+      setTasks(previousTasks);
+      setReports(previousReports);
+      addToast(e?.message || 'Gagal memperbarui status tugas di database. Perubahan dibatalkan.');
+      return false;
     }
   };
 

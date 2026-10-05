@@ -4,6 +4,7 @@ import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
 import { MediaViewerModal } from '../components/MediaViewerModal';
+import { computeTargetProgress } from '../utils/api';
 
 interface TasksViewProps {
   tasks: Task[];
@@ -11,7 +12,7 @@ interface TasksViewProps {
   members?: TeamMember[];
   isAdmin?: boolean;
   onAddTask: (task: Omit<Task, 'id'>) => void;
-  onUpdateTask: (task: Task) => void;
+  onUpdateTask: (task: Task) => Promise<boolean> | boolean | void;
   onDeleteTask: (taskId: string) => void;
   onResetTasks?: () => void;
   onRefreshTasks?: () => void;
@@ -214,21 +215,34 @@ export const TasksView: React.FC<TasksViewProps> = ({
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent, targetCol: TaskStatus) => {
+  const handleDrop = async (e: React.DragEvent, targetCol: TaskStatus) => {
     e.preventDefault();
     const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
     setDraggingTaskId(null);
 
     if (!taskId) return;
     const task = tasks.find((t) => t.id === taskId);
-    if (task && task.col !== targetCol) {
-      const updated = {
-        ...task,
-        col: targetCol,
-        progress: targetCol === 'done' ? 100 : targetCol === 'todo' ? 0 : task.progress,
-      };
-      onUpdateTask(updated);
-      onAddToast(`Tugas dipindahkan ke status "${targetCol === 'done' ? 'Selesai' : targetCol === 'inprogress' ? 'Sedang Dikerjakan' : targetCol === 'review' ? 'Dalam Review' : 'To Do'}".`);
+    if (!task || task.col === targetCol) return;
+
+    const targetProgress = computeTargetProgress(task.progress, targetCol);
+    const updated: Task = {
+      ...task,
+      col: targetCol,
+      progress: targetProgress,
+    };
+
+    const statusLabel =
+      targetCol === 'done'
+        ? 'Selesai'
+        : targetCol === 'inprogress'
+        ? 'Sedang Dikerjakan'
+        : targetCol === 'review'
+        ? 'Dalam Review'
+        : 'To Do';
+
+    const ok = await onUpdateTask(updated);
+    if (ok !== false) {
+      onAddToast(`Status tugas dan laporan kerja berhasil diperbarui ke "${statusLabel}".`);
     }
   };
 
@@ -251,13 +265,15 @@ export const TasksView: React.FC<TasksViewProps> = ({
     setNewTaskAssignee('');
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingTask) return;
 
-    onUpdateTask(editingTask);
-    onAddToast(`Tugas "${editingTask.title}" diperbarui!`);
-    setEditingTask(null);
+    const ok = await onUpdateTask(editingTask);
+    if (ok !== false) {
+      onAddToast(`Tugas "${editingTask.title}" diperbarui!`);
+      setEditingTask(null);
+    }
   };
 
   const renderAssigneeAvatar = (assignee?: string) => {
