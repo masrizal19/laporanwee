@@ -175,14 +175,33 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  // Zoom control (Target 3, 4, 5)
+  // Zoom control (Target 6, 7, 8, 9)
   const handleZoomChange = (nextZoom: number) => {
     const clampedZoom = Math.max(1, Math.min(3, Math.round(nextZoom * 100) / 100));
     setZoom(clampedZoom);
     zoomRef.current = clampedZoom;
+
+    const dims = imageDimsRef.current;
+    if (dims) {
+      const scaledW = dims.width * dims.baseScale * clampedZoom;
+      const scaledH = dims.height * dims.baseScale * clampedZoom;
+      const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
+      const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
+
+      setPanX((prevX) => {
+        const nextX = Math.max(-maxX, Math.min(maxX, prevX));
+        panRef.current.x = nextX;
+        return nextX;
+      });
+      setPanY((prevY) => {
+        const nextY = Math.max(-maxY, Math.min(maxY, prevY));
+        panRef.current.y = nextY;
+        return nextY;
+      });
+    }
   };
 
-  // Pointer Events for smooth drag across desktop mouse and touch (Target 1, 8, 9, 13)
+  // Pointer Events for smooth drag across desktop mouse and touch (Target 4, 5, 9)
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     e.preventDefault();
@@ -209,14 +228,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const nextY = dragStartRef.current.initialPanY + dy;
 
     const dims = imageDimsRef.current;
-    const maxBoundX = Math.max(240, (dims ? dims.width * dims.baseScale * zoomRef.current : 240) * 0.8);
-    const maxBoundY = Math.max(240, (dims ? dims.height * dims.baseScale * zoomRef.current : 240) * 0.8);
-    const clampedX = Math.max(-maxBoundX, Math.min(maxBoundX, nextX));
-    const clampedY = Math.max(-maxBoundY, Math.min(maxBoundY, nextY));
+    if (dims) {
+      const scaledW = dims.width * dims.baseScale * zoomRef.current;
+      const scaledH = dims.height * dims.baseScale * zoomRef.current;
+      const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
+      const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
+      const clampedX = Math.max(-maxX, Math.min(maxX, nextX));
+      const clampedY = Math.max(-maxY, Math.min(maxY, nextY));
 
-    setPanX(clampedX);
-    setPanY(clampedY);
-    panRef.current = { x: clampedX, y: clampedY };
+      setPanX(clampedX);
+      setPanY(clampedY);
+      panRef.current = { x: clampedX, y: clampedY };
+    } else {
+      setPanX(nextX);
+      setPanY(nextY);
+      panRef.current = { x: nextX, y: nextY };
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -628,63 +655,73 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <p style={{ fontSize: '13.5px', color: 'var(--muted)', marginBottom: '12px' }}>
               Geser (drag) foto dan atur zoom untuk menyesuaikan crop melingkar:
             </p>
-            <div
-              style={{
-                width: '240px',
-                height: '240px',
-                margin: '0 auto 16px',
-                borderRadius: '50%',
-                overflow: 'hidden',
-                position: 'relative',
-                background: '#111',
-                cursor: isDragging ? 'grabbing' : 'grab',
-                border: '3px solid var(--primary-color, #4A55FF)',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                touchAction: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-              }}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerCancel}
-              onLostPointerCapture={handleLostPointerCapture}
-              onWheel={handleWheel}
-            >
-              <img
-                src={rawImageSrc}
-                alt="Crop preview"
-                draggable={false}
-                onLoad={(e) => {
-                  const el = e.currentTarget;
-                  const width = el.naturalWidth || el.width;
-                  const height = el.naturalHeight || el.height;
-                  if (width > 0 && height > 0 && (!imageDimsRef.current || imageDimsRef.current.width !== width)) {
-                    const scaleX = CONTAINER_SIZE / width;
-                    const scaleY = CONTAINER_SIZE / height;
-                    const baseScale = Math.max(scaleX, scaleY);
-                    const newDims = { width, height, baseScale };
-                    setImageDims(newDims);
-                    imageDimsRef.current = newDims;
-                  }
-                }}
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  width: imageDims ? `${imageDims.width * imageDims.baseScale}px` : 'auto',
-                  height: imageDims ? `${imageDims.height * imageDims.baseScale}px` : 'auto',
-                  transform: `translate(-50%, -50%) translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`,
-                  maxWidth: 'none',
-                  maxHeight: 'none',
-                  pointerEvents: 'none',
-                  userSelect: 'none',
-                  WebkitUserSelect: 'none',
-                  transition: isDragging ? 'none' : 'transform 0.08s ease-out',
-                  willChange: isDragging ? 'transform' : 'auto',
-                }}
-              />
-            </div>
+            {(() => {
+              const baseWidth = imageDims ? imageDims.width * imageDims.baseScale : CONTAINER_SIZE;
+              const baseHeight = imageDims ? imageDims.height * imageDims.baseScale : CONTAINER_SIZE;
+              const left = (CONTAINER_SIZE - baseWidth) / 2;
+              const top = (CONTAINER_SIZE - baseHeight) / 2;
+
+              return (
+                <div
+                  style={{
+                    width: `${CONTAINER_SIZE}px`,
+                    height: `${CONTAINER_SIZE}px`,
+                    margin: '0 auto 16px',
+                    borderRadius: '50%',
+                    overflow: 'hidden',
+                    position: 'relative',
+                    background: '#111',
+                    cursor: isDragging ? 'grabbing' : 'grab',
+                    border: '3px solid var(--primary-color, #4A55FF)',
+                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
+                    touchAction: 'none',
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
+                  }}
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerCancel}
+                  onLostPointerCapture={handleLostPointerCapture}
+                  onWheel={handleWheel}
+                >
+                  <img
+                    src={rawImageSrc}
+                    alt="Crop preview"
+                    draggable={false}
+                    onLoad={(e) => {
+                      const el = e.currentTarget;
+                      const width = el.naturalWidth || el.width;
+                      const height = el.naturalHeight || el.height;
+                      if (width > 0 && height > 0 && (!imageDimsRef.current || imageDimsRef.current.width !== width)) {
+                        const scaleX = CONTAINER_SIZE / width;
+                        const scaleY = CONTAINER_SIZE / height;
+                        const baseScale = Math.max(scaleX, scaleY);
+                        const newDims = { width, height, baseScale };
+                        setImageDims(newDims);
+                        imageDimsRef.current = newDims;
+                      }
+                    }}
+                    style={{
+                      position: 'absolute',
+                      left: `${left}px`,
+                      top: `${top}px`,
+                      width: `${baseWidth}px`,
+                      height: `${baseHeight}px`,
+                      transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`,
+                      transformOrigin: 'center center',
+                      maxWidth: 'none',
+                      maxHeight: 'none',
+                      pointerEvents: 'none',
+                      userSelect: 'none',
+                      WebkitUserSelect: 'none',
+                      transition: isDragging ? 'none' : 'transform 0.08s ease-out',
+                      willChange: isDragging ? 'transform' : 'auto',
+                    }}
+                  />
+                </div>
+              );
+            })()}
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '16px' }}>
               <button
