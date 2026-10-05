@@ -1146,9 +1146,10 @@ export const dailyReportService = {
     duration?: string;
     obstacles?: string;
     next_plan?: string;
+    task_id?: string | number;
   }): Promise<{ success: boolean; message?: string; data?: any }> => {
     const numericId = Number(payload.id);
-    const body = {
+    const body: Record<string, any> = {
       id: isNaN(numericId) ? payload.id : numericId,
       title: payload.title,
       description: payload.description,
@@ -1161,6 +1162,9 @@ export const dailyReportService = {
       obstacles: payload.obstacles || '',
       next_plan: payload.next_plan || '',
     };
+    if (payload.task_id !== undefined && payload.task_id !== null) {
+      body.task_id = payload.task_id;
+    }
     const res = await api.post('/daily-reports/update.php', body);
     return res;
   },
@@ -1653,13 +1657,34 @@ export const taskService = {
       }
 
       return res.data.map((item: any): Task => {
+        let extractedReportId =
+          item.daily_report_id !== undefined && item.daily_report_id !== null && String(item.daily_report_id).trim() !== ''
+            ? String(item.daily_report_id).trim()
+            : (item.report_id !== undefined && item.report_id !== null && String(item.report_id).trim() !== ''
+              ? String(item.report_id).trim()
+              : undefined);
+
+        let cleanDescription = item.description || '';
+        const tagMatch = cleanDescription.match(/(?:\[(?:daily_)?report_id:(\d+)\]|<!--(?:daily_)?report_id:(\d+)-->)/i);
+        if (tagMatch) {
+          if (!extractedReportId) {
+            extractedReportId = tagMatch[1] || tagMatch[2];
+          }
+          cleanDescription = cleanDescription
+            .replace(/(?:\s*\[(?:daily_)?report_id:\d+\]|\s*<!--(?:daily_)?report_id:\d+-->)/gi, '')
+            .trim();
+        }
+
+        const projectVal = item.project_name || item.project || item.category || 'Creative Sprint';
+
         return {
           id: String(item.id),
-          report_id: item.report_id ? String(item.report_id).trim() : undefined,
-          proj: item.category || item.project_name || item.project || 'Creative Sprint',
+          report_id: extractedReportId,
+          daily_report_id: extractedReportId,
+          proj: projectVal,
           title: item.title || 'Tugas Baru',
-          description: item.description || '',
-          category: item.category || item.work_category || 'Creative Sprint',
+          description: cleanDescription,
+          category: item.category || item.work_category || 'Desain & UI/UX',
           priority: mapBackendTaskPriorityToFrontend(item.priority),
           assignee: item.assignee_name || item.assignee || item.assignee_email || '',
           assignee_email: item.assignee_email || item.user_email || '',
@@ -1677,32 +1702,42 @@ export const taskService = {
   },
 
   createTask: async (taskData: Partial<Task>): Promise<Task> => {
+    const repId = taskData.report_id || (taskData as any).daily_report_id;
+    let cleanDesc = (taskData.description || '').trim();
+    let backendDesc = cleanDesc;
+    if (repId && !backendDesc.includes(`[daily_report_id:${repId}]`)) {
+      backendDesc = `${backendDesc} [daily_report_id:${repId}]`.trim();
+    }
+
     const payload: Record<string, any> = {
       title: taskData.title || '',
-      description: taskData.description || '',
+      description: backendDesc,
       status: mapFrontendTaskStatusToBackend(taskData.col),
       priority: (taskData.priority || 'Medium').toLowerCase(),
       progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
-      category: taskData.category || taskData.proj || 'Creative Sprint',
+      category: taskData.category || 'Desain & UI/UX',
       project_name: taskData.proj || 'Creative Sprint',
       assignee_name: taskData.assignee || '',
       assignee_email: taskData.assignee_email || '',
       deadline: taskData.due || 'Hari ini',
     };
 
-    if (taskData.report_id) {
-      payload.report_id = String(taskData.report_id);
+    if (repId) {
+      payload.report_id = String(repId);
+      payload.daily_report_id = String(repId);
     }
 
     const res = await api.post('/tasks/create.php', payload);
     const createdId = res?.data?.id ? String(res.data.id) : (res?.id ? String(res.id) : `t_${Date.now()}`);
+
     return {
       id: createdId,
-      report_id: taskData.report_id ? String(taskData.report_id) : undefined,
+      report_id: repId ? String(repId) : undefined,
+      daily_report_id: repId ? String(repId) : undefined,
       proj: taskData.proj || 'Creative Sprint',
       title: taskData.title || '',
-      description: taskData.description || '',
-      category: taskData.category || taskData.proj || 'Creative Sprint',
+      description: cleanDesc,
+      category: taskData.category || 'Desain & UI/UX',
       priority: taskData.priority || 'Medium',
       assignee: taskData.assignee || '',
       assignee_email: taskData.assignee_email || '',
@@ -1718,20 +1753,30 @@ export const taskService = {
     const payload: Record<string, any> = {
       id: Number(taskData.id) || taskData.id,
     };
+    const repId = taskData.report_id || (taskData as any).daily_report_id;
     if (taskData.title !== undefined) payload.title = taskData.title;
-    if (taskData.description !== undefined) payload.description = taskData.description;
+    if (taskData.description !== undefined) {
+      let desc = taskData.description.trim();
+      if (repId && !desc.includes(`[daily_report_id:${repId}]`)) {
+        desc = `${desc} [daily_report_id:${repId}]`.trim();
+      }
+      payload.description = desc;
+    }
     if (taskData.col !== undefined) payload.status = mapFrontendTaskStatusToBackend(taskData.col);
     if (taskData.priority !== undefined) payload.priority = taskData.priority.toLowerCase();
     if (taskData.progress !== undefined) payload.progress = taskData.progress;
     if (taskData.proj !== undefined) {
-      payload.category = taskData.proj;
       payload.project_name = taskData.proj;
+      payload.category = taskData.category || taskData.proj;
     }
     if (taskData.category !== undefined) payload.category = taskData.category;
     if (taskData.assignee !== undefined) payload.assignee_name = taskData.assignee;
     if (taskData.assignee_email !== undefined) payload.assignee_email = taskData.assignee_email;
     if (taskData.due !== undefined) payload.deadline = taskData.due;
-    if (taskData.report_id !== undefined) payload.report_id = taskData.report_id;
+    if (repId !== undefined) {
+      payload.report_id = repId;
+      payload.daily_report_id = repId;
+    }
 
     const res = await api.post('/tasks/update.php', payload);
     return Boolean(res && res.success !== false);

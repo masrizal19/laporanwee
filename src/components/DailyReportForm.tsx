@@ -744,6 +744,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
         const newId = await onAddReport({
           person: reporterName,
           date: reportDate,
+          report_date: reportDate,
           project: selectedProject,
           task: task.trim(),
           category,

@@ -145,6 +145,7 @@ export interface TaskDocument {
 export interface Task {
   id: string;
   report_id?: string;
+  daily_report_id?: string;
   proj: string;
   title: string;
   description?: string;

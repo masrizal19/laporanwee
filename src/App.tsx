@@ -52,6 +52,7 @@ import {
   clearStoredAuth,
   clearReportCache,
   reportStatusToTaskCol,
+  mapFrontendStatusToBackend,
   taskColToReportStatus,
   taskColToBackendReportStatus,
   computeTargetProgress,
@@ -305,70 +306,77 @@ export function App() {
         }
       }
 
-      const mergedTasks: Task[] = [];
-      const processedReportIds = new Set<string>();
+      // Build a map of reports by ID for instant O(1) lookup
+      const reportById = new Map<string, Report>();
+      for (const r of reportList) {
+        reportById.set(String(r.id).trim(), r);
+      }
 
-      // 1. Process tasks fetched from backend tasks table
+      // Track reports that have been linked to a task to guarantee uniqueness (Rule 1, Rule 11)
+      const linkedReportIds = new Set<string>();
+      const processedTaskIds = new Set<string>();
+      const uniqueTasks: Task[] = [];
+
       for (const t of fetchedTasks) {
+        if (processedTaskIds.has(t.id)) continue;
+        processedTaskIds.add(t.id);
+
+        // Find linked report primarily by daily_report_id / report_id (Rule 3, Rule 8)
         let matchedReport: Report | undefined;
-        if (t.report_id) {
-          matchedReport = reportList.find((r) => String(r.id).trim() === String(t.report_id).trim());
+        const taskRepId = t.report_id || (t as any).daily_report_id;
+        if (taskRepId) {
+          matchedReport = reportById.get(String(taskRepId).trim());
         }
+
+        // Secondary match: if report has task_id pointing to this task
+        if (!matchedReport) {
+          matchedReport = reportList.find((r) => r.task_id && String(r.task_id).trim() === String(t.id).trim());
+        }
+
+        // Fallback match for legacy records:
         if (!matchedReport && t.title) {
           matchedReport = reportList.find(
             (r) =>
+              !linkedReportIds.has(String(r.id).trim()) &&
               r.task.trim().toLowerCase() === t.title.trim().toLowerCase() &&
-              (!t.proj || r.project.trim().toLowerCase() === t.proj.trim().toLowerCase())
+              ((r.user_email && t.assignee_email && r.user_email.toLowerCase() === t.assignee_email.toLowerCase()) ||
+               (r.person && t.assignee && r.person.toLowerCase() === t.assignee.toLowerCase()))
           );
         }
 
         if (matchedReport) {
           const rId = String(matchedReport.id).trim();
-          processedReportIds.add(rId);
-          mergedTasks.push({
+          // If another task was already linked to this report, do NOT add duplicate (Rule 1, Rule 11)
+          if (linkedReportIds.has(rId)) {
+            console.warn(`[LaporanWe] Duplicate task ${t.id} detected for daily report ${rId}, ignoring duplicate.`);
+            continue;
+          }
+          linkedReportIds.add(rId);
+
+          // Synchronize task attributes from daily report (Rule 13, 14, 15)
+          uniqueTasks.push({
             ...t,
             report_id: rId,
+            daily_report_id: rId,
             title: matchedReport.task || t.title,
             description: matchedReport.desc || t.description || '',
             proj: matchedReport.project || t.proj,
             category: matchedReport.category || t.category,
             assignee: matchedReport.person || t.assignee,
             assignee_email: matchedReport.user_email || t.assignee_email,
-            due: matchedReport.date || t.due,
+            due: matchedReport.report_date || matchedReport.date || t.due,
             progress: typeof matchedReport.progress === 'number' ? matchedReport.progress : t.progress,
             col: reportStatusToTaskCol(matchedReport.status),
             cover_url: matchedReport.evidence_url || t.cover_url,
           });
         } else {
-          mergedTasks.push(t);
+          // Normal standalone task not linked to any report
+          uniqueTasks.push(t);
         }
       }
 
-      // 2. Synthesize linked task for any daily report without a task row yet
-      for (const r of reportList) {
-        const rId = String(r.id).trim();
-        if (!processedReportIds.has(rId)) {
-          processedReportIds.add(rId);
-          mergedTasks.push({
-            id: `report-${rId}`,
-            report_id: rId,
-            proj: r.project || 'Creative Sprint',
-            title: r.task || 'Laporan Harian',
-            description: r.desc || '',
-            category: r.category || 'Desain & UI/UX',
-            priority: (r.progress >= 80 ? 'High' : 'Medium'),
-            assignee: r.person || r.user_name || '',
-            assignee_email: r.user_email || '',
-            due: r.date || r.report_date || 'Hari ini',
-            progress: typeof r.progress === 'number' ? r.progress : 0,
-            col: reportStatusToTaskCol(r.status),
-            cover_url: r.evidence_url || (r.evidence_urls && r.evidence_urls[0]),
-            documents: [],
-          });
-        }
-      }
-
-      setTasks(mergedTasks);
+      // DO NOT SYNTHESIZE OR INSERT TASKS HERE (Rule 6, Rule 21: GET/refresh/polling TIDAK BOLEH membuat task baru)
+      setTasks(uniqueTasks);
     } catch (err) {
       console.warn('Sync tasks from API notice:', err);
     }
@@ -983,6 +991,119 @@ export function App() {
     }
   };
 
+  // Rule 22: Tombol "Sinkron" hanya melakukan reconciliation:
+  // - cari Daily Report tanpa task → buat satu task.
+  // - task yang sudah punya relasi → UPDATE.
+  // - jangan membuat duplicate.
+  const handleReconcileTasks = useCallback(async () => {
+    try {
+      addToast('Menyinkronkan tugas dan laporan kerja dari database...');
+      const [fetchedReports, fetchedTasks] = await Promise.all([
+        dailyReportService.fetchDailyReports(user?.email, isAdmin).catch(() => reports),
+        taskService.fetchTasks().catch(() => tasks),
+      ]);
+
+      const reportById = new Map<string, Report>();
+      for (const r of fetchedReports) {
+        reportById.set(String(r.id).trim(), r);
+      }
+
+      // Group tasks by daily_report_id
+      const tasksByReportId = new Map<string, Task[]>();
+      const standaloneTasks: Task[] = [];
+
+      for (const t of fetchedTasks) {
+        let repId = t.report_id || (t as any).daily_report_id;
+        if (!repId && t.title) {
+          const matched = fetchedReports.find(
+            (r) =>
+              r.task.trim().toLowerCase() === t.title.trim().toLowerCase() &&
+              ((r.user_email && t.assignee_email && r.user_email.toLowerCase() === t.assignee_email.toLowerCase()) ||
+               (r.person && t.assignee && r.person.toLowerCase() === t.assignee.toLowerCase()))
+          );
+          if (matched) repId = String(matched.id).trim();
+        }
+
+        if (repId) {
+          const repIdStr = String(repId).trim();
+          const list = tasksByReportId.get(repIdStr) || [];
+          list.push({ ...t, report_id: repIdStr, daily_report_id: repIdStr });
+          tasksByReportId.set(repIdStr, list);
+        } else {
+          standaloneTasks.push(t);
+        }
+      }
+
+      const reconciledTasks: Task[] = [...standaloneTasks];
+
+      for (const r of fetchedReports) {
+        const rId = String(r.id).trim();
+        const existingList = tasksByReportId.get(rId) || [];
+        const linkedCol = reportStatusToTaskCol(r.status);
+        const linkedProgress = linkedCol === 'done' ? 100 : (typeof r.progress === 'number' ? r.progress : 0);
+        const taskDueDate = r.report_date || r.date || 'Hari ini';
+
+        if (existingList.length === 0) {
+          // Cari Daily Report tanpa task -> buat satu task (Rule 22)
+          try {
+            const newTask = await taskService.createTask({
+              report_id: rId,
+              daily_report_id: rId,
+              title: r.task,
+              description: r.desc || '',
+              proj: r.project || 'Creative Sprint',
+              category: r.category || 'Desain & UI/UX',
+              priority: linkedProgress >= 80 ? 'High' : 'Medium',
+              assignee: r.person || user?.name || '',
+              assignee_email: r.user_email || '',
+              due: taskDueDate,
+              progress: linkedProgress,
+              col: linkedCol,
+            });
+            reconciledTasks.push(newTask);
+          } catch (createErr) {
+            console.warn(`Create missing task for report ${rId} error:`, createErr);
+          }
+        } else {
+          // Task yang sudah punya relasi -> UPDATE (Rule 22)
+          const primaryTask = existingList[0];
+          const updatedTask: Task = {
+            ...primaryTask,
+            report_id: rId,
+            daily_report_id: rId,
+            title: r.task,
+            description: r.desc || primaryTask.description || '',
+            proj: r.project || primaryTask.proj,
+            category: r.category || primaryTask.category,
+            assignee: r.person || primaryTask.assignee,
+            assignee_email: r.user_email || primaryTask.assignee_email,
+            due: taskDueDate,
+            progress: linkedProgress,
+            col: linkedCol,
+            cover_url: r.evidence_url || primaryTask.cover_url,
+          };
+
+          // If there are duplicate tasks in MySQL for the same report_id, remove the extras (Rule 22)
+          if (existingList.length > 1) {
+            for (let i = 1; i < existingList.length; i++) {
+              const dup = existingList[i];
+              taskService.deleteTask(dup.id).catch(() => {});
+            }
+          }
+
+          taskService.updateTask(updatedTask).catch(() => {});
+          reconciledTasks.push(updatedTask);
+        }
+      }
+
+      setTasks(reconciledTasks);
+      addToast('Sinkronisasi tugas & laporan selesai.');
+    } catch (err: any) {
+      console.error('Reconciliation error:', err);
+      addToast('Gagal menyinkronkan tugas.');
+    }
+  }, [reports, tasks, user?.email, user?.name, isAdmin]);
+
   // Reports CRUD strictly connected to backend MySQL API
   const handleAddReport = async (reportData: Omit<Report, 'id'>): Promise<string> => {
     try {
@@ -998,13 +1119,25 @@ export function App() {
 
       const createdId = String(created.id).trim();
 
-      // Rule 1: SETIAP LAPORAN MENJADI TUGAS
+      // Rule 1, 14, 15: Status and due date strictly preserved from report_date
       const linkedCol = reportStatusToTaskCol(reportData.status);
       const linkedProgress = linkedCol === 'done' ? 100 : (typeof reportData.progress === 'number' ? reportData.progress : 0);
+      const taskDueDate = reportData.report_date || reportData.date || 'Hari ini';
 
-      try {
-        const backendTask = await taskService.createTask({
+      // Rule 2, 4, 5: Sebelum membuat task baru, cek apakah task untuk Daily Report tersebut sudah ada
+      const existingTask = tasks.find(
+        (t) =>
+          (t.report_id && String(t.report_id).trim() === createdId) ||
+          ((t as any).daily_report_id && String((t as any).daily_report_id).trim() === createdId)
+      );
+
+      let linkedTask: Task | null = null;
+      if (existingTask) {
+        // Rule 4: JANGAN INSERT task baru. UPDATE task yang sudah ada jika data laporan berubah.
+        const updatedTaskData: Task = {
+          ...existingTask,
           report_id: createdId,
+          daily_report_id: createdId,
           title: reportData.task,
           description: reportData.desc || '',
           proj: reportData.project || 'Creative Sprint',
@@ -1012,38 +1145,54 @@ export function App() {
           priority: linkedProgress >= 80 ? 'High' : 'Medium',
           assignee: reportData.person || user?.name || '',
           assignee_email: user?.email || '',
-          due: reportData.date || 'Hari ini',
+          due: taskDueDate,
           progress: linkedProgress,
           col: linkedCol,
-        });
-
-        if (backendTask && backendTask.id) {
-          created.task_id = backendTask.id;
-          setTasks((prev) => [
-            backendTask,
-            ...prev.filter((t) => t.id !== backendTask.id && t.report_id !== createdId),
-          ]);
-        }
-      } catch (err) {
-        console.warn('Auto create linked task notice:', err);
-        const fallbackTask: Task = {
-          id: `report-${createdId}`,
-          report_id: createdId,
-          proj: reportData.project || 'Creative Sprint',
-          title: reportData.task,
-          description: reportData.desc || '',
-          category: reportData.category || 'Desain & UI/UX',
-          priority: linkedProgress >= 80 ? 'High' : 'Medium',
-          assignee: reportData.person || user?.name || '',
-          assignee_email: user?.email || '',
-          due: reportData.date || 'Hari ini',
-          progress: linkedProgress,
-          col: linkedCol,
-          documents: [],
         };
+        await taskService.updateTask(updatedTaskData).catch((err) => console.warn('Update existing task error:', err));
+        linkedTask = updatedTaskData;
+      } else {
+        // Rule 5, 18: Task belum ada -> INSERT SATU task baru
+        try {
+          const backendTask = await taskService.createTask({
+            report_id: createdId,
+            daily_report_id: createdId,
+            title: reportData.task,
+            description: reportData.desc || '',
+            proj: reportData.project || 'Creative Sprint',
+            category: reportData.category || 'Desain & UI/UX',
+            priority: linkedProgress >= 80 ? 'High' : 'Medium',
+            assignee: reportData.person || user?.name || '',
+            assignee_email: user?.email || '',
+            due: taskDueDate,
+            progress: linkedProgress,
+            col: linkedCol,
+          });
+          linkedTask = backendTask;
+        } catch (taskErr) {
+          console.error('Failed to create linked task in MySQL:', taskErr);
+        }
+      }
+
+      if (linkedTask && linkedTask.id) {
+        created.task_id = linkedTask.id;
+        // Persist task_id in daily_reports table
+        dailyReportService.updateDailyReport({
+          id: createdId,
+          title: reportData.task,
+          description: reportData.desc || '',
+          work_category: reportData.category || 'Desain & UI/UX',
+          project_name: reportData.project || 'Proyek Wee Studio',
+          progress: linkedProgress,
+          status: mapFrontendStatusToBackend(reportData.status),
+          report_date: reportData.report_date || (reportData.date?.match(/^\d{4}-\d{2}-\d{2}$/) ? reportData.date : new Date().toISOString().slice(0, 10)),
+          task_id: linkedTask.id,
+        } as any).catch(() => {});
+
+        // Exactly ONE task in state (Rule 1, Rule 11)
         setTasks((prev) => [
-          fallbackTask,
-          ...prev.filter((t) => t.id !== fallbackTask.id && t.report_id !== createdId),
+          linkedTask!,
+          ...prev.filter((t) => t.id !== linkedTask!.id && (!t.report_id || String(t.report_id).trim() !== createdId)),
         ]);
       }
 
@@ -1110,10 +1259,12 @@ export function App() {
       return;
     }
     try {
-      // Rule 8: HAPUS LAPORAN - task terkait harus ikut dihapus atau diputus
+      // Rule 8/20: HAPUS LAPORAN - task terkait harus ikut dihapus
       const linkedTask = tasks.find(
         (t) =>
           (t.report_id && String(t.report_id).trim() === String(reportId).trim()) ||
+          ((t as any).daily_report_id && String((t as any).daily_report_id).trim() === String(reportId).trim()) ||
+          (targetReport?.task_id && String(t.id).trim() === String(targetReport.task_id).trim()) ||
           t.id === `report-${reportId}`
       );
       if (linkedTask) {
@@ -1121,7 +1272,12 @@ export function App() {
           taskService.deleteTask(linkedTask.id).catch((err) => console.warn('Delete linked task error:', err));
         }
         setTasks((prev) =>
-          prev.filter((t) => t.id !== linkedTask.id && t.report_id !== String(reportId).trim())
+          prev.filter(
+            (t) =>
+              t.id !== linkedTask.id &&
+              t.report_id !== String(reportId).trim() &&
+              (t as any).daily_report_id !== String(reportId).trim()
+          )
         );
       }
 
@@ -1197,25 +1353,29 @@ export function App() {
       prev.map((r) => (r.id === updatedReport.id ? updatedReport : r))
     );
 
-    // Rule 6: EDIT LAPORAN - update task terkait, jangan membuat task baru, pertahankan task_id
+    // Rule 19: EDIT LAPORAN - update task terkait, jangan membuat task baru, pertahankan task_id
     const targetTaskId = updatedReport.task_id;
     const targetTask = tasks.find(
       (t) =>
         (t.report_id && String(t.report_id).trim() === String(updatedReport.id).trim()) ||
+        ((t as any).daily_report_id && String((t as any).daily_report_id).trim() === String(updatedReport.id).trim()) ||
         (targetTaskId && String(t.id).trim() === String(targetTaskId).trim()) ||
         t.id === `report-${updatedReport.id}`
     );
 
     if (targetTask) {
+      const taskDueDate = updatedReport.report_date || updatedReport.date || targetTask.due;
       const syncedTask: Task = {
         ...targetTask,
         report_id: String(updatedReport.id).trim(),
+        daily_report_id: String(updatedReport.id).trim(),
         title: updatedReport.task,
         description: updatedReport.desc || targetTask.description,
         proj: updatedReport.project,
         category: updatedReport.category,
         assignee: updatedReport.person,
-        due: updatedReport.date,
+        assignee_email: updatedReport.user_email || targetTask.assignee_email,
+        due: taskDueDate,
         progress: updatedReport.progress,
         col: reportStatusToTaskCol(updatedReport.status),
       };
@@ -1537,7 +1697,7 @@ export function App() {
             onUpdateTask={handleUpdateTask}
             onDeleteTask={handleDeleteTask}
             onResetTasks={handleResetTasks}
-            onRefreshTasks={refreshTasksFromApi}
+            onRefreshTasks={handleReconcileTasks}
             onAddToast={addToast}
           />
         )}
