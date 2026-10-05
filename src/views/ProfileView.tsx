@@ -85,7 +85,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const nextX = dragStartRef.current.initialPanX + dx;
       const nextY = dragStartRef.current.initialPanY + dy;
 
-      const dims = imageDimsRef.current;
+      const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
+        width: imgRef.current.naturalWidth,
+        height: imgRef.current.naturalHeight,
+        baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
+      } : null);
+
       if (dims) {
         const currentZoom = zoomRef.current;
         const scaledW = dims.width * dims.baseScale * currentZoom;
@@ -201,7 +206,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setZoom(clampedZoom);
     zoomRef.current = clampedZoom;
 
-    const dims = imageDimsRef.current;
+    const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
+      width: imgRef.current.naturalWidth,
+      height: imgRef.current.naturalHeight,
+      baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
+    } : null);
+
     if (dims) {
       const scaledW = dims.width * dims.baseScale * clampedZoom;
       const scaledH = dims.height * dims.baseScale * clampedZoom;
@@ -247,7 +257,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const nextX = dragStartRef.current.initialPanX + dx;
     const nextY = dragStartRef.current.initialPanY + dy;
 
-    const dims = imageDimsRef.current;
+    const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
+      width: imgRef.current.naturalWidth,
+      height: imgRef.current.naturalHeight,
+      baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
+    } : null);
+
     if (dims) {
       const scaledW = dims.width * dims.baseScale * zoomRef.current;
       const scaledH = dims.height * dims.baseScale * zoomRef.current;
@@ -787,8 +802,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               Geser (drag) foto dan atur zoom untuk menyesuaikan crop melingkar:
             </p>
             {(() => {
-              const baseWidth = imageDims ? imageDims.width * imageDims.baseScale : CONTAINER_SIZE;
-              const baseHeight = imageDims ? imageDims.height * imageDims.baseScale : CONTAINER_SIZE;
+              const activeDims = imageDims || imageDimsRef.current || (imgRef.current?.naturalWidth ? {
+                width: imgRef.current.naturalWidth,
+                height: imgRef.current.naturalHeight,
+                baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
+              } : null);
+
+              const baseWidth = activeDims ? activeDims.width * activeDims.baseScale : CONTAINER_SIZE;
+              const baseHeight = activeDims ? activeDims.height * activeDims.baseScale : CONTAINER_SIZE;
               const left = (CONTAINER_SIZE - baseWidth) / 2;
               const top = (CONTAINER_SIZE - baseHeight) / 2;
 
@@ -824,7 +845,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       const el = e.currentTarget;
                       const width = el.naturalWidth || el.width;
                       const height = el.naturalHeight || el.height;
-                      if (width > 0 && height > 0 && (!imageDimsRef.current || imageDimsRef.current.width !== width)) {
+                      if (width > 0 && height > 0) {
                         const scaleX = CONTAINER_SIZE / width;
                         const scaleY = CONTAINER_SIZE / height;
                         const baseScale = Math.max(scaleX, scaleY);
