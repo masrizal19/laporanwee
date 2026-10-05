@@ -73,16 +73,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     imageDimsRef.current = imageDims;
   }, [imageDims]);
 
-  // Compute maximum allowable pan so circle is ALWAYS completely covered by image (Target 2)
-  const computeMaxPan = (currentZoom: number, dims = imageDimsRef.current) => {
-    if (!dims) return { maxPanX: 0, maxPanY: 0 };
-    const displayedW = dims.width * dims.baseScale * currentZoom;
-    const displayedH = dims.height * dims.baseScale * currentZoom;
-    const maxPanX = Math.max(0, (displayedW - CONTAINER_SIZE) / 2);
-    const maxPanY = Math.max(0, (displayedH - CONTAINER_SIZE) / 2);
-    return { maxPanX, maxPanY };
-  };
-
   const loadImageIntoCropper = (src: string) => {
     const img = new Image();
     if (!src.startsWith('blob:') && !src.startsWith('data:')) {
@@ -185,24 +175,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  // Zoom control with boundary clamping (Target 2, 3, 4)
+  // Zoom control (Target 3, 4, 5)
   const handleZoomChange = (nextZoom: number) => {
     const clampedZoom = Math.max(1, Math.min(3, Math.round(nextZoom * 100) / 100));
     setZoom(clampedZoom);
     zoomRef.current = clampedZoom;
-
-    // Recalculate pan bounds to ensure image never detaches from circle edges
-    const { maxPanX, maxPanY } = computeMaxPan(clampedZoom);
-    setPanX((prevX) => {
-      const nextX = Math.max(-maxPanX, Math.min(maxPanX, prevX));
-      panRef.current.x = nextX;
-      return nextX;
-    });
-    setPanY((prevY) => {
-      const nextY = Math.max(-maxPanY, Math.min(maxPanY, prevY));
-      panRef.current.y = nextY;
-      return nextY;
-    });
   };
 
   // Pointer Events for smooth drag across desktop mouse and touch (Target 1, 8, 9, 13)
@@ -228,12 +205,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     e.preventDefault();
     const dx = e.clientX - dragStartRef.current.startX;
     const dy = e.clientY - dragStartRef.current.startY;
-    const rawTargetX = dragStartRef.current.initialPanX + dx;
-    const rawTargetY = dragStartRef.current.initialPanY + dy;
+    const nextX = dragStartRef.current.initialPanX + dx;
+    const nextY = dragStartRef.current.initialPanY + dy;
 
-    const { maxPanX, maxPanY } = computeMaxPan(zoomRef.current);
-    const clampedX = Math.max(-maxPanX, Math.min(maxPanX, rawTargetX));
-    const clampedY = Math.max(-maxPanY, Math.min(maxPanY, rawTargetY));
+    const dims = imageDimsRef.current;
+    const maxBoundX = Math.max(240, (dims ? dims.width * dims.baseScale * zoomRef.current : 240) * 0.8);
+    const maxBoundY = Math.max(240, (dims ? dims.height * dims.baseScale * zoomRef.current : 240) * 0.8);
+    const clampedX = Math.max(-maxBoundX, Math.min(maxBoundX, nextX));
+    const clampedY = Math.max(-maxBoundY, Math.min(maxBoundY, nextY));
 
     setPanX(clampedX);
     setPanY(clampedY);
@@ -676,13 +655,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 src={rawImageSrc}
                 alt="Crop preview"
                 draggable={false}
+                onLoad={(e) => {
+                  const el = e.currentTarget;
+                  const width = el.naturalWidth || el.width;
+                  const height = el.naturalHeight || el.height;
+                  if (width > 0 && height > 0 && (!imageDimsRef.current || imageDimsRef.current.width !== width)) {
+                    const scaleX = CONTAINER_SIZE / width;
+                    const scaleY = CONTAINER_SIZE / height;
+                    const baseScale = Math.max(scaleX, scaleY);
+                    const newDims = { width, height, baseScale };
+                    setImageDims(newDims);
+                    imageDimsRef.current = newDims;
+                  }
+                }}
                 style={{
                   position: 'absolute',
                   top: '50%',
                   left: '50%',
                   width: imageDims ? `${imageDims.width * imageDims.baseScale}px` : 'auto',
                   height: imageDims ? `${imageDims.height * imageDims.baseScale}px` : 'auto',
-                  transform: `translate3d(calc(-50% + ${panX}px), calc(-50% + ${panY}px), 0) scale(${zoom})`,
+                  transform: `translate(-50%, -50%) translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`,
                   maxWidth: 'none',
                   maxHeight: 'none',
                   pointerEvents: 'none',
