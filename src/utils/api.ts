@@ -26,6 +26,49 @@ if (!baseApi.endsWith('/api')) {
 export const API_BASE_URL = baseApi;
 
 /**
+ * Normalizes file URLs to ensure valid, public HTTPS URLs pointing to
+ * https://api-laporanwe.mkverse.my.id/uploads/daily-reports/...
+ * Handles relative filenames, legacy api domain, and paths seamlessly.
+ */
+export const normalizeFileUrl = (rawUrl?: string): string => {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  let url = rawUrl.trim();
+  if (!url) return '';
+
+  // If already a blob or data URL
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
+    return url;
+  }
+
+  // Replace legacy domain if present
+  if (url.includes('api.mkverse.my.id')) {
+    url = url.replace('api.mkverse.my.id', 'api-laporanwe.mkverse.my.id');
+  }
+
+  // Force HTTPS if pointing to official server
+  if (url.startsWith('http://api-laporanwe.mkverse.my.id')) {
+    url = url.replace('http://', 'https://');
+  }
+
+  // If already an absolute http/https URL pointing to an external or full host
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+
+  // If relative path starting with /uploads/
+  if (url.startsWith('/uploads/')) {
+    return `https://api-laporanwe.mkverse.my.id${url}`;
+  }
+  if (url.startsWith('uploads/')) {
+    return `https://api-laporanwe.mkverse.my.id/${url}`;
+  }
+
+  // If relative file name without leading slash (e.g. "photo.jpg" or "daily_123.jpg")
+  const cleanName = url.replace(/^\/+/, '');
+  return `https://api-laporanwe.mkverse.my.id/uploads/daily-reports/${cleanName}`;
+};
+
+/**
  * Guarantees a clean absolute HTTPS URL to the official backend:
  * https://api-laporanwe.mkverse.my.id/api/...
  */
@@ -612,25 +655,35 @@ export const mapRawDailyReportToReport = (item: any): Report => {
       evidenceList = JSON.parse(item.evidence_urls);
     } catch (_) {}
   }
-  if (evidenceList.length === 0 && item.cover_url) {
-    evidenceList = [item.cover_url];
+  // Check if item has files from backend response
+  if (Array.isArray(item.files) && item.files.length > 0) {
+    const proofFiles = item.files.filter((f: any) => f.file_category === 'proof' || !f.file_category);
+    if (proofFiles.length > 0) {
+      evidenceList = proofFiles.map((f: any) => f.file_url || f.url).filter(Boolean);
+    }
   }
   if (evidenceList.length === 0 && item.file_url) {
     evidenceList = [item.file_url];
   }
-  // Guarantee legacy truncated base64 or upload path is mapped to original.php endpoint
-  evidenceList = evidenceList.map((url) => {
-    if (typeof url === 'string') {
-      if (url.startsWith('data:image/') || url.includes('/uploads/projects/8/')) {
-        return `${API_BASE_URL}/project-documents/original.php?id=6`;
-      }
-    }
-    return url;
-  });
-  let cover = evidenceList[0] || item.cover_url || item.file_url || null;
-  if (typeof cover === 'string' && (cover.startsWith('data:image/') || cover.includes('/uploads/projects/8/'))) {
-    cover = `${API_BASE_URL}/project-documents/original.php?id=6`;
+  if (evidenceList.length === 0 && item.cover_url) {
+    evidenceList = [item.cover_url];
   }
+
+  // Normalize all evidence URLs using normalizeFileUrl so they always resolve properly
+  evidenceList = evidenceList
+    .map((url) => {
+      if (typeof url === 'string') {
+        return normalizeFileUrl(url);
+      }
+      return '';
+    })
+    .filter(Boolean);
+
+  let cover =
+    evidenceList[0] ||
+    (item.file_url ? normalizeFileUrl(item.file_url) : null) ||
+    (item.cover_url ? normalizeFileUrl(item.cover_url) : null) ||
+    null;
   let dateDisplay = item.report_date || '14 Okt 2026';
   if (item.report_date && item.report_date.includes('-')) {
     try {
@@ -870,6 +923,7 @@ export const dailyReportService = {
       `${FALLBACK_REPORT_ENDPOINT}?id=${encodeURIComponent(targetIdStr)}`,
     ];
 
+    let resolvedReport: Report | null = null;
     for (const endpoint of detailEndpoints) {
       try {
         const res = await api.get(endpoint);
@@ -889,17 +943,37 @@ export const dailyReportService = {
             return isIdMatch && isReport;
           });
           if (matched) {
-            const mapped = mapRawDailyReportToReport(matched);
-            saveReportToCache(mapped);
-            return mapped;
+            resolvedReport = mapRawDailyReportToReport(matched);
+            break;
           }
         }
       } catch (_) {}
     }
 
-    // 3. Fallback to cached version
-    if (cached) {
-      return cached;
+    const finalReport = resolvedReport || cached;
+    if (finalReport) {
+      // Load proof files and attachment files directly from daily_report_files table (MySQL API)
+      try {
+        const [proofFiles, attachmentFiles] = await Promise.all([
+          dailyReportService.fetchReportFiles(targetIdStr, 'proof'),
+          dailyReportService.fetchReportFiles(targetIdStr, 'attachment'),
+        ]);
+
+        if (proofFiles && proofFiles.length > 0) {
+          const proofUrls = proofFiles.map((f) => normalizeFileUrl(f.file_url)).filter(Boolean);
+          finalReport.evidence_urls = proofUrls;
+          finalReport.evidence_url = proofUrls[0];
+          finalReport.proof_files = proofFiles;
+        }
+        if (attachmentFiles && attachmentFiles.length > 0) {
+          finalReport.attachment_files = attachmentFiles;
+        }
+      } catch (fileErr) {
+        console.warn('Fetch files for report detail notice:', fileErr);
+      }
+
+      saveReportToCache(finalReport);
+      return finalReport;
     }
 
     return null;
@@ -1037,23 +1111,33 @@ export const dailyReportService = {
     try {
       const res = await api.get(`/daily-reports/list.php?report_id=${reportId}&category=${category}`);
       if (res && res.success && Array.isArray(res.data)) {
-        return res.data.map((item: any): DailyReportFile => ({
-          id: item.id,
-          report_id: item.report_id || reportId,
-          file_name: item.file_name || item.name || 'File',
-          original_name: item.original_name || item.file_name || item.name || 'File',
-          file_url: item.file_url || item.url || '',
-          file_category: item.file_category || category,
-          file_type: item.file_type || (item.mime_type?.startsWith('video/') ? 'video' : 'image'),
-          mime_type: item.mime_type || 'application/octet-stream',
-          file_size: Number(item.file_size) || 0,
-          file_size_formatted:
-            item.file_size_formatted ||
-            (item.file_size ? `${Math.round(Number(item.file_size) / 1024)} KB` : undefined),
-          uploaded_by: item.uploaded_by,
-          created_at: item.created_at,
-          updated_at: item.updated_at,
-        }));
+        return res.data.map((item: any): DailyReportFile => {
+          const rawUrl = item.file_url || item.url || '';
+          const normUrl = normalizeFileUrl(rawUrl);
+          const mime = (item.mime_type || '').toLowerCase();
+          const origName = item.original_name || item.file_name || item.name || '';
+          const isImg = mime.startsWith('image/') || /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(origName || normUrl);
+          const isVid = mime.startsWith('video/') || /\.(mp4|mov|webm)$/i.test(origName || normUrl);
+          const fType = isImg ? 'image' : isVid ? 'video' : 'doc';
+
+          return {
+            id: item.id,
+            report_id: item.report_id || reportId,
+            file_name: item.file_name || item.name || 'File',
+            original_name: origName || 'File',
+            file_url: normUrl,
+            file_category: item.file_category || category,
+            file_type: item.file_type || fType,
+            mime_type: item.mime_type || (isImg ? 'image/jpeg' : 'application/octet-stream'),
+            file_size: Number(item.file_size) || 0,
+            file_size_formatted:
+              item.file_size_formatted ||
+              (item.file_size ? `${Math.round(Number(item.file_size) / 1024)} KB` : undefined),
+            uploaded_by: item.uploaded_by,
+            created_at: item.created_at,
+            updated_at: item.updated_at,
+          };
+        });
       }
       return [];
     } catch (err) {
@@ -1075,16 +1159,22 @@ export const dailyReportService = {
     const res = await api.upload('/daily-reports/upload.php', formData);
     if (res && res.success && res.data) {
       const item = res.data;
+      const normUrl = normalizeFileUrl(item.file_url || item.url || '');
+      const isImg = file.type.startsWith('image/');
+      const isVid = file.type.startsWith('video/');
+      const fType = isImg ? 'image' : isVid ? 'video' : 'doc';
+
       return {
         id: item.id,
         report_id: item.report_id || reportId,
         file_name: item.file_name || file.name,
         original_name: item.original_name || file.name,
-        file_url: item.file_url || item.url || '',
+        file_url: normUrl,
         file_category: item.file_category || fileCategory,
-        file_type: item.file_type || (file.type.startsWith('video/') ? 'video' : 'image'),
+        file_type: item.file_type || fType,
         mime_type: item.mime_type || file.type,
         file_size: file.size,
+        file_size_formatted: `${Math.round(file.size / 1024)} KB`,
       };
     }
     throw new Error(res?.message || 'Gagal mengunggah berkas laporan.');
@@ -1109,16 +1199,22 @@ export const dailyReportService = {
     const res = await api.upload('/daily-reports/replace.php', formData);
     if (res && res.success && res.data) {
       const item = res.data;
+      const normUrl = normalizeFileUrl(item.file_url || item.url || '');
+      const isImg = file.type.startsWith('image/');
+      const isVid = file.type.startsWith('video/');
+      const fType = isImg ? 'image' : isVid ? 'video' : 'doc';
+
       return {
         id: item.id || fileId,
         report_id: item.report_id,
         file_name: item.file_name || file.name,
         original_name: item.original_name || file.name,
-        file_url: item.file_url || item.url || '',
+        file_url: normUrl,
         file_category: item.file_category || 'proof',
-        file_type: item.file_type || (file.type.startsWith('video/') ? 'video' : 'image'),
+        file_type: item.file_type || fType,
         mime_type: item.mime_type || file.type,
         file_size: file.size,
+        file_size_formatted: `${Math.round(file.size / 1024)} KB`,
       };
     }
     throw new Error(res?.message || 'Gagal mengganti berkas laporan.');

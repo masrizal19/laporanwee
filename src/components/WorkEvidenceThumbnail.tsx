@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Icon } from './icons';
 import { ImageLightbox } from './ImageLightbox';
+import { normalizeFileUrl } from '../utils/api';
 
 interface WorkEvidenceThumbnailProps {
   evidenceUrls?: string[];
@@ -23,26 +24,31 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
 }) => {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
-  const [imgError, setImgError] = useState(false);
+  const [failedUrls, setFailedUrls] = useState<string[]>([]);
 
-  // Compile list of unique valid image URLs
+  // Compile list of unique valid normalized image URLs
   // Original evidence URLs must always take precedence over compressed thumbnails
   const allImages: string[] = [];
   if (evidenceUrls && evidenceUrls.length > 0) {
     evidenceUrls.forEach((url) => {
-      if (url && !allImages.includes(url)) {
-        allImages.push(url);
+      const norm = normalizeFileUrl(url);
+      if (norm && !allImages.includes(norm)) {
+        allImages.push(norm);
       }
     });
   }
-  if (thumbnailUrl && !allImages.includes(thumbnailUrl)) {
-    allImages.push(thumbnailUrl);
+  if (thumbnailUrl) {
+    const norm = normalizeFileUrl(thumbnailUrl);
+    if (norm && !allImages.includes(norm)) {
+      allImages.push(norm);
+    }
   }
 
-  const hasEvidence = allImages.length > 0 && !imgError;
-  const primaryImage = allImages[0];
-  const secondaryImages = allImages.slice(1, 3);
-  const remainingCount = allImages.length > 3 ? allImages.length - 3 : 0;
+  const validImages = allImages.filter((url) => !failedUrls.includes(url));
+  const hasEvidence = validImages.length > 0;
+  const primaryImage = validImages[0];
+  const secondaryImages = validImages.slice(1, 3);
+  const remainingCount = validImages.length > 3 ? validImages.length - 3 : 0;
 
   const handleOpenLightbox = (index: number, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -100,7 +106,11 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
             alt={`Bukti pekerjaan ${projectTitle}`}
             className="evidence-img-cover"
             loading="lazy"
-            onError={() => setImgError(true)}
+            onError={() => {
+              if (primaryImage) {
+                setFailedUrls((prev) => [...prev, primaryImage]);
+              }
+            }}
           />
           <div className="evidence-badge-overlay">
             <span className="evidence-pill">
@@ -114,7 +124,7 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
         </div>
 
         {/* Gallery Strip if multiple evidence images exist */}
-        {showGalleryStrip && allImages.length > 1 && (
+        {showGalleryStrip && validImages.length > 1 && (
           <div className="work-evidence-gallery-strip" onClick={(e) => e.stopPropagation()}>
             {secondaryImages.map((img, idx) => (
               <button
@@ -125,7 +135,13 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
                 title={`Lihat foto ${idx + 2}`}
                 aria-label={`Lihat foto ${idx + 2}`}
               >
-                <img src={img} alt={`Bukti ${idx + 2}`} />
+                <img
+                  src={img}
+                  alt={`Bukti ${idx + 2}`}
+                  onError={() => {
+                    setFailedUrls((prev) => [...prev, img]);
+                  }}
+                />
               </button>
             ))}
 
@@ -147,7 +163,7 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
       {/* Lightbox Modal */}
       <ImageLightbox
         isOpen={lightboxOpen}
-        images={allImages}
+        images={validImages}
         currentIndex={activeImageIndex}
         title={projectTitle}
         onClose={() => setLightboxOpen(false)}

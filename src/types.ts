@@ -175,6 +175,8 @@ export interface Report {
   next?: string;
   evidence_urls?: string[];
   evidence_url?: string;
+  proof_files?: DailyReportFile[];
+  attachment_files?: DailyReportFile[];
   report_date?: string;
   work_category?: string;
   project_name?: string;

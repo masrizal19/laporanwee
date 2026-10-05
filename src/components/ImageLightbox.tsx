@@ -113,32 +113,59 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
 
           <div className="lightbox-actions">
             {originalImage && (
-              <a
-                href={originalImage}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="lightbox-ext-link"
-                title="Buka file gambar asli di tab baru"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '5px',
-                  padding: '5px 12px',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  border: '1px solid rgba(255, 255, 255, 0.16)',
-                  textDecoration: 'none',
-                  marginRight: '6px',
-                  cursor: 'pointer',
-                  transition: 'background 0.15s ease',
-                }}
-              >
-                <Icon name="link" style={{ width: 13, height: 13 }} />
-                <span>Buka Asli</span>
-              </a>
+              <>
+                <a
+                  href={originalImage}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="lightbox-ext-link"
+                  title="Buka file gambar asli di tab baru"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 12px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.16)',
+                    textDecoration: 'none',
+                    marginRight: '6px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                >
+                  <Icon name="link" style={{ width: 13, height: 13 }} />
+                  <span>Buka Asli</span>
+                </a>
+                <a
+                  href={originalImage}
+                  download={currentDoc?.original_name || 'bukti-pekerjaan.jpg'}
+                  className="lightbox-ext-link"
+                  title="Unduh file gambar asli"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    padding: '5px 12px',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: 600,
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    border: '1px solid rgba(255, 255, 255, 0.16)',
+                    textDecoration: 'none',
+                    marginRight: '6px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                >
+                  <Icon name="download" style={{ width: 13, height: 13 }} />
+                  <span>Unduh</span>
+                </a>
+              </>
             )}
 
             {images.length > 1 && (

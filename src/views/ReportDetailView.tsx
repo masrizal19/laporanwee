@@ -3,7 +3,7 @@ import { Project, ProjectDocument, Report, ViewType, DailyReportFile } from '../
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { projectService } from '../utils/projectService';
-import { API_BASE_URL, dailyReportService } from '../utils/api';
+import { API_BASE_URL, dailyReportService, normalizeFileUrl } from '../utils/api';
 import { DailyReportForm } from '../components/DailyReportForm';
 
 interface ReportDetailViewProps {
@@ -180,6 +180,8 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   const [newComment, setNewComment] = useState('');
   const [projectDocs, setProjectDocs] = useState<ProjectDocument[]>([]);
   const [reportFiles, setReportFiles] = useState<DailyReportFile[]>([]);
+  const [proofFiles, setProofFiles] = useState<DailyReportFile[]>([]);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
   // Load project documents from MySQL to link original.php endpoint
   useEffect(() => {
@@ -197,16 +199,38 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     }
   }, [currentData?.project, currentData?.project_name, projects]);
 
-  // Load report attachments (category=attachment) from backend MySQL
+  // Load proof files (category=proof) and report attachments (category=attachment) from backend MySQL
   useEffect(() => {
     const targetId = currentData?.id || effectiveReportId;
     if (!targetId) return;
+
+    let isMounted = true;
+    setIsLoadingFiles(true);
+
+    // 1. Fetch proof files directly from daily_report_files table (category=proof)
+    dailyReportService
+      .fetchReportFiles(targetId, 'proof')
+      .then((files) => {
+        if (!isMounted) return;
+        if (files) setProofFiles(files);
+      })
+      .catch((err) => console.warn('Fetch proof files notice:', err))
+      .finally(() => {
+        if (isMounted) setIsLoadingFiles(false);
+      });
+
+    // 2. Fetch report attachments (category=attachment) from backend MySQL
     dailyReportService
       .fetchReportFiles(targetId, 'attachment')
       .then((files) => {
+        if (!isMounted) return;
         if (files) setReportFiles(files);
       })
       .catch((err) => console.warn('Fetch report files notice:', err));
+
+    return () => {
+      isMounted = false;
+    };
   }, [currentData?.id, effectiveReportId]);
 
   // Combined documents list (Project docs + Report attachments)
@@ -348,27 +372,31 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     );
   }
 
-  const rawEvidence =
-    currentData.evidence_urls && currentData.evidence_urls.length > 0
-      ? currentData.evidence_urls
-      : currentData.evidence_url
-      ? [currentData.evidence_url]
-      : [];
+  // Split proof files into images and documents according to Rule 4
+  const isImageFile = (file: DailyReportFile | { mime_type?: string; original_name?: string; file_name?: string; file_url?: string }): boolean => {
+    const mime = (file.mime_type || '').toLowerCase();
+    const name = (file.original_name || file.file_name || file.file_url || '').toLowerCase();
+    if (mime.startsWith('image/')) return true;
+    return /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name);
+  };
 
-  // Map evidence items
-  const evidenceList = rawEvidence.map((url, idx) => {
-    if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:'))) {
-      return url;
-    }
-    const doc = projectDocs[idx] || projectDocs[0];
-    if (doc?.id) {
-      return `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
-    }
-    if (currentData.id === '3' || currentData.project?.toLowerCase().includes('job fair')) {
-      return `${API_BASE_URL}/project-documents/original.php?id=6`;
-    }
-    return url;
-  });
+  // Proof files loaded from daily_report_files (category=proof)
+  const proofImageFiles = proofFiles.filter(isImageFile);
+  const proofDocFiles = proofFiles.filter((f) => !isImageFile(f));
+
+  // Determine list of image URLs: prefer proofImageFiles from daily_report_files
+  const rawImageUrls: string[] = proofImageFiles.length > 0
+    ? proofImageFiles.map((f) => normalizeFileUrl(f.file_url))
+    : currentData.proof_files && currentData.proof_files.length > 0
+    ? currentData.proof_files.filter(isImageFile).map((f) => normalizeFileUrl(f.file_url))
+    : (currentData.evidence_urls && currentData.evidence_urls.length > 0
+        ? currentData.evidence_urls
+        : currentData.evidence_url
+        ? [currentData.evidence_url]
+        : []
+      ).map((url) => normalizeFileUrl(url));
+
+  const evidenceList = rawImageUrls.filter(Boolean);
 
   const handleApprove = () => {
     onUpdateStatus(currentData.id, 'Completed');
@@ -554,47 +582,168 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
             </div>
           </div>
 
-          {/* Bukti Pekerjaan Nyata (Foto & Screenshot) */}
-          {evidenceList.length > 0 && (
+          {/* Bukti Pekerjaan Nyata (Foto & Screenshot & Berkas Bukti) */}
+          {(evidenceList.length > 0 || proofDocFiles.length > 0) && (
             <div style={{ marginTop: '28px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                 <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Icon name="camera" style={{ width: 18, height: 18 }} />
-                  <span>Bukti Pekerjaan Nyata ({evidenceList.length})</span>
+                  <span>Bukti Pekerjaan Nyata ({evidenceList.length + proofDocFiles.length})</span>
                 </h3>
-                <span className="field-hint-tag">Klik gambar untuk memperbesar</span>
+                {evidenceList.length > 0 && (
+                  <span className="field-hint-tag">Klik gambar untuk memperbesar</span>
+                )}
               </div>
               <p className="section-sub" style={{ margin: '0 0 14px' }}>
-                Dokumentasi visual hasil pengerjaan deliverable yang diunggah pelapor.
+                Dokumentasi visual dan berkas bukti hasil pengerjaan deliverable yang tersimpan di server.
               </p>
 
-              <div className="report-evidence-gallery-grid">
-                {evidenceList.map((imgUrl, idx) => (
-                  <div
-                    key={idx}
-                    className="report-evidence-thumb-card"
-                    onClick={() => {
-                      setLightboxIndex(idx);
-                      setLightboxOpen(true);
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <img
-                      src={imgUrl}
-                      alt={`Bukti pekerjaan ${idx + 1}`}
-                      className="thumb-img"
-                      loading="lazy"
-                    />
-                    <div className="thumb-zoom-overlay">
-                      <span className="zoom-ic">
-                        <Icon name="search" style={{ width: 14, height: 14 }} />
-                      </span>
-                      <span className="zoom-txt">Foto #{idx + 1}</span>
-                    </div>
+              {/* 1. Image Gallery Grid */}
+              {evidenceList.length > 0 && (
+                <div className="report-evidence-gallery-grid">
+                  {evidenceList.map((imgUrl, idx) => {
+                    const matchedFile = proofImageFiles[idx];
+                    const fileName = matchedFile?.original_name || matchedFile?.file_name || `Foto Bukti #${idx + 1}`;
+                    return (
+                      <div
+                        key={idx}
+                        className="report-evidence-thumb-card"
+                        onClick={() => {
+                          setLightboxIndex(idx);
+                          setLightboxOpen(true);
+                        }}
+                        role="button"
+                        tabIndex={0}
+                        title={`Perbesar ${fileName}`}
+                        style={{ position: 'relative' }}
+                      >
+                        <img
+                          src={imgUrl}
+                          alt={fileName}
+                          className="thumb-img"
+                          loading="lazy"
+                        />
+                        <div className="thumb-zoom-overlay">
+                          <span className="zoom-ic">
+                            <Icon name="search" style={{ width: 14, height: 14 }} />
+                          </span>
+                          <span className="zoom-txt">Foto #{idx + 1}</span>
+                        </div>
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 8,
+                            right: 8,
+                            display: 'flex',
+                            gap: '4px',
+                            zIndex: 3,
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <a
+                            href={imgUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-xs"
+                            style={{
+                              padding: '3px 8px',
+                              background: 'rgba(0,0,0,0.7)',
+                              color: '#fff',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              textDecoration: 'none',
+                              backdropFilter: 'blur(4px)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Buka gambar di tab baru"
+                          >
+                            <Icon name="link" style={{ width: 11, height: 11 }} />
+                            <span>Buka</span>
+                          </a>
+                          <a
+                            href={imgUrl}
+                            download={fileName}
+                            className="btn btn-xs"
+                            style={{
+                              padding: '3px 8px',
+                              background: 'rgba(0,0,0,0.7)',
+                              color: '#fff',
+                              borderRadius: '6px',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              textDecoration: 'none',
+                              backdropFilter: 'blur(4px)',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                            }}
+                            title="Unduh berkas gambar"
+                          >
+                            <Icon name="download" style={{ width: 11, height: 11 }} />
+                            <span>Unduh</span>
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* 2. Document Cards under Bukti Pekerjaan Nyata */}
+              {proofDocFiles.length > 0 && (
+                <div style={{ marginTop: evidenceList.length > 0 ? '16px' : '0' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--muted)', marginBottom: '8px' }}>
+                    Dokumen &amp; Berkas Bukti ({proofDocFiles.length})
                   </div>
-                ))}
-              </div>
+                  <div className="attach-grid">
+                    {proofDocFiles.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="attach-card"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px' }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                          <div className="attach-thumb" style={{ background: 'var(--paper)' }}>
+                            <Icon name="doc" />
+                          </div>
+                          <div className="attach-meta" style={{ minWidth: 0 }}>
+                            <div className="fn" style={{ textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                              {doc.original_name || doc.file_name}
+                            </div>
+                            <div className="fs">
+                              {doc.file_size_formatted || (doc.file_size ? `${Math.round(doc.file_size / 1024)} KB` : 'Dokumen')} &bull; Bukti Server
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', marginLeft: '12px', flexShrink: 0 }}>
+                          <a
+                            href={doc.file_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="btn btn-outline btn-xs"
+                            title="Buka dokumen di tab baru"
+                          >
+                            <Icon name="link" style={{ width: 12, height: 12 }} />
+                            <span>Buka</span>
+                          </a>
+                          <a
+                            href={doc.file_url}
+                            download={doc.original_name || doc.file_name}
+                            className="btn btn-outline btn-xs"
+                            title="Unduh dokumen"
+                          >
+                            <Icon name="download" style={{ width: 12, height: 12 }} />
+                            <span>Unduh</span>
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

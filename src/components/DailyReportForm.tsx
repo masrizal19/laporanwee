@@ -9,6 +9,7 @@ import {
   dailyReportService,
   mapFrontendStatusToBackend,
   formatApiErrorMessage,
+  normalizeFileUrl,
 } from '../utils/api';
 import { categoryService, WorkCategory } from '../utils/categoryService';
 import { projectService } from '../utils/projectService';
@@ -638,66 +639,39 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
 
     setIsSubmitting(true);
     try {
-      const matchedProject = projects.find((p) => p.name === selectedProject) || projects[0];
-      const projectId = matchedProject ? matchedProject.id : 8;
-
-      // 1. Upload pending project attachment files to MySQL project-documents (Max 2 GB per file)
-      if (pendingDocs.length > 0) {
-        for (const item of pendingDocs) {
-          try {
-            const uploadedDoc = await projectService.uploadDocument(projectId, item.file);
-            if (uploadedDoc) {
-              setProjectDocs((prev) => [uploadedDoc, ...prev]);
-            }
-          } catch (uploadDocErr) {
-            console.warn(`Gagal upload berkas lampiran "${item.name}":`, uploadDocErr);
-          }
-        }
-        setPendingDocs([]);
-      }
-
-      const uploadedUrls: string[] = [];
-
-      // Upload actual File instances directly to MySQL server storage via FormData
-      for (const item of evidenceItems) {
-        if (item.file) {
-          try {
-            const formData = new FormData();
-            formData.append('project_id', String(projectId));
-            formData.append('file', item.file);
-            const uploadRes = await api.upload('/project-documents/upload.php', formData);
-            const docId = uploadRes?.data?.id;
-            const serverUrl = docId
-              ? `${API_BASE_URL}/project-documents/original.php?id=${docId}`
-              : (uploadRes?.data?.file_url || uploadRes?.data?.url || uploadRes?.data?.original_url);
-            if (serverUrl) {
-              uploadedUrls.push(serverUrl);
-            }
-          } catch (uploadErr) {
-            console.warn('Gagal upload bukti pekerjaan ke server:', uploadErr);
-          }
-        } else if (item.serverUrl) {
-          uploadedUrls.push(item.serverUrl);
-        } else if (item.previewUrl && !item.previewUrl.startsWith('blob:')) {
-          uploadedUrls.push(item.previewUrl);
-        }
-      }
-
-      // Default category photo if user didn't upload any
-      const finalEvidence: string[] =
-        uploadedUrls.length > 0
-          ? uploadedUrls
-          : [
-              category.includes('Desain')
-                ? 'https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?w=800&auto=format&fit=crop&q=80'
-                : category.includes('Video')
-                ? 'https://images.unsplash.com/photo-1574717024653-61fd2cf4d44d?w=800&auto=format&fit=crop&q=80'
-                : category.includes('Foto')
-                ? 'https://images.unsplash.com/photo-1490481651871-ab68de25d43d?w=800&auto=format&fit=crop&q=80'
-                : 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=80',
-            ];
-
       if (isEdit && initialReport) {
+        // Upload any newly selected proof files to /api/daily-reports/upload.php
+        for (const item of evidenceItems) {
+          if (item.file) {
+            try {
+              await dailyReportService.uploadReportFile(initialReport.id, item.file, 'proof');
+            } catch (uploadErr) {
+              console.warn('Gagal upload bukti pekerjaan:', uploadErr);
+            }
+          }
+        }
+
+        // Upload any newly selected attachments to /api/daily-reports/upload.php
+        if (pendingDocs.length > 0) {
+          for (const item of pendingDocs) {
+            try {
+              await dailyReportService.uploadReportFile(initialReport.id, item.file, 'attachment');
+            } catch (uploadDocErr) {
+              console.warn(`Gagal upload berkas lampiran "${item.name}":`, uploadDocErr);
+            }
+          }
+          setPendingDocs([]);
+        }
+
+        // Re-fetch freshest proof files from backend
+        let freshProofUrls: string[] = [];
+        try {
+          const freshProofFiles = await dailyReportService.fetchReportFiles(initialReport.id, 'proof');
+          if (freshProofFiles && freshProofFiles.length > 0) {
+            freshProofUrls = freshProofFiles.map((f) => normalizeFileUrl(f.file_url)).filter(Boolean);
+          }
+        } catch (_) {}
+
         // Submit update to backend MySQL via POST /api/daily-reports/update.php
         const res = await dailyReportService.updateDailyReport({
           id: initialReport.id,
@@ -715,6 +689,13 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
 
         if (res && res.success !== false) {
           onAddToast('Laporan berhasil diperbarui');
+
+          const finalEvidence =
+            freshProofUrls.length > 0
+              ? freshProofUrls
+              : initialReport.evidence_urls && initialReport.evidence_urls.length > 0
+              ? initialReport.evidence_urls
+              : [];
 
           const updatedReport: Report = {
             ...initialReport,
@@ -735,7 +716,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
             report_date: reportDate,
             date: formatFullDateDisplay(reportDate),
             evidence_urls: finalEvidence,
-            evidence_url: finalEvidence[0],
+            evidence_url: finalEvidence[0] || undefined,
             ...(res.data && typeof res.data === 'object' ? {
               ...(res.data.title && { task: res.data.title }),
               ...(res.data.description && { desc: res.data.description }),
@@ -772,12 +753,40 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           status,
           challenges: challenges.trim() || 'Tidak ada kendala berarti.',
           next: next.trim() || 'Melanjutkan modul sprint berikutnya.',
-          evidence_urls: finalEvidence,
-          evidence_url: finalEvidence[0],
+          evidence_urls: [],
         });
 
         if (newId) {
           const cleanId = String(newId).trim();
+
+          // 1. Upload actual proof files directly to MySQL API /api/daily-reports/upload.php
+          for (const item of evidenceItems) {
+            if (item.file) {
+              try {
+                await dailyReportService.uploadReportFile(cleanId, item.file, 'proof');
+              } catch (uploadErr) {
+                console.warn('Gagal upload bukti pekerjaan:', uploadErr);
+              }
+            }
+          }
+
+          // 2. Upload actual attachment files directly to MySQL API /api/daily-reports/upload.php
+          if (pendingDocs.length > 0) {
+            for (const doc of pendingDocs) {
+              if (doc.file) {
+                try {
+                  await dailyReportService.uploadReportFile(cleanId, doc.file, 'attachment');
+                } catch (uploadDocErr) {
+                  console.warn(`Gagal upload berkas lampiran "${doc.name}":`, uploadDocErr);
+                }
+              }
+            }
+            setPendingDocs([]);
+          }
+
+          // 3. Re-fetch freshest report detail so proof files & attachments are cached & linked
+          await dailyReportService.fetchDailyReportDetail(cleanId).catch(() => null);
+
           if (onSelectReport) {
             onSelectReport(cleanId);
           }
