@@ -6,22 +6,30 @@ interface ReportsViewProps {
   reports: Report[];
   isLoading?: boolean;
   isAdmin?: boolean;
+  reportsError?: {
+    status?: number;
+    message: string;
+    type: '401' | '403' | '404' | '500' | 'network' | 'error';
+  } | null;
   onNavigate: (view: ViewType) => void;
   onSelectReport: (reportId: string) => void;
   onDeleteReport?: (reportId: string) => void;
   onResetReports?: () => void;
   onAddToast?: (text: string) => void;
+  onRetry?: () => void;
 }
 
 export const ReportsView: React.FC<ReportsViewProps> = ({
   reports,
   isLoading = false,
   isAdmin = false,
+  reportsError = null,
   onNavigate,
   onSelectReport,
   onDeleteReport,
   onResetReports,
   onAddToast,
+  onRetry,
 }) => {
   const [filterTab, setFilterTab] = useState<'All' | 'In Review' | 'In Progress' | 'Completed'>('All');
   const [search, setSearch] = useState('');
@@ -210,6 +218,53 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <p style={{ color: 'var(--muted)', fontSize: '13.5px', margin: 0 }}>
                 Memuat data laporan dari server...
               </p>
+            </div>
+          ) : reportsError ? (
+            <div className="empty-state card" style={{ background: '#fff', border: '1px solid #fee2e2' }}>
+              <Icon name="alert" style={{ color: '#dc2626' }} />
+              <b style={{ color: '#dc2626' }}>
+                {reportsError.type === '401'
+                  ? 'Sesi Autentikasi Berakhir (401)'
+                  : reportsError.type === '403'
+                  ? 'Akses Ditolak (403)'
+                  : reportsError.type === '404'
+                  ? 'Endpoint Laporan Tidak Ditemukan (404)'
+                  : reportsError.type === '500'
+                  ? 'Kendala Server Database (500)'
+                  : reportsError.type === 'network'
+                  ? 'Koneksi Server Terputus'
+                  : 'Gagal Memuat Laporan'}
+              </b>
+              <p style={{ maxWidth: '420px', margin: '8px auto 0' }}>
+                {reportsError.type === '401'
+                  ? 'Sesi login Anda tidak valid atau telah berakhir. Harap login kembali agar laporan dapat disinkronkan dari database.'
+                  : reportsError.type === '403'
+                  ? 'Akun Anda tidak memiliki izin untuk melihat daftar laporan ini.'
+                  : reportsError.type === '404'
+                  ? 'Endpoint laporan backend tidak ditemukan di server.'
+                  : reportsError.type === '500'
+                  ? `Terjadi kesalahan saat memproses data di server backend (${reportsError.message}).`
+                  : reportsError.type === 'network'
+                  ? 'Tidak dapat terhubung ke server backend api-laporanwe.mkverse.my.id. Periksa jaringan Anda.'
+                  : reportsError.message}
+              </p>
+              {reportsError.type === '401' ? (
+                <button
+                  className="btn btn-dark btn-sm"
+                  style={{ marginTop: '14px' }}
+                  onClick={() => onNavigate('login' as any)}
+                >
+                  Login Ulang
+                </button>
+              ) : onRetry ? (
+                <button
+                  className="btn btn-dark btn-sm"
+                  style={{ marginTop: '14px' }}
+                  onClick={onRetry}
+                >
+                  Coba Hubungkan Lagi
+                </button>
+              ) : null}
             </div>
           ) : filteredReports.length === 0 ? (
             <div className="empty-state card" style={{ background: '#fff' }}>

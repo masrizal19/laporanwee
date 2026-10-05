@@ -66,25 +66,63 @@ export const buildApiUrl = (endpoint: string): string => {
   return `${API_BASE_URL}${clean}`.replace('/api/api/', '/api/');
 };
 
-// Helper to get authorization headers with stored token and active user email
-export const getHeaders = () => {
+export const getStoredToken = (): string | null => {
   const token = localStorage.getItem('laporanwee_token');
+  if (!token || token === 'undefined' || token === 'null' || token === 'session-active-token') {
+    return null;
+  }
+  return token.trim();
+};
+
+export const setStoredToken = (token: string) => {
+  if (token && token.trim() && token !== 'session-active-token') {
+    localStorage.setItem('laporanwee_token', token.trim());
+  } else {
+    localStorage.removeItem('laporanwee_token');
+  }
+};
+
+export const getStoredUser = () => {
+  try {
+    const raw = localStorage.getItem('laporanwee_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+};
+
+export const setStoredUser = (user: any) => {
+  if (user) {
+    localStorage.setItem('laporanwee_user', JSON.stringify(user));
+  } else {
+    localStorage.removeItem('laporanwee_user');
+  }
+};
+
+export const clearStoredAuth = () => {
+  localStorage.removeItem('laporanwee_token');
+  localStorage.removeItem('laporanwee_user');
+  localStorage.removeItem('laporanwee_daily_reports_cache');
+  localStorage.removeItem('laporanwee_selected_report_id');
+  localStorage.removeItem('laporanwee_last_sync');
+};
+
+// Helper to get authorization headers with stored Bearer token
+export const getHeaders = () => {
+  const token = getStoredToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'Accept': 'application/json',
   };
-  if (token && token !== 'undefined' && token !== 'null') {
+  if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  // Include X-Admin-Email if user is logged in
+  // Include user email in X-Admin-Email header to ensure consistent backend authorization
   try {
-    const storedUser = localStorage.getItem('laporanwee_user');
-    if (storedUser) {
-      const parsed = JSON.parse(storedUser);
-      if (parsed?.email) {
-        headers['X-Admin-Email'] = parsed.email.trim();
-      }
+    const user = getStoredUser();
+    if (user?.email && typeof user.email === 'string') {
+      headers['X-Admin-Email'] = user.email.trim();
     }
   } catch (_) {}
 
@@ -662,41 +700,44 @@ export const FALLBACK_REPORT_ENDPOINT = '/reports/all.php';
 
 export const extractReportsArrayFromResponse = (res: any): any[] | null => {
   if (!res) return null;
-  if (res.success === false && !res.data && !res.reports) return null;
+  if (res.success === false && !res.data && !res.reports && !res.items && !res.daily_reports) return null;
 
   let list: any[] | null = null;
   if (Array.isArray(res.data)) {
     list = res.data;
   } else if (Array.isArray(res.reports)) {
     list = res.reports;
-  } else if (res.data && Array.isArray(res.data.reports)) {
-    list = res.data.reports;
-  } else if (res.data && Array.isArray(res.data.data)) {
-    list = res.data.data;
-  } else if (res.data && Array.isArray(res.data.items)) {
-    list = res.data.items;
+  } else if (Array.isArray(res.daily_reports)) {
+    list = res.daily_reports;
+  } else if (Array.isArray(res.items)) {
+    list = res.items;
+  } else if (Array.isArray(res.list)) {
+    list = res.list;
+  } else if (Array.isArray(res.rows)) {
+    list = res.rows;
+  } else if (Array.isArray(res.results)) {
+    list = res.results;
+  } else if (res.data && typeof res.data === 'object') {
+    if (Array.isArray(res.data.reports)) {
+      list = res.data.reports;
+    } else if (Array.isArray(res.data.daily_reports)) {
+      list = res.data.daily_reports;
+    } else if (Array.isArray(res.data.data)) {
+      list = res.data.data;
+    } else if (Array.isArray(res.data.items)) {
+      list = res.data.items;
+    } else if (Array.isArray(res.data.list)) {
+      list = res.data.list;
+    } else if (Array.isArray(res.data.rows)) {
+      list = res.data.rows;
+    } else if (Array.isArray(res.data.results)) {
+      list = res.data.results;
+    }
   } else if (Array.isArray(res)) {
     list = res;
   }
 
   if (list && Array.isArray(list)) {
-    if (list.length > 0) {
-      const isDailyReportsTable = list.some(
-        (item: any) =>
-          item &&
-          typeof item === 'object' &&
-          (item.title !== undefined ||
-            item.task !== undefined ||
-            item.project_name !== undefined ||
-            item.work_category !== undefined ||
-            item.report_date !== undefined ||
-            item.user_email !== undefined)
-      );
-      if (isDailyReportsTable) {
-        return list;
-      }
-      return null;
-    }
     return list;
   }
 
@@ -716,48 +757,70 @@ export const dailyReportService = {
     options?: { signal?: AbortSignal }
   ): Promise<Report[]> => {
     let apiReports: Report[] = [];
+    let fetchError: any = null;
 
     // 1. Primary request: /api/reports/list.php
     try {
       const res = await api.get(PRIMARY_REPORT_ENDPOINT, options);
+      console.log('REPORT API RESPONSE:', res);
       const extracted = extractReportsArrayFromResponse(res);
-      if (extracted !== null) {
+      if (extracted !== null && extracted.length > 0) {
+        console.log('REPORT DATA:', extracted);
         apiReports = extracted.map(mapRawDailyReportToReport);
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') throw err;
-      console.warn('[LaporanWe] /reports/list.php fallback check:', err);
+      fetchError = err;
+      console.warn('[LaporanWe] /reports/list.php notice:', err);
+    }
 
-      // 2. Fallback only if primary fails: /api/reports/all.php
+    // 2. Fallback if primary returned 0 items or threw an error: /api/reports/all.php
+    if (apiReports.length === 0) {
       try {
         const fallbackRes = await api.get(FALLBACK_REPORT_ENDPOINT, options);
+        console.log('FALLBACK REPORT API RESPONSE:', fallbackRes);
         const extracted = extractReportsArrayFromResponse(fallbackRes);
-        if (extracted !== null) {
+        if (extracted !== null && extracted.length > 0) {
+          console.log('REPORT DATA (from fallback):', extracted);
           apiReports = extracted.map(mapRawDailyReportToReport);
+          fetchError = null; // Fallback succeeded
         }
       } catch (fallbackErr: any) {
         if (fallbackErr?.name === 'AbortError') throw fallbackErr;
-        console.warn('[LaporanWe] /reports/all.php error:', fallbackErr);
+        console.warn('[LaporanWe] /reports/all.php notice:', fallbackErr);
+        if (!fetchError) fetchError = fallbackErr;
       }
     }
 
+    // 3. Fallback with query parameters (e.g. all=1) if still empty
+    if (apiReports.length === 0) {
+      try {
+        const paramRes = await api.get(`${PRIMARY_REPORT_ENDPOINT}?all=1`, options);
+        const extracted = extractReportsArrayFromResponse(paramRes);
+        if (extracted !== null && extracted.length > 0) {
+          apiReports = extracted.map(mapRawDailyReportToReport);
+          fetchError = null;
+        }
+      } catch (_) {}
+    }
+
+    // If an error occurred and no reports could be fetched from server,
+    // throw the error so the UI can distinguish 401, 403, 500, network error (Rule 9)
+    if (fetchError && apiReports.length === 0) {
+      throw fetchError;
+    }
+
+    // Update local cache for offline/instant-transition optimisations
     if (apiReports.length > 0) {
+      clearReportCache();
       apiReports.forEach((r) => saveReportToCache(r));
-    }
-
-    const cached = getCachedReports();
-    let finalReports: Report[] = [];
-
-    if (apiReports.length > 0) {
-      const apiIds = new Set(apiReports.map((r) => String(r.id).trim()));
-      const remainingCached = cached.filter((r) => !apiIds.has(String(r.id).trim()));
-      finalReports = [...apiReports, ...remainingCached];
     } else {
-      finalReports = cached;
+      clearReportCache();
     }
 
-    console.log('[LaporanWe] Reports loaded:', finalReports.length);
-    return finalReports;
+    console.log('[LaporanWe] Reports loaded from MySQL:', apiReports.length);
+    // MySQL is the SINGLE SOURCE OF TRUTH (Rule 6, Rule 18)
+    return apiReports;
   },
 
   fetchDailyReportDetail: async (id: string | number): Promise<Report | null> => {

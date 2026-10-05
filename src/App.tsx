@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
+  AuthUser,
   ViewType,
   Project,
   Task,
@@ -44,6 +45,12 @@ import {
   realtimeService,
   mapRawDailyReportToReport,
   extractReportsArrayFromResponse,
+  getStoredToken,
+  setStoredToken,
+  getStoredUser,
+  setStoredUser,
+  clearStoredAuth,
+  clearReportCache,
 } from './utils/api';
 import { projectService } from './utils/projectService';
 import {
@@ -54,46 +61,77 @@ import {
 
 export function App() {
   // 1. Session & Routing state
-  const [user, setUser] = useState<{ email: string; name: string } | null>(() => {
-    const saved = localStorage.getItem('laporanwee_user');
-    return saved ? JSON.parse(saved) : null;
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const token = getStoredToken();
+    const saved = getStoredUser();
+    if (!token || !saved) {
+      clearStoredAuth();
+      return null;
+    }
+    return saved;
   });
 
-  // Verify active session on load from localStorage to keep state active during refresh
+  // Verify active session on load with valid Bearer token
   useEffect(() => {
-    const saved = localStorage.getItem('laporanwee_user');
-    const token = localStorage.getItem('laporanwee_token');
+    const saved = getStoredUser();
+    const token = getStoredToken();
     if (saved && token) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.email) {
-          setUser(parsed);
-        }
-      } catch (e) {
-        localStorage.removeItem('laporanwee_user');
-        localStorage.removeItem('laporanwee_token');
-        setUser(null);
-        navigateToPath('/login');
-      }
+      setUser(saved);
+      console.log('[AUTH] Current user:', {
+        id: saved.id,
+        email: saved.email,
+        role: saved.role,
+      });
+    } else {
+      clearStoredAuth();
+      clearReportCache();
+      setUser(null);
+      navigateToPath('/login');
     }
   }, []);
 
   // Fetch user profile from MySQL database on load to sync avatar_url, role, id and name
   useEffect(() => {
-    if (user) {
+    if (user && getStoredToken()) {
       api.get('/profile.php')
         .then((res) => {
           if (res && res.success && res.data) {
-            setUser((prev) => prev ? {
-              ...prev,
-              id: res.data.id || (prev as any).id,
-              name: res.data.full_name || prev.name,
-              role: res.data.role || (prev as any).role,
-              avatar_url: res.data.avatar_url || (prev as any).avatar_url,
-            } : null);
+            setUser((prev) => {
+              if (!prev) return null;
+              if (
+                prev.id === res.data.id &&
+                prev.full_name === res.data.full_name &&
+                prev.role === res.data.role &&
+                prev.avatar_url === res.data.avatar_url
+              ) {
+                return prev;
+              }
+              const updated: AuthUser = {
+                ...prev,
+                id: res.data.id || prev.id,
+                full_name: res.data.full_name || prev.full_name,
+                name: res.data.full_name || prev.name,
+                role: res.data.role || prev.role,
+                avatar_url: res.data.avatar_url || prev.avatar_url,
+              };
+              setStoredUser(updated);
+              console.log('[AUTH] Current user (synced from DB):', {
+                id: updated.id,
+                email: updated.email,
+                role: updated.role,
+              });
+              return updated;
+            });
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          if (err?.status === 401) {
+            clearStoredAuth();
+            clearReportCache();
+            setUser(null);
+            navigateToPath('/login');
+          }
+        });
     }
   }, [user?.email]);
 
@@ -230,15 +268,19 @@ export function App() {
   const [selectedReportId, setSelectedReportId] = useState<string>(() => {
     return localStorage.getItem('laporanwee_selected_report_id') || '';
   });
-  const [isReportsLoading, setIsReportsLoading] = useState<boolean>(false);
+  const [isReportsLoading, setIsReportsLoading] = useState<boolean>(() => {
+    return dailyReportService.getCachedReports().length === 0;
+  });
+  const [reportsError, setReportsError] = useState<{
+    status?: number;
+    message: string;
+    type: '401' | '403' | '404' | '500' | 'network' | 'error';
+  } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Determine if current logged in user has Administrator privileges
+  // Determine if current logged in user has Administrator privileges strictly from database users.role (Rule 4)
   const isAdmin = Boolean(
-    user?.email?.toLowerCase().includes('admin') ||
-    user?.email === 'rizalstudios.backup01@gmail.com' ||
-    user?.email === 'rizalsaragih498@gmail.com' ||
-    (user as any)?.role === 'admin' ||
+    user?.role?.toLowerCase() === 'admin' ||
     (user as any)?.is_admin === true
   );
 
@@ -318,25 +360,22 @@ export function App() {
     const controller = new AbortController();
     reportsAbortControllerRef.current = controller;
 
-    // Show loading spinner only if we don't already have reports in memory
-    if (!silent) {
-      setIsReportsLoading((prev) => reports.length === 0);
-    }
+    // Show loading spinner if not silent OR if we do not yet have reports loaded from server
+    setIsReportsLoading((prev) => !silent || prev);
 
     try {
+      setReportsError(null);
       const fetchedReports = await dailyReportService.fetchDailyReports(user?.email, isAdmin, {
         signal: controller.signal,
       });
-      if (fetchedReports && fetchedReports.length > 0) {
+
+      // MySQL is the SINGLE SOURCE OF TRUTH (Rule 6, Rule 18)
+      if (Array.isArray(fetchedReports)) {
         setReports(fetchedReports);
         const latestTime = computeLatestTimestamp(fetchedReports);
         if (latestTime) {
           lastSyncAtRef.current = latestTime;
           localStorage.setItem('laporanwee_last_sync', latestTime);
-        } else {
-          const nowIso = new Date().toISOString();
-          lastSyncAtRef.current = nowIso;
-          localStorage.setItem('laporanwee_last_sync', nowIso);
         }
 
         setSelectedReportId((prev) => {
@@ -347,16 +386,35 @@ export function App() {
           if (stored && fetchedReports.some((r) => String(r.id).trim() === String(stored).trim())) {
             return stored;
           }
-          return prev || String(fetchedReports[0].id);
+          return (fetchedReports[0] ? String(fetchedReports[0].id) : '') || prev;
         });
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') return;
-      console.warn('Sync reports from API notice:', err);
+      console.error('Sync reports from API error:', err);
+      const status = Number(err?.status || err?.code);
+      let errorType: '401' | '403' | '404' | '500' | 'network' | 'error' = 'error';
+      if (status === 401) errorType = '401';
+      else if (status === 403) errorType = '403';
+      else if (status === 404) errorType = '404';
+      else if (status >= 500) errorType = '500';
+      else if (
+        err?.name === 'TypeError' ||
+        err?.message?.toLowerCase().includes('failed to fetch') ||
+        err?.message?.toLowerCase().includes('network')
+      ) {
+        errorType = 'network';
+      }
+
+      setReportsError({
+        status,
+        message: err?.message || 'Gagal memuat laporan dari server backend.',
+        type: errorType,
+      });
     } finally {
       setIsReportsLoading(false);
     }
-  }, [user?.email, isAdmin, reports.length]);
+  }, [user?.email, isAdmin]);
 
   // Incrementally merge new or updated reports without refetching the full table
   const mergeUpdatedReports = useCallback((newOrUpdatedRaw: any[]) => {
@@ -503,12 +561,12 @@ export function App() {
     }
   }, [user, currentView, refreshTasksFromApi]);
 
-  // Re-fetch reports silently whenever user navigates to reports view
+  // Re-fetch reports whenever user navigates to reports view
   useEffect(() => {
     if (user && currentView === 'reports') {
-      refreshReportsFromApi(true);
+      refreshReportsFromApi(reports.length > 0);
     }
-  }, [user, currentView, refreshReportsFromApi]);
+  }, [user, currentView, refreshReportsFromApi, reports.length]);
 
   // Optimized Incremental Realtime Polling via /api/realtime/poll.php
   useEffect(() => {
@@ -1015,15 +1073,17 @@ export function App() {
   };
 
   const handleLogout = () => {
-    const token = localStorage.getItem('laporanwee_token');
+    const token = getStoredToken();
     if (user?.email) {
       teamService.updatePresence(false, user.email).catch(() => {});
     }
     
     // Clear state & storage immediately for reactive UI response
-    localStorage.removeItem('laporanwee_user');
-    localStorage.removeItem('laporanwee_token');
+    clearStoredAuth();
+    clearReportCache();
     setUser(null);
+    setReports([]);
+    setReportsError(null);
     addToast('Berhasil keluar dari sesi.');
     navigateToPath('/login');
 
@@ -1082,9 +1142,24 @@ export function App() {
       <>
         <LoginView
           onLoginSuccess={(email, name, fullUser) => {
-            const loggedInUser = fullUser || { email, name };
-            localStorage.setItem('laporanwee_user', JSON.stringify(loggedInUser));
+            clearReportCache();
+            setReports([]);
+            setReportsError(null);
+            setIsReportsLoading(true);
+            const loggedInUser: AuthUser = fullUser || {
+              id: 1,
+              email,
+              name,
+              full_name: name,
+              role: 'team',
+            };
+            setStoredUser(loggedInUser);
             setUser(loggedInUser);
+            console.log('[AUTH] Current user:', {
+              id: loggedInUser.id,
+              email: loggedInUser.email,
+              role: loggedInUser.role,
+            });
             addToast(`Selamat datang kembali, ${name}!`);
             navigateToPath('/dashboard');
           }}
@@ -1156,6 +1231,8 @@ export function App() {
             reports={reports}
             isLoading={isReportsLoading}
             isAdmin={isAdmin}
+            reportsError={reportsError}
+            onRetry={() => refreshReportsFromApi()}
             onNavigate={handleNavigate}
             onSelectReport={handleSelectReport}
             onDeleteReport={handleDeleteReport}

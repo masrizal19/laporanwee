@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
-import { API_BASE_URL, buildApiUrl } from '../utils/api';
+import { API_BASE_URL, buildApiUrl, setStoredToken, setStoredUser } from '../utils/api';
 import { resendVerificationEmail } from '../utils/authService';
 
 interface LoginViewProps {
@@ -124,8 +124,28 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       setIsLoading(false);
 
-      const token = data.token || data.data?.token || 'session-active-token';
-      localStorage.setItem('laporanwee_token', token);
+      // Extract real Bearer token returned by backend
+      const token =
+        data.token ||
+        data.access_token ||
+        data.auth_token ||
+        data.session_token ||
+        data.bearer_token ||
+        data.jwt ||
+        data.data?.token ||
+        data.data?.access_token ||
+        data.data?.auth_token ||
+        data.data?.session_token ||
+        data.user?.token ||
+        data.user?.access_token ||
+        '';
+
+      if (!token || token === 'session-active-token') {
+        console.error('[AUTH ERROR] Login response did not contain a valid token:', data);
+        throw new Error(data.message || 'Server tidak mengembalikan token autentikasi yang valid.');
+      }
+
+      setStoredToken(token);
 
       const rawUser = data.user || data.data?.user || data.data || {};
       const idVal = rawUser.id || rawUser.user_id || 1;
@@ -145,7 +165,15 @@ export const LoginView: React.FC<LoginViewProps> = ({
         avatar_url: avatarVal,
         email_verified: isEmailVerified,
       };
-      localStorage.setItem('laporanwee_user', JSON.stringify(userObj));
+
+      setStoredUser(userObj);
+
+      console.log('[AUTH] Current user:', {
+        id: userObj.id,
+        email: userObj.email,
+        role: userObj.role,
+      });
+
       setIsSuccess(true);
     } catch (err: any) {
       setIsLoading(false);

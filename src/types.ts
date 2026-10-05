@@ -32,6 +32,17 @@ export interface UISettings {
 export type TaskStatus = 'todo' | 'inprogress' | 'review' | 'done';
 export type PriorityLevel = 'High' | 'Medium' | 'Low';
 
+export interface AuthUser {
+  id: number | string;
+  email: string;
+  name: string;
+  full_name?: string;
+  role: string;
+  status?: string;
+  avatar_url?: string;
+  email_verified?: boolean;
+}
+
 export interface TeamMember {
   id: string;
   name: string;
