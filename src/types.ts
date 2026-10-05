@@ -177,6 +177,9 @@ export interface Report {
   next_plan?: string;
   updated_at?: string;
   created_at?: string;
+  user_email?: string;
+  user_name?: string;
+  created_by?: string;
 }
 
 export interface DailyReportFile {

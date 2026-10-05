@@ -636,6 +636,9 @@ export const mapRawDailyReportToReport = (item: any): Report => {
     evidence_url: cover || undefined,
     updated_at: item.updated_at || item.created_at || item.report_date || '',
     created_at: item.created_at || item.report_date || '',
+    user_email: item.user_email || item.created_by || '',
+    user_name: item.user_name || item.person || '',
+    created_by: item.created_by || item.user_email || '',
   };
 };
 
@@ -888,6 +891,7 @@ export const dailyReportService = {
       description: reportData.desc || '',
       user_email: userEmail || '',
       user_name: reportData.person || userName || 'Tim LaporanWee',
+      created_by: userEmail || '',
       project_name: reportData.project || 'Proyek Wee Studio',
       work_category: reportData.category || 'Desain & UI/UX',
       report_date: dateStr,
@@ -952,6 +956,9 @@ export const dailyReportService = {
       next_plan: reportData.next || '',
       evidence_urls: reportData.evidence_urls || [],
       evidence_url: reportData.evidence_url || (reportData.evidence_urls ? reportData.evidence_urls[0] : undefined),
+      user_email: userEmail || '',
+      user_name: reportData.person || userName || 'Tim LaporanWee',
+      created_by: userEmail || '',
       ...(mappedBackendData || {}),
       id: createdReportId, // Ensure ID is definitively the created MySQL ID
     };

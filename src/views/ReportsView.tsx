@@ -52,13 +52,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     if (filterTab === 'In Progress' && r.status !== 'In Progress') return false;
     if (filterTab === 'Completed' && r.status !== 'Completed') return false;
     const query = debouncedSearch.trim().toLowerCase();
-    if (
-      query &&
-      !r.task.toLowerCase().includes(query) &&
-      !r.person.toLowerCase().includes(query) &&
-      !r.project.toLowerCase().includes(query)
-    ) {
-      return false;
+    if (query) {
+      const matchTask = r.task && r.task.toLowerCase().includes(query);
+      const matchPerson = r.person && r.person.toLowerCase().includes(query);
+      const matchProject = r.project && r.project.toLowerCase().includes(query);
+      const matchDesc = r.desc && r.desc.toLowerCase().includes(query);
+      const matchCategory = r.category && r.category.toLowerCase().includes(query);
+      const matchEmail = r.user_email && r.user_email.toLowerCase().includes(query);
+
+      if (!matchTask && !matchPerson && !matchProject && !matchDesc && !matchCategory && !matchEmail) {
+        return false;
+      }
     }
     return true;
   });
