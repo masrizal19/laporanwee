@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
-import { API_BASE_URL, buildApiUrl, setStoredToken, setStoredUser } from '../utils/api';
+import { API_BASE_URL, buildApiUrl, setStoredToken, setStoredUser, extractAvatarFromResponse, withAvatarCacheBust } from '../utils/api';
 import { resendVerificationEmail } from '../utils/authService';
 
 interface LoginViewProps {
@@ -155,7 +155,8 @@ export const LoginView: React.FC<LoginViewProps> = ({
       const nameVal = rawUser.full_name || rawUser.name || trimmedEmail.split('@')[0];
       const roleVal = rawUser.role || 'team';
       const statusVal = rawUser.status || 'active';
-      const avatarVal = rawUser.avatar_url || rawUser.profile_photo || '';
+      const rawAvatar = extractAvatarFromResponse(data);
+      const avatarVal = rawAvatar ? withAvatarCacheBust(rawAvatar) : null;
 
       const userObj = {
         id: idVal,

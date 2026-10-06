@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Project, Report, ViewType } from '../types';
 import {
   profileService,
+  extractAvatarFromResponse,
+  getAbsoluteAvatarUrl,
   withAvatarCacheBust,
   getLatestProfileSaveTimestamp,
   recordProfileSaveTimestamp,
@@ -35,7 +37,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [role, setRole] = useState('Profile User');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
   const [location, setLocation] = useState('LaporanWee Web');
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
   const [imageError, setImageError] = useState(false);
 
   // Inline editing state
@@ -51,6 +53,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   useEffect(() => {
     setImageError(false);
   }, [avatarUrl]);
+
+  // Synchronize when initialAvatarUrl prop updates from App.tsx
+  useEffect(() => {
+    if (initialAvatarUrl !== undefined) {
+      setAvatarUrl(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
+    }
+  }, [initialAvatarUrl]);
 
   // Apply Theme from Profile API to CSS Variables
   const applyTheme = useCallback((themeObj?: any) => {
@@ -80,11 +89,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         if (d.role) setRole(d.role);
         if (d.location) setLocation(d.location);
 
-        if (d.avatar_url) {
-          const fresh = withAvatarCacheBust(d.avatar_url, d.updated_at || Date.now());
+        const rawAvatar = extractAvatarFromResponse(res);
+        if (rawAvatar) {
+          const fresh = withAvatarCacheBust(rawAvatar, d.updated_at || Date.now());
           setAvatarUrl(fresh);
-        } else if (d.avatar_url === null || d.avatar === null) {
+          syncAuthenticatedUser({
+            name: d.full_name || userName,
+            email: d.email || userEmail,
+            avatar_url: fresh,
+          });
+          if (onUpdateUser) {
+            onUpdateUser({
+              name: d.full_name || userName,
+              email: d.email || userEmail,
+              avatar_url: fresh,
+            });
+          }
+        } else if (rawAvatar === null || d.avatar_url === null || d.avatar === null) {
           setAvatarUrl(null);
+          syncAuthenticatedUser({
+            name: d.full_name || userName,
+            email: d.email || userEmail,
+            avatar_url: null,
+          });
+          if (onUpdateUser) {
+            onUpdateUser({
+              name: d.full_name || userName,
+              email: d.email || userEmail,
+              avatar_url: null,
+            });
+          }
         }
 
         if (d.theme) {
@@ -96,7 +130,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         console.warn('[PROFILE] loadProfile notice:', err);
       }
     }
-  }, [applyTheme]);
+  }, [applyTheme, onUpdateUser, userEmail, userName]);
 
   useEffect(() => {
     loadProfile(true);
@@ -219,7 +253,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="profile-avatar-wrap-box">
               <img
                 id="avatar"
-                src={!imageError && avatarUrl ? avatarUrl : getInitialsAvatar()}
+                src={!imageError && avatarUrl ? getAbsoluteAvatarUrl(avatarUrl) : getInitialsAvatar()}
                 alt="Profile Avatar"
                 className="profile-avatar-element"
                 onError={() => {

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ViewType } from '../types';
 import {
   profileService,
+  extractAvatarFromResponse,
   withAvatarCacheBust,
   recordProfileSaveTimestamp,
   getLatestProfileSaveTimestamp,
@@ -96,8 +97,9 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
         if (profileRes.status === 'fulfilled' && profileRes.value?.success && profileRes.value?.data) {
           const d = profileRes.value.data;
-          if (d.avatar_url) {
-            initialImg = withAvatarCacheBust(d.avatar_url, d.updated_at || Date.now());
+          const rawAvatar = extractAvatarFromResponse(profileRes.value);
+          if (rawAvatar) {
+            initialImg = withAvatarCacheBust(rawAvatar, d.updated_at || Date.now());
           }
         }
 
@@ -388,8 +390,8 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
       recordProfileSaveTimestamp();
 
       // Determine fresh avatar URL with cache busting
-      const rawUrl = saveRes?.data?.avatar_url || serverCropResult?.crop_url || serverCropResult?.file_url || initialAvatarUrl;
-      const freshAvatarUrl = withAvatarCacheBust(rawUrl, saveRes?.data?.updated_at || Date.now());
+      const rawUrl = extractAvatarFromResponse(saveRes) || serverCropResult?.crop_url || serverCropResult?.file_url || initialAvatarUrl;
+      const freshAvatarUrl = rawUrl ? withAvatarCacheBust(rawUrl, saveRes?.data?.updated_at || Date.now()) : null;
 
       // 2. Immediately sync global authenticated user state & cache
       syncAuthenticatedUser({

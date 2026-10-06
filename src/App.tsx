@@ -39,6 +39,7 @@ import {
   api,
   profileService,
   withAvatarCacheBust,
+  extractAvatarFromResponse,
   getLatestProfileSaveTimestamp,
   activityService,
   calendarService,
@@ -99,57 +100,59 @@ export function App() {
     }
   }, []);
 
-  // Fetch user profile from MySQL database on load to sync avatar_url, role, id and name
+  // Fetch user profile from MySQL database on load/refresh to sync avatar_url, role, id and name
   useEffect(() => {
-    if (user && getStoredToken()) {
-      const requestInitiatedAt = Date.now();
-      profileService.getProfile()
-        .then((res) => {
-          // Ignore stale GET responses if a save occurred after this request started
-          if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
+    const token = getStoredToken();
+    if (!token) return;
 
-          if (res && res.success && res.data) {
-            setUser((prev) => {
-              if (!prev) return null;
-              const serverAvatar = res.data.avatar_url !== undefined ? res.data.avatar_url : prev.avatar_url;
-              const cleanAvatar = serverAvatar ? withAvatarCacheBust(serverAvatar, res.data.updated_at || Date.now()) : null;
+    const requestInitiatedAt = Date.now();
+    profileService.getProfile()
+      .then((res) => {
+        // Ignore stale GET responses if a save occurred after this request started
+        if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
 
-              if (
-                prev.id === res.data.id &&
-                prev.full_name === res.data.full_name &&
-                prev.role === res.data.role &&
-                prev.avatar_url === cleanAvatar
-              ) {
-                return prev;
-              }
-              const updated: AuthUser = {
-                ...prev,
-                id: res.data.id || prev.id,
-                full_name: res.data.full_name || prev.full_name,
-                name: res.data.full_name || prev.name,
-                role: res.data.role || prev.role,
-                avatar_url: cleanAvatar,
-              };
-              setStoredUser(updated);
-              console.log('[AUTH] Current user (synced from DB):', {
-                id: updated.id,
-                email: updated.email,
-                role: updated.role,
-              });
-              return updated;
+        if (res && res.success && res.data) {
+          const rawAvatar = extractAvatarFromResponse(res);
+          const cleanAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, res.data.updated_at || Date.now()) : null;
+
+          setUser((prev) => {
+            if (!prev) return null;
+            if (
+              prev.id === res.data.id &&
+              prev.full_name === res.data.full_name &&
+              prev.role === res.data.role &&
+              prev.avatar_url === cleanAvatar
+            ) {
+              return prev;
+            }
+            const updated: AuthUser = {
+              ...prev,
+              id: res.data.id || prev.id,
+              full_name: res.data.full_name || prev.full_name,
+              name: res.data.full_name || prev.name,
+              role: res.data.role || prev.role,
+              avatar_url: cleanAvatar,
+            };
+            setStoredUser(updated);
+            console.log('[AUTH] Current user (synced from DB):', {
+              id: updated.id,
+              email: updated.email,
+              role: updated.role,
+              avatar_url: updated.avatar_url,
             });
-          }
-        })
-        .catch((err) => {
-          if (err?.status === 401) {
-            clearStoredAuth();
-            clearReportCache();
-            setUser(null);
-            navigateToPath('/login');
-          }
-        });
-    }
-  }, [user?.email]);
+            return updated;
+          });
+        }
+      })
+      .catch((err) => {
+        if (err?.status === 401) {
+          clearStoredAuth();
+          clearReportCache();
+          setUser(null);
+          navigateToPath('/login');
+        }
+      });
+  }, []);
 
   // Listen to profile update event from ProfileView or ProfileCropView
   useEffect(() => {

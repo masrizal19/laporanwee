@@ -69,13 +69,49 @@ export const normalizeFileUrl = (rawUrl?: string): string => {
 };
 
 /**
+ * Extracts avatar URL from any backend response structure.
+ * Returns string if present, null if explicitly null, or undefined if not in payload.
+ */
+export const extractAvatarFromResponse = (res: any): string | null | undefined => {
+  if (!res || typeof res !== 'object') return undefined;
+
+  // Direct top-level
+  if ('avatar_url' in res) return res.avatar_url;
+  if ('avatar' in res) return res.avatar;
+
+  // Inside data object
+  if (res.data && typeof res.data === 'object') {
+    if ('avatar_url' in res.data) return res.data.avatar_url;
+    if ('avatar' in res.data) return res.data.avatar;
+    if ('crop_url' in res.data) return res.data.crop_url;
+    if ('file_url' in res.data) return res.data.file_url;
+    if (res.data.user && typeof res.data.user === 'object') {
+      if ('avatar_url' in res.data.user) return res.data.user.avatar_url;
+      if ('avatar' in res.data.user) return res.data.user.avatar;
+    }
+  }
+
+  // Inside user object
+  if (res.user && typeof res.user === 'object') {
+    if ('avatar_url' in res.user) return res.user.avatar_url;
+    if ('avatar' in res.user) return res.user.avatar;
+  }
+
+  return undefined;
+};
+
+/**
  * Safe avatar URL cache-busting helper.
- * Correctly adds or updates ?v= parameter without duplicating query strings.
+ * Correctly normalizes to absolute HTTPS URL and adds or updates ?v= parameter without duplicating query strings.
  */
 export const withAvatarCacheBust = (rawUrl?: string | null, version?: string | number): string => {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
-  const url = rawUrl.trim();
-  if (!url || url.startsWith('data:') || url.startsWith('blob:')) return url;
+  const trimmed = rawUrl.trim();
+  if (!trimmed || trimmed === 'null' || trimmed === 'undefined' || trimmed.includes('placeholder')) return '';
+  if (trimmed.startsWith('data:') || trimmed.startsWith('blob:')) return trimmed;
+
+  const url = getAbsoluteAvatarUrl(trimmed);
+  if (!url) return '';
 
   const v = version !== undefined && version !== null ? String(version) : String(Date.now());
   try {
