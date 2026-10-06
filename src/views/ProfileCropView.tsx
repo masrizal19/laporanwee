@@ -3,7 +3,6 @@ import { ViewType } from '../types';
 import {
   profileService,
   extractAvatarFromResponse,
-  getAbsoluteAvatarUrl,
   withAvatarCacheBust,
   recordProfileSaveTimestamp,
   getLatestProfileSaveTimestamp,
@@ -40,16 +39,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
   const [crop, setCrop] = useState<{ zoom: number; x: number; y: number }>({ zoom: 1, x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
 
-  // Server crop preview result
-  const [serverCropResult, setServerCropResult] = useState<{
-    crop_url?: string;
-    file_url?: string;
-    file_name?: string;
-    avatar_url?: string;
-  } | null>(null);
-
-  const [statusMessage, setStatusMessage] = useState<string>('');
-  const [isProcessingCrop, setIsProcessingCrop] = useState(false);
   const [isSavingCrop, setIsSavingCrop] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -185,7 +174,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     }
 
     setSelectedFile(file);
-    setServerCropResult(null);
     setIsImageLoaded(false);
 
     const reader = new FileReader();
@@ -249,56 +237,17 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
   const handleReset = () => {
     const clamped = clampCoordinates(0, 0, 1);
     setCrop({ zoom: 1, x: clamped.x, y: clamped.y });
-    setStatusMessage('Posisi direset ke awal.');
   };
 
-  // Server Crop Request
-  const handleProcessCrop = async () => {
+  // Direct Save Foto (Combines crop + profile save in one go)
+  const handleSaveCrop = async () => {
     if (!rawImageSrc) {
-      onAddToast('Belum ada foto untuk diproses.');
+      onAddToast('Belum ada foto untuk disimpan.');
       return;
     }
-    setIsProcessingCrop(true);
-    setStatusMessage('Memproses pemotongan gambar...');
-
-    try {
-      let cropRes;
-      if (selectedFile instanceof File) {
-        cropRes = await profileService.cropPhoto({
-          avatar: selectedFile,
-          zoom: crop.zoom,
-          x: crop.x,
-          y: crop.y,
-        });
-      } else {
-        cropRes = await profileService.cropPhoto({
-          avatar: rawImageSrc,
-          zoom: crop.zoom,
-          x: crop.x,
-          y: crop.y,
-        });
-      }
-
-      if (cropRes && cropRes.success) {
-        setServerCropResult(cropRes.data || cropRes);
-        setStatusMessage('Pemotongan berhasil! Silakan simpan.');
-        onAddToast('Preview crop berhasil dibuat.');
-      } else {
-        onAddToast(cropRes?.message || 'Gagal memproses crop.');
-        setStatusMessage('Gagal memproses crop.');
-      }
-    } catch (err: any) {
-      onAddToast('Error crop: ' + (err.message || 'Kesalahan server'));
-      setStatusMessage('Error memproses crop.');
-    } finally {
-      setIsProcessingCrop(false);
-    }
-  };
-
-  // Save Final Profile & Crop via profileService.saveProfile
-  const handleSaveCrop = async () => {
     if (isSavingCrop) return;
     setIsSavingCrop(true);
+
     try {
       const savePayload: any = {
         full_name: profileMeta.full_name,
@@ -311,8 +260,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
       if (selectedFile instanceof File) {
         savePayload.crop_file = selectedFile;
-      } else if (serverCropResult?.crop_url || serverCropResult?.file_url || serverCropResult?.file_name) {
-        savePayload.crop_url = serverCropResult.crop_url || serverCropResult.file_url || serverCropResult.file_name;
       } else if (rawImageSrc && !rawImageSrc.startsWith('data:image/svg+xml')) {
         savePayload.crop_url = rawImageSrc;
       }
@@ -321,9 +268,9 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
       recordProfileSaveTimestamp();
 
       if (res && res.success) {
-        onAddToast('Foto profil dan metadata berhasil disimpan!');
+        onAddToast('Foto profil berhasil disimpan.');
         const d = res.data || res;
-        const rawAvatar = extractAvatarFromResponse(res) || serverCropResult?.crop_url || serverCropResult?.file_url || serverCropResult?.avatar_url;
+        const rawAvatar = extractAvatarFromResponse(res);
         const freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : (d.avatar_url !== undefined ? d.avatar_url : null);
 
         syncAuthenticatedUser({
@@ -352,10 +299,12 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
         onNavigate('profile');
       } else {
-        onAddToast(res?.message || 'Gagal menyimpan foto profil.');
+        const errorMsg = res?.message || 'Gagal menyimpan foto.';
+        onAddToast(`Gagal menyimpan foto: ${errorMsg}`);
       }
     } catch (err: any) {
-      onAddToast('Gagal menyimpan foto: ' + (err.message || 'Kesalahan server'));
+      const errorMsg = err?.message || 'Kesalahan server';
+      onAddToast(`Gagal menyimpan foto: ${errorMsg}`);
     } finally {
       setIsSavingCrop(false);
     }
@@ -373,7 +322,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         onAddToast('Foto profil berhasil dihapus.');
         setRawImageSrc(null);
         setSelectedFile(null);
-        setServerCropResult(null);
 
         syncAuthenticatedUser({
           avatar_url: null,
@@ -390,10 +338,12 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', { detail: { avatar_url: null } }));
         onNavigate('profile');
       } else {
-        onAddToast(res?.message || 'Gagal menghapus foto.');
+        const errorMsg = res?.message || 'Gagal menghapus foto.';
+        onAddToast(`Gagal menghapus foto: ${errorMsg}`);
       }
     } catch (err: any) {
-      onAddToast('Gagal menghapus foto: ' + (err.message || 'Kesalahan server'));
+      const errorMsg = err?.message || 'Kesalahan server';
+      onAddToast(`Gagal menghapus foto: ${errorMsg}`);
     } finally {
       setIsDeleting(false);
     }
@@ -407,8 +357,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     width: imageMeta.w > 0 ? `${imageMeta.w * imageMeta.base}px` : 'auto',
     height: imageMeta.h > 0 ? `${imageMeta.h * imageMeta.base}px` : 'auto',
   };
-
-  const previewAvatarSrc = serverCropResult?.crop_url || serverCropResult?.file_url || serverCropResult?.avatar_url || rawImageSrc;
 
   return (
     <div className="profile-crop-page-root">
@@ -473,7 +421,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
           </button>
         </div>
 
-        {/* Cropper Stage Area */}
+        {/* Cropper Stage Area (Single Preview) */}
         <div
           className="profile-crop-stage"
           ref={cropAreaRef}
@@ -518,7 +466,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         </div>
 
         {/* Zoom Controls Bar */}
-        <div className="profile-zoom-bar" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+        <div className="profile-zoom-bar" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center', marginBottom: '30px' }}>
           <button
             type="button"
             onClick={() => applyZoom(crop.zoom - 0.2)}
@@ -550,38 +498,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
             Reset
           </button>
         </div>
-
-        {/* Action Button: Process Crop */}
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <button
-            type="button"
-            className="profile-top-save-btn"
-            onClick={handleProcessCrop}
-            disabled={isProcessingCrop || !rawImageSrc}
-            style={{ padding: '12px 28px', fontSize: '15px' }}
-          >
-            {isProcessingCrop ? 'Memproses Crop...' : 'Proses Crop Preview'}
-          </button>
-          {statusMessage && (
-            <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--profile-muted, #aaa)' }}>
-              {statusMessage}
-            </div>
-          )}
-        </div>
-
-        {/* Server Crop Result Preview Section */}
-        {previewAvatarSrc && (
-          <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <h3 style={{ fontSize: '15px', marginBottom: '12px', color: '#fff' }}>Preview Hasil Foto Profil</h3>
-            <div style={{ width: '110px', height: '110px', borderRadius: '50%', overflow: 'hidden', margin: '0 auto', border: '2px solid var(--profile-accent, #3b82f6)' }}>
-              <img
-                src={previewAvatarSrc.startsWith('data:') ? previewAvatarSrc : getAbsoluteAvatarUrl(previewAvatarSrc)}
-                alt="Avatar Preview"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </div>
-          </div>
-        )}
       </main>
     </div>
   );
