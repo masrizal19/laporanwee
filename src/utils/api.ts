@@ -10,6 +10,7 @@ import {
   TaskStatus,
   PriorityLevel,
   DailyReportFile,
+  PublicProfile,
 } from '../types';
 
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
@@ -160,6 +161,12 @@ export const syncAuthenticatedUser = (profileData: ProfileUpdatePayload) => {
     ...(profileData.profile_location !== undefined ? { profile_location: profileData.profile_location } : {}),
     avatar_url: profileData.avatar_url !== undefined ? profileData.avatar_url : stored?.avatar_url,
   };
+
+  const userId = updatedUser.id || updatedUser.user_id || stored?.id;
+  if (userId) {
+    updatedUser.user_id = userId;
+    profileAvatarCache.delete(String(userId));
+  }
 
   setStoredUser(updatedUser);
   if (typeof window !== 'undefined') {
@@ -1502,11 +1509,30 @@ export const teamService = {
         if (u.email) onlineUserIdentifiers.add(String(u.email).toLowerCase().trim());
       });
 
+      // Collect user IDs for batch avatar/profile enrichment
+      const memberIds = teamRes.data
+        .map((item: any) => item.id || item.user_id)
+        .filter((val: any) => val !== undefined && val !== null && String(val).trim() !== '');
+
+      const profileMap = new Map<string, PublicProfile>();
+      if (memberIds.length > 0) {
+        try {
+          const profileList = await profileAvatarService.getUsers(memberIds);
+          profileList.forEach((p) => {
+            if (p.user_id) profileMap.set(String(p.user_id).trim(), p);
+            if (p.id) profileMap.set(String(p.id).trim(), p);
+          });
+        } catch (avatarBatchErr) {
+          console.warn('[teamService] Avatar batch fetch notice:', avatarBatchErr);
+        }
+      }
+
       const members: TeamMember[] = teamRes.data
         .filter((item: any) => item.status === 'active' || item.status === undefined)
         .map((item: any): TeamMember => {
-          const itemId = String(item.id || '');
+          const itemId = String(item.id || item.user_id || '').trim();
           const itemEmail = String(item.email || '').toLowerCase().trim();
+          const prof = profileMap.get(itemId);
           
           const isOnlineFromPresence = onlineUserIdentifiers.has(itemId) || onlineUserIdentifiers.has(itemEmail);
           const isOnlineFallback = Boolean(
@@ -1528,20 +1554,27 @@ export const teamService = {
               ? 'Frontend Dev'
               : 'Anggota Tim';
 
-          const memberName = item.full_name || item.name || item.email?.split('@')[0] || 'Anggota Tim';
-          const rawImg = item.avatar_url || item.profile_photo || item.img || '';
-          const resolvedImg = getAbsoluteAvatarUrl(rawImg, memberName);
+          const memberName = prof?.full_name || prof?.name || item.full_name || item.name || item.email?.split('@')[0] || 'Anggota Tim';
+          const memberTitle = prof?.profile_title !== undefined && prof.profile_title !== '' ? prof.profile_title : (item.profile_title || '');
+          const memberLocation = prof?.profile_location !== undefined && prof.profile_location !== '' ? prof.profile_location : (item.profile_location || '');
+          
+          // Strict avatar priority: profileAvatarService > item.avatar_url
+          const rawAvatarUrl = prof?.avatar_url !== undefined && prof?.avatar_url !== null
+            ? prof.avatar_url
+            : (item.avatar_url || item.profile_photo || null);
+          const resolvedImg = rawAvatarUrl ? getAbsoluteAvatarUrl(rawAvatarUrl, memberName) : undefined;
 
           return {
-            id: String(item.id),
+            id: itemId,
+            user_id: itemId,
             name: memberName,
-            full_name: item.full_name,
+            full_name: memberName,
             email: item.email || '',
             role: roleLabel,
             img: resolvedImg,
-            avatar_url: rawImg || null,
-            profile_title: item.profile_title || '',
-            profile_location: item.profile_location || '',
+            avatar_url: rawAvatarUrl,
+            profile_title: memberTitle,
+            profile_location: memberLocation,
             status: isOnline ? 'working' : 'offline',
             is_online: isOnline,
             last_seen: item.last_seen || null,
@@ -2082,6 +2115,119 @@ export const profileService = {
     return api.post('/profile/settings.php', settings);
   },
 };
+
+// ==========================================
+// PROFILE AVATAR SERVICE (/api/profile/avatar/)
+// ==========================================
+const profileAvatarCache = new Map<string, PublicProfile>();
+
+export const profileAvatarService = {
+  getUserProfile: async (userId: string | number, forceRefresh = false): Promise<PublicProfile | null> => {
+    const key = String(userId).trim();
+    if (!key) return null;
+
+    if (!forceRefresh && profileAvatarCache.has(key)) {
+      return profileAvatarCache.get(key)!;
+    }
+
+    try {
+      const res = await api.get(`/profile/avatar/get.php?user_id=${encodeURIComponent(key)}`);
+      const data = res?.data || res?.user || res;
+      if (data) {
+        const item: PublicProfile = {
+          id: data.id || data.user_id || key,
+          user_id: data.user_id || data.id || key,
+          full_name: data.full_name || data.name || '',
+          name: data.full_name || data.name || '',
+          profile_title: data.profile_title || '',
+          profile_location: data.profile_location || '',
+          avatar_url: data.avatar_url || null,
+          email: data.email || '',
+          role: data.role || '',
+        };
+        profileAvatarCache.set(key, item);
+        return item;
+      }
+      return null;
+    } catch (err) {
+      console.warn(`[profileAvatarService] Failed to fetch profile for user ${key}:`, err);
+      return null;
+    }
+  },
+
+  getUsers: async (userIds?: (string | number)[], forceRefresh = false): Promise<PublicProfile[]> => {
+    try {
+      let url = '/profile/avatar/list.php';
+      if (userIds && userIds.length > 0) {
+        const uniqueIds = Array.from(new Set(userIds.map((id) => String(id).trim()).filter(Boolean)));
+        
+        if (!forceRefresh) {
+          const missingIds = uniqueIds.filter((id) => !profileAvatarCache.has(id));
+          if (missingIds.length === 0) {
+            return uniqueIds.map((id) => profileAvatarCache.get(id)!).filter(Boolean);
+          }
+          url = `/profile/avatar/list.php?ids=${encodeURIComponent(missingIds.join(','))}`;
+        } else {
+          url = `/profile/avatar/list.php?ids=${encodeURIComponent(uniqueIds.join(','))}`;
+        }
+      }
+
+      const res = await api.get(url);
+      const rawList: any[] = Array.isArray(res?.data)
+        ? res.data
+        : (Array.isArray(res?.users)
+          ? res.users
+          : (Array.isArray(res) ? res : []));
+
+      rawList.forEach((data: any) => {
+        const uid = String(data.user_id || data.id || '').trim();
+        if (uid) {
+          const item: PublicProfile = {
+            id: uid,
+            user_id: uid,
+            full_name: data.full_name || data.name || '',
+            name: data.full_name || data.name || '',
+            profile_title: data.profile_title || '',
+            profile_location: data.profile_location || '',
+            avatar_url: data.avatar_url || null,
+            email: data.email || '',
+            role: data.role || '',
+          };
+          profileAvatarCache.set(uid, item);
+        }
+      });
+
+      if (userIds && userIds.length > 0) {
+        return userIds
+          .map((id) => profileAvatarCache.get(String(id).trim()))
+          .filter(Boolean) as PublicProfile[];
+      }
+
+      return Array.from(profileAvatarCache.values());
+    } catch (err) {
+      console.warn('[profileAvatarService] Failed to fetch users batch:', err);
+      if (userIds && userIds.length > 0) {
+        return userIds
+          .map((id) => profileAvatarCache.get(String(id).trim()))
+          .filter(Boolean) as PublicProfile[];
+      }
+      return [];
+    }
+  },
+
+  invalidateCache: (userId: string | number) => {
+    profileAvatarCache.delete(String(userId).trim());
+  },
+
+  clearCache: () => {
+    profileAvatarCache.clear();
+  },
+
+  getCached: (userId: string | number): PublicProfile | undefined => {
+    return profileAvatarCache.get(String(userId).trim());
+  },
+};
+
 
 
 

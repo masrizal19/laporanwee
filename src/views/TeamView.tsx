@@ -10,6 +10,7 @@ interface TeamViewProps {
   isAdmin?: boolean;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
+  onSelectUserProfile?: (userId: string | number) => void;
   onDeleteActivity?: (id: string) => void;
   onResetActivities?: () => void;
   onResetPresence?: () => void;
@@ -22,6 +23,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
   isAdmin = false,
   onNavigate,
   onAddToast,
+  onSelectUserProfile,
   onDeleteActivity,
   onResetActivities,
   onResetPresence,
@@ -410,15 +412,42 @@ export const TeamView: React.FC<TeamViewProps> = ({
                     Tidak ada anggota yang sedang online saat ini.
                   </div>
                 ) : (
-                  workingMembers.map((m) => (
-                    <div key={m.id} className="member-row">
-                      {renderMemberAvatar(m, '36px', '13px')}
-                      <div className="m-info">
-                        <b>{m.name}</b>
-                        <span>{m.profile_title || m.role}</span>
+                  workingMembers.map((m) => {
+                    const targetId = m.user_id || m.id;
+                    const displayName = m.full_name || m.name;
+                    return (
+                      <div
+                        key={m.id}
+                        className="member-row"
+                        style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                        onClick={() => {
+                          if (onSelectUserProfile) {
+                            onSelectUserProfile(targetId);
+                          } else {
+                            onNavigate('user-profile');
+                          }
+                        }}
+                        title={`Lihat profil ${displayName}`}
+                      >
+                        {renderMemberAvatar(m, '38px', '13px')}
+                        <div className="m-info" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <b style={{ fontSize: '13px', lineHeight: 1.2 }}>{displayName}</b>
+                          <span style={{ fontSize: '12px', color: 'var(--text-main, #14131a)', fontWeight: 500 }}>
+                            {m.profile_title || 'Belum diatur'}
+                          </span>
+                          {m.profile_location ? (
+                            <span style={{ fontSize: '11px', color: 'var(--muted, #64748b)' }}>
+                              {m.profile_location}
+                            </span>
+                          ) : null}
+                          <span style={{ fontSize: '11px', color: '#1e6e56', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#1e6e56', display: 'inline-block' }} />
+                            Sedang Bekerja Online
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>
@@ -435,15 +464,42 @@ export const TeamView: React.FC<TeamViewProps> = ({
                     Semua anggota sedang online.
                   </div>
                 ) : (
-                  offlineMembers.map((m) => (
-                    <div key={m.id} className="member-row">
-                      {renderMemberAvatar(m, '36px', '13px')}
-                      <div className="m-info">
-                        <b>{m.name}</b>
-                        <span>{m.profile_title || m.role}</span>
+                  offlineMembers.map((m) => {
+                    const targetId = m.user_id || m.id;
+                    const displayName = m.full_name || m.name;
+                    return (
+                      <div
+                        key={m.id}
+                        className="member-row"
+                        style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+                        onClick={() => {
+                          if (onSelectUserProfile) {
+                            onSelectUserProfile(targetId);
+                          } else {
+                            onNavigate('user-profile');
+                          }
+                        }}
+                        title={`Lihat profil ${displayName}`}
+                      >
+                        {renderMemberAvatar(m, '38px', '13px')}
+                        <div className="m-info" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <b style={{ fontSize: '13px', lineHeight: 1.2 }}>{displayName}</b>
+                          <span style={{ fontSize: '12px', color: 'var(--text-main, #14131a)', fontWeight: 500 }}>
+                            {m.profile_title || 'Belum diatur'}
+                          </span>
+                          {m.profile_location ? (
+                            <span style={{ fontSize: '11px', color: 'var(--muted, #64748b)' }}>
+                              {m.profile_location}
+                            </span>
+                          ) : null}
+                          <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#9ca3af', display: 'inline-block' }} />
+                            Offline
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 )}
               </div>
             </div>

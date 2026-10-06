@@ -327,6 +327,8 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
         window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', {
           detail: {
+            id: d.id,
+            user_id: d.id || d.user_id,
             avatar_url: freshAvatar,
             full_name: d.full_name || profileMeta.full_name,
             profile_title: d.profile_title !== undefined ? d.profile_title : profileMeta.profile_title,

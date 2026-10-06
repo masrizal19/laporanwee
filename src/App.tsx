@@ -28,6 +28,7 @@ import { TeamView } from './views/TeamView';
 import { CalendarView } from './views/CalendarView';
 import { ProfileView } from './views/ProfileView';
 import { ProfileCropView } from './views/ProfileCropView';
+import { UserProfileView } from './views/UserProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AdminUISettingsView } from './views/AdminUISettingsView';
 
@@ -38,6 +39,7 @@ import { VerifyEmailView } from './views/VerifyEmailView';
 import {
   api,
   profileService,
+  profileAvatarService,
   withAvatarCacheBust,
   getAbsoluteAvatarUrl,
   extractAvatarFromResponse,
@@ -186,6 +188,11 @@ export function App() {
       });
 
       // Synchronize presence list / team members if current user is in members list
+      const uidToInvalidate = detail.user_id || detail.id || targetId;
+      if (uidToInvalidate) {
+        profileAvatarService.invalidateCache(uidToInvalidate);
+      }
+
       setMembers((prevMembers) =>
         prevMembers.map((m) => {
           const isMatch = (targetId && String(m.id) === targetId) || (targetEmail && m.email?.toLowerCase() === targetEmail);
@@ -231,11 +238,18 @@ export function App() {
       '/profil',
       '/profile',
       '/profil/crop',
+      '/profil/user',
     ];
+    if (hashPart && hashPart.startsWith('/profil/user')) {
+      return '/profil/user';
+    }
     if (validPaths.includes(hashPart)) {
       return hashPart;
     }
     const path = window.location.pathname.split('?')[0];
+    if (path.startsWith('/profil/user')) {
+      return '/profil/user';
+    }
     const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
       if (cleanPath === validPath || cleanPath.endsWith(validPath)) {
@@ -374,6 +388,7 @@ export function App() {
     '/profil': 'profile',
     '/profile': 'profile',
     '/profil/crop': 'profile-crop',
+    '/profil/user': 'user-profile',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -388,6 +403,7 @@ export function App() {
     'create-report': '/laporan',
     'profile': '/profil',
     'profile-crop': '/profil/crop',
+    'user-profile': '/profil/user',
     'analytics': '/analitik',
     'ui-settings': '/admin/ui-settings',
   };
@@ -417,6 +433,7 @@ export function App() {
   const [analytics, setAnalytics] = useState<AnalyticsSummary | undefined>(undefined);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [selectedUserProfileId, setSelectedUserProfileId] = useState<string | number | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string>(() => {
     return localStorage.getItem('laporanwee_selected_report_id') || '';
   });
@@ -928,6 +945,12 @@ export function App() {
     const targetPath = viewToPathMap[view] || '/dashboard';
     navigateToPath(targetPath);
     setCurrentView(view);
+  };
+
+  const handleSelectUserProfile = (userId: string | number) => {
+    setSelectedUserProfileId(userId);
+    navigateToPath(`/profil/user/${userId}`);
+    setCurrentView('user-profile');
   };
 
   // Projects CRUD strictly connected to backend MySQL API
@@ -1801,6 +1824,7 @@ export function App() {
             reports={reports}
             onNavigate={handleNavigate}
             onSelectReport={(id) => setSelectedReportId(id)}
+            onSelectUserProfile={handleSelectUserProfile}
             onAddToast={addToast}
           />
         )}
@@ -1869,10 +1893,19 @@ export function App() {
             isAdmin={isAdmin}
             onNavigate={handleNavigate}
             onAddToast={addToast}
+            onSelectUserProfile={handleSelectUserProfile}
             onDeleteActivity={handleDeleteActivity}
             onResetActivities={handleResetActivities}
             onResetPresence={handleResetPresence}
             onRefreshTeam={refreshTeamFromApi}
+          />
+        )}
+
+        {currentView === 'user-profile' && (
+          <UserProfileView
+            userId={selectedUserProfileId || ''}
+            onNavigate={handleNavigate}
+            onAddToast={addToast}
           />
         )}
 

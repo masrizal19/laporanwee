@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Project, Task, Report, ViewType, ProjectDocument } from '../types';
+import { Project, Task, Report, ViewType, ProjectDocument, ProjectTeamMember } from '../types';
 import { Icon } from '../components/icons';
 import { projectService } from '../utils/projectService';
 import { MediaViewerModal } from '../components/MediaViewerModal';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
-import { getAbsoluteAvatarUrl } from '../utils/api';
+import { getAbsoluteAvatarUrl, profileAvatarService } from '../utils/api';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -13,6 +13,7 @@ interface ProjectDetailViewProps {
   onNavigate: (view: ViewType) => void;
   onSelectReport: (reportId: string) => void;
   onAddToast: (text: string) => void;
+  onSelectUserProfile?: (userId: string | number) => void;
   onUpdateProject?: (project: Project) => void;
 }
 
@@ -23,12 +24,52 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   onNavigate,
   onSelectReport,
   onAddToast,
+  onSelectUserProfile,
 }) => {
   // Project documents state
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  // Enriched project team members based on user_id
+  const [enrichedTeamMembers, setEnrichedTeamMembers] = useState<ProjectTeamMember[]>(() => {
+    return project.teamMembers || [];
+  });
+
+  useEffect(() => {
+    if (project.teamMembers && project.teamMembers.length > 0) {
+      const missingIds = project.teamMembers
+        .filter((m) => !m.avatar_url && m.user_id)
+        .map((m) => m.user_id);
+
+      if (missingIds.length > 0) {
+        profileAvatarService.getUsers(missingIds).then((profiles) => {
+          const profileMap = new Map<string, any>();
+          profiles.forEach((p) => profileMap.set(String(p.user_id || p.id), p));
+          setEnrichedTeamMembers(
+            project.teamMembers!.map((m) => {
+              const prof = profileMap.get(String(m.user_id));
+              return {
+                ...m,
+                full_name: prof?.full_name || m.full_name,
+                avatar_url: prof?.avatar_url || m.avatar_url,
+                profile_title: prof?.profile_title || m.profile_title,
+                profile_location: prof?.profile_location || m.profile_location,
+              };
+            })
+          );
+        }).catch((e) => {
+          console.warn('[ProjectDetailView] Avatar enrichment notice:', e);
+          setEnrichedTeamMembers(project.teamMembers || []);
+        });
+      } else {
+        setEnrichedTeamMembers(project.teamMembers);
+      }
+    } else {
+      setEnrichedTeamMembers([]);
+    }
+  }, [project.teamMembers]);
 
   // Edit document metadata state
   const [editingDoc, setEditingDoc] = useState<ProjectDocument | null>(null);
@@ -583,18 +624,74 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
               </div>
               <div className="sum-mid">
                 <div className="sl">Tim Penanggung Jawab</div>
-                <div className="avatar-stack" style={{ marginTop: '4px' }}>
-                  {project.team.map((img, i) => (
-                    <img
-                      key={i}
-                      src={getAbsoluteAvatarUrl(img)}
-                      alt="Tim"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  ))}
-                </div>
+                {enrichedTeamMembers.length > 0 ? (
+                  <div className="avatar-stack" style={{ marginTop: '4px' }}>
+                    {enrichedTeamMembers.map((tm) => {
+                      const avatarSrc = tm.avatar_url ? getAbsoluteAvatarUrl(tm.avatar_url, tm.full_name) : null;
+                      return (
+                        <div
+                          key={String(tm.user_id)}
+                          onClick={() => {
+                            if (onSelectUserProfile) {
+                              onSelectUserProfile(tm.user_id);
+                            } else {
+                              onNavigate('user-profile');
+                            }
+                          }}
+                          style={{ cursor: 'pointer', display: 'inline-block' }}
+                          title={`${tm.full_name}${tm.profile_title ? ` (${tm.profile_title})` : ''}`}
+                        >
+                          {avatarSrc ? (
+                            <img
+                              src={avatarSrc}
+                              alt={tm.full_name}
+                              style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '32px',
+                                height: '32px',
+                                borderRadius: '50%',
+                                background: 'var(--primary-color, #4A55FF)',
+                                color: '#fff',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                              }}
+                            >
+                              {(tm.full_name || 'U').trim().charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : project.team && project.team.length > 0 ? (
+                  <div style={{ marginTop: '4px' }}>
+                    <div className="avatar-stack">
+                      {project.team.map((img, i) => (
+                        <img
+                          key={i}
+                          src={getAbsoluteAvatarUrl(img)}
+                          alt="Tim"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+                    Backend belum menyediakan user_id anggota tim proyek ini.
+                  </div>
+                )}
               </div>
             </div>
 

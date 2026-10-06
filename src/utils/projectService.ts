@@ -1,12 +1,6 @@
-import { Project, ProjectDocument } from '../types';
+import { Project, ProjectDocument, ProjectTeamMember } from '../types';
 import { api, API_BASE_URL } from './api';
 import { formatFileSize } from './taskDocuments';
-
-const DEFAULT_TEAM_AVATARS = [
-  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=100&auto=format&fit=crop&q=80',
-  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100&auto=format&fit=crop&q=80',
-];
 
 /**
   Map category string from backend to frontend icon key and readable label
@@ -52,6 +46,24 @@ export const mapBackendProject = (item: any): Project => {
     evidence_urls = [item.cover_url];
   }
 
+  // Audit if backend supplies team_members, members, or assignees
+  let teamMembers: ProjectTeamMember[] = [];
+  const rawMembers = item.team_members || item.members || item.assignees;
+  if (Array.isArray(rawMembers) && rawMembers.length > 0) {
+    teamMembers = rawMembers.map((m: any) => ({
+      user_id: m.user_id || m.id,
+      full_name: m.full_name || m.name || '',
+      profile_title: m.profile_title || '',
+      profile_location: m.profile_location || '',
+      avatar_url: m.avatar_url || null,
+    }));
+  }
+
+  // Use team array if provided by backend, otherwise empty
+  const teamUrls: string[] = Array.isArray(item.team)
+    ? item.team.filter((t: any) => typeof t === 'string' && t.trim() !== '')
+    : [];
+
   return {
     id: String(item.id),
     name,
@@ -62,7 +74,8 @@ export const mapBackendProject = (item: any): Project => {
     desc,
     description: desc,
     progress,
-    team: Array.isArray(item.team) && item.team.length > 0 ? item.team : DEFAULT_TEAM_AVATARS,
+    team: teamUrls,
+    teamMembers: teamMembers.length > 0 ? teamMembers : undefined,
     due,
     deadline: due,
     status,

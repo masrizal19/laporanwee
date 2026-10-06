@@ -10,6 +10,7 @@ export type ViewType =
   | 'create-report'
   | 'profile'
   | 'profile-crop'
+  | 'user-profile'
   | 'analytics'
   | 'ui-settings';
 
@@ -48,9 +49,10 @@ export interface AuthUser {
 
 export interface TeamMember {
   id: string;
+  user_id?: string | number;
   name: string;
   full_name?: string;
-  email: string;
+  email?: string;
   role: string;
   img?: string;
   avatar_url?: string | null;
@@ -59,6 +61,26 @@ export interface TeamMember {
   status: 'working' | 'break' | 'offline';
   is_online?: boolean;
   last_seen?: string | null;
+}
+
+export interface ProjectTeamMember {
+  user_id: string | number;
+  full_name: string;
+  profile_title?: string;
+  profile_location?: string;
+  avatar_url?: string | null;
+}
+
+export interface PublicProfile {
+  id: string | number;
+  user_id?: string | number;
+  full_name: string;
+  name?: string;
+  profile_title?: string;
+  profile_location?: string;
+  avatar_url?: string | null;
+  email?: string;
+  role?: string;
 }
 
 export interface DailyActivityItem {
@@ -120,6 +142,7 @@ export interface Project {
   description?: string;
   progress: number;
   team: string[];
+  teamMembers?: ProjectTeamMember[];
   due: string;
   deadline?: string;
   status: 'Active' | 'In Review' | 'Completed' | string;

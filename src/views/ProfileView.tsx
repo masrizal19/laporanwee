@@ -244,7 +244,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         }
 
         syncAuthenticatedUser({
+          id: d.id,
           name: freshName,
+          full_name: freshName,
           email,
           profile_title: freshJob,
           profile_location: freshStatus,
