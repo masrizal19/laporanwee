@@ -43,8 +43,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [croppedBlob, setCroppedBlob] = useState<Blob | null>(null);
   const [croppedPreviewUrl, setCroppedPreviewUrl] = useState<string | null>(null);
   const [zoom, setZoom] = useState<number>(1);
-  const [panX, setPanX] = useState<number>(0);
-  const [panY, setPanY] = useState<number>(0);
+  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [imageDims, setImageDims] = useState<{ width: number; height: number; baseScale: number } | null>(null);
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
@@ -54,17 +53,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const dragStartRef = useRef<{
     startX: number;
     startY: number;
-    initialPanX: number;
-    initialPanY: number;
-  }>({ startX: 0, startY: 0, initialPanX: 0, initialPanY: 0 });
-  const panRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+    initialX: number;
+    initialY: number;
+  }>({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+  const positionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
   const imageDimsRef = useRef<{ width: number; height: number; baseScale: number } | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
-    panRef.current = { x: panX, y: panY };
-  }, [panX, panY]);
+    positionRef.current = position;
+  }, [position]);
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -74,6 +73,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     imageDimsRef.current = imageDims;
   }, [imageDims]);
 
+  const computeMaxPan = (z: number, dims: { width: number; height: number; baseScale: number } | null) => {
+    if (!dims) return { maxX: 0, maxY: 0 };
+    const scaledW = dims.width * dims.baseScale * z;
+    const scaledH = dims.height * dims.baseScale * z;
+    const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
+    const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
+    return { maxX, maxY };
+  };
+
   // Global window listeners while dragging to guarantee smooth dragging even outside container
   useEffect(() => {
     if (!isDragging) return;
@@ -82,8 +90,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       if (!isDraggingRef.current) return;
       const dx = e.clientX - dragStartRef.current.startX;
       const dy = e.clientY - dragStartRef.current.startY;
-      const nextX = dragStartRef.current.initialPanX + dx;
-      const nextY = dragStartRef.current.initialPanY + dy;
+      const rawX = dragStartRef.current.initialX + dx;
+      const rawY = dragStartRef.current.initialY + dy;
 
       const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
         width: imgRef.current.naturalWidth,
@@ -91,23 +99,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
       } : null);
 
-      if (dims) {
-        const currentZoom = zoomRef.current;
-        const scaledW = dims.width * dims.baseScale * currentZoom;
-        const scaledH = dims.height * dims.baseScale * currentZoom;
-        const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
-        const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
-        const clampedX = Math.max(-maxX, Math.min(maxX, nextX));
-        const clampedY = Math.max(-maxY, Math.min(maxY, nextY));
+      const { maxX, maxY } = computeMaxPan(zoomRef.current, dims);
+      const clampedX = Math.max(-maxX, Math.min(maxX, rawX));
+      const clampedY = Math.max(-maxY, Math.min(maxY, rawY));
 
-        setPanX(clampedX);
-        setPanY(clampedY);
-        panRef.current = { x: clampedX, y: clampedY };
-      } else {
-        setPanX(nextX);
-        setPanY(nextY);
-        panRef.current = { x: nextX, y: nextY };
-      }
+      setPosition({ x: clampedX, y: clampedY });
+      positionRef.current = { x: clampedX, y: clampedY };
     };
 
     const onGlobalPointerUp = () => {
@@ -142,9 +139,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       imageDimsRef.current = newDims;
       setZoom(1);
       zoomRef.current = 1;
-      setPanX(0);
-      setPanY(0);
-      panRef.current = { x: 0, y: 0 };
+      setPosition({ x: 0, y: 0 });
+      positionRef.current = { x: 0, y: 0 };
       isDraggingRef.current = false;
       setIsDragging(false);
       setRawImageSrc(src);
@@ -212,23 +208,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
     } : null);
 
-    if (dims) {
-      const scaledW = dims.width * dims.baseScale * clampedZoom;
-      const scaledH = dims.height * dims.baseScale * clampedZoom;
-      const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
-      const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
-
-      setPanX((prevX) => {
-        const nextX = Math.max(-maxX, Math.min(maxX, prevX));
-        panRef.current.x = nextX;
-        return nextX;
-      });
-      setPanY((prevY) => {
-        const nextY = Math.max(-maxY, Math.min(maxY, prevY));
-        panRef.current.y = nextY;
-        return nextY;
-      });
-    }
+    const { maxX, maxY } = computeMaxPan(clampedZoom, dims);
+    setPosition((prev) => {
+      const nextX = Math.max(-maxX, Math.min(maxX, prev.x));
+      const nextY = Math.max(-maxY, Math.min(maxY, prev.y));
+      positionRef.current = { x: nextX, y: nextY };
+      return { x: nextX, y: nextY };
+    });
   };
 
   // Pointer Events for smooth drag across desktop mouse and touch (Target 4, 5, 9)
@@ -244,8 +230,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     dragStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      initialPanX: panRef.current.x,
-      initialPanY: panRef.current.y,
+      initialX: positionRef.current.x,
+      initialY: positionRef.current.y,
     };
   };
 
@@ -254,8 +240,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     e.preventDefault();
     const dx = e.clientX - dragStartRef.current.startX;
     const dy = e.clientY - dragStartRef.current.startY;
-    const nextX = dragStartRef.current.initialPanX + dx;
-    const nextY = dragStartRef.current.initialPanY + dy;
+    const rawX = dragStartRef.current.initialX + dx;
+    const rawY = dragStartRef.current.initialY + dy;
 
     const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
       width: imgRef.current.naturalWidth,
@@ -263,22 +249,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
     } : null);
 
-    if (dims) {
-      const scaledW = dims.width * dims.baseScale * zoomRef.current;
-      const scaledH = dims.height * dims.baseScale * zoomRef.current;
-      const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
-      const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
-      const clampedX = Math.max(-maxX, Math.min(maxX, nextX));
-      const clampedY = Math.max(-maxY, Math.min(maxY, nextY));
+    const { maxX, maxY } = computeMaxPan(zoomRef.current, dims);
+    const clampedX = Math.max(-maxX, Math.min(maxX, rawX));
+    const clampedY = Math.max(-maxY, Math.min(maxY, rawY));
 
-      setPanX(clampedX);
-      setPanY(clampedY);
-      panRef.current = { x: clampedX, y: clampedY };
-    } else {
-      setPanX(nextX);
-      setPanY(nextY);
-      panRef.current = { x: nextX, y: nextY };
-    }
+    setPosition({ x: clampedX, y: clampedY });
+    positionRef.current = { x: clampedX, y: clampedY };
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -307,9 +283,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const handleResetCrop = () => {
     setZoom(1);
     zoomRef.current = 1;
-    setPanX(0);
-    setPanY(0);
-    panRef.current = { x: 0, y: 0 };
+    setPosition({ x: 0, y: 0 });
+    positionRef.current = { x: 0, y: 0 };
     isDraggingRef.current = false;
     setIsDragging(false);
   };
@@ -350,14 +325,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       const canvasScale = outputSize / CONTAINER_SIZE;
       const currentZoom = zoomRef.current;
-      const currentPanX = panRef.current.x;
-      const currentPanY = panRef.current.y;
+      const currentX = positionRef.current.x;
+      const currentY = positionRef.current.y;
 
       const displayedW = dims.width * dims.baseScale * currentZoom;
       const displayedH = dims.height * dims.baseScale * currentZoom;
 
-      const centerX = CONTAINER_SIZE / 2 + currentPanX;
-      const centerY = CONTAINER_SIZE / 2 + currentPanY;
+      const centerX = CONTAINER_SIZE / 2 + currentX;
+      const centerY = CONTAINER_SIZE / 2 + currentY;
 
       const drawX = (centerX - displayedW / 2) * canvasScale;
       const drawY = (centerY - displayedH / 2) * canvasScale;
@@ -860,7 +835,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       top: `${top}px`,
                       width: `${baseWidth}px`,
                       height: `${baseHeight}px`,
-                      transform: `translate3d(${panX}px, ${panY}px, 0) scale(${zoom})`,
+                      transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${zoom})`,
                       transformOrigin: 'center center',
                       maxWidth: 'none',
                       maxHeight: 'none',
