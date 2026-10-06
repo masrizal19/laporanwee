@@ -38,7 +38,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   avatarUrl: initialAvatarUrl,
   onUpdateUser,
 }) => {
-  // Profile State
+  // Profile State (Committed State)
   const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
   const [profileTitle, setProfileTitle] = useState('');
@@ -46,7 +46,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
   const [imageError, setImageError] = useState(false);
 
-  // Inline editing state: 'name' | 'job' | 'status' | null
+  // Active editing state: 'name' | 'job' | 'status' | null
   const [editingField, setEditingField] = useState<'name' | 'job' | 'status' | null>(null);
   const [tempName, setTempName] = useState(name);
   const [tempJob, setTempJob] = useState(profileTitle);
@@ -55,17 +55,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
+  // Ref to hold current props & state for event listeners without triggering useEffect re-runs
+  const stateRef = useRef({ name, email, profileTitle, profileStatus, avatarUrl });
   useEffect(() => {
-    setTempName(name);
-  }, [name]);
-
-  useEffect(() => {
-    setTempJob(profileTitle);
-  }, [profileTitle]);
-
-  useEffect(() => {
-    setTempStatus(profileStatus);
-  }, [profileStatus]);
+    stateRef.current = { name, email, profileTitle, profileStatus, avatarUrl };
+  }, [name, email, profileTitle, profileStatus, avatarUrl]);
 
   useEffect(() => {
     setImageError(false);
@@ -90,69 +84,70 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     if (themeObj.surface_color) targetEl.style.setProperty('--profile-surface', themeObj.surface_color);
   }, []);
 
-  // Load Profile from modular /api/profile/get.php
-  const loadProfile = useCallback(async (quiet = false) => {
+  // Load Profile once on mount (no dependency loop!)
+  useEffect(() => {
+    let isMounted = true;
     const requestInitiatedAt = Date.now();
-    try {
-      const res = await profileService.getProfile();
-      if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
 
-      if (res && res.success && res.data) {
-        const d = res.data;
-        const freshName = d.full_name || d.name;
-        if (freshName) {
+    const fetchInitialProfile = async () => {
+      try {
+        const res = await profileService.getProfile();
+        if (!isMounted) return;
+        if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
+
+        if (res && res.success && res.data) {
+          const d = res.data;
+          const freshName = d.full_name || d.name || userName;
+          const freshEmail = d.email || userEmail;
+          const freshTitle = d.profile_title !== undefined ? d.profile_title : (d.title || '');
+          const rawStatus = d.profile_location !== undefined ? d.profile_location : (d.status || d.location || '');
+          const freshStatus = ['Karyawan', 'Anak Magang', 'Anak PKL'].includes(rawStatus) ? rawStatus : '';
+
           setName(freshName);
           setTempName(freshName);
-        }
-        if (d.email) setEmail(d.email);
+          setEmail(freshEmail);
+          setProfileTitle(freshTitle);
+          setTempJob(freshTitle);
+          setProfileStatus(freshStatus);
+          setTempStatus(freshStatus);
 
-        const freshTitle = d.profile_title !== undefined ? d.profile_title : (d.title || '');
-        setProfileTitle(freshTitle);
-        setTempJob(freshTitle);
+          const rawAvatar = extractAvatarFromResponse(res);
+          let freshAvatar: string | null = null;
+          if (rawAvatar !== undefined) {
+            freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : null;
+            setAvatarUrl(freshAvatar);
+          }
 
-        const freshStatus = d.profile_location !== undefined ? d.profile_location : (d.status || d.location || '');
-        setProfileStatus(freshStatus);
-        setTempStatus(freshStatus);
-
-        const rawAvatar = extractAvatarFromResponse(res);
-        let freshAvatar = avatarUrl;
-        if (rawAvatar !== undefined) {
-          freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : null;
-          setAvatarUrl(freshAvatar);
-        }
-
-        syncAuthenticatedUser({
-          name: freshName || userName,
-          email: d.email || userEmail,
-          profile_title: freshTitle,
-          profile_location: freshStatus,
-          avatar_url: freshAvatar,
-        });
-
-        if (onUpdateUser) {
-          onUpdateUser({
-            name: freshName || userName,
-            email: d.email || userEmail,
+          syncAuthenticatedUser({
+            name: freshName,
+            email: freshEmail,
             profile_title: freshTitle,
             profile_location: freshStatus,
             avatar_url: freshAvatar,
           });
+
+          if (onUpdateUser) {
+            onUpdateUser({
+              name: freshName,
+              email: freshEmail,
+              profile_title: freshTitle,
+              profile_location: freshStatus,
+              avatar_url: freshAvatar,
+            });
+          }
+
+          if (d.theme) {
+            applyTheme(d.theme);
+          }
         }
-
-        if (d.theme) {
-          applyTheme(d.theme);
-        }
+      } catch (err) {
+        console.warn('[PROFILE] Initial load notice:', err);
       }
-    } catch (err: any) {
-      if (!quiet) {
-        console.warn('[PROFILE] loadProfile notice:', err);
-      }
-    }
-  }, [applyTheme, onUpdateUser, userEmail, userName, avatarUrl]);
+    };
 
-  useEffect(() => {
-    loadProfile(true);
+    fetchInitialProfile();
 
+    // Listen to custom profile update event
     const handleProfileUpdated = (e: any) => {
       const detail = e.detail;
       if (!detail) return;
@@ -166,8 +161,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         setTempJob(detail.profile_title);
       }
       if (detail.profile_location !== undefined) {
-        setProfileStatus(detail.profile_location);
-        setTempStatus(detail.profile_location);
+        const validStatus = ['Karyawan', 'Anak Magang', 'Anak PKL'].includes(detail.profile_location) ? detail.profile_location : '';
+        setProfileStatus(validStatus);
+        setTempStatus(validStatus);
       }
       if (detail.avatar_url !== undefined) {
         setAvatarUrl(detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null);
@@ -176,11 +172,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
     window.addEventListener('laporanwee-profile-updated', handleProfileUpdated);
     return () => {
+      isMounted = false;
       window.removeEventListener('laporanwee-profile-updated', handleProfileUpdated);
     };
-  }, [loadProfile]);
+  }, []); // Run only on mount!
 
-  // Commit any active inline edit before saving
+  // Commit any active inline edit before saving or switching fields
   const commitActiveEdit = () => {
     if (editingField === 'name') {
       const trimmed = tempName.trim();
@@ -190,18 +187,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const trimmed = tempJob.trim();
       setProfileTitle(trimmed);
     } else if (editingField === 'status') {
-      const trimmed = tempStatus.trim();
-      if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(trimmed)) {
-        setProfileStatus(trimmed);
+      if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(tempStatus)) {
+        setProfileStatus(tempStatus);
       }
     }
     setEditingField(null);
   };
 
-  // Save Full Profile via POST /profile/save.php
+  // Save Full Profile via POST /profile/save.php (Single Request)
   const handleSaveProfile = async () => {
     if (isSaving) return;
-    // Commit active inline editing first
     commitActiveEdit();
 
     const finalName = (editingField === 'name' ? tempName : name).trim();
@@ -232,7 +227,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         const d = res.data || res;
         const freshName = d.full_name || d.name || finalName;
         const freshJob = d.profile_title !== undefined ? d.profile_title : finalJob;
-        const freshStatus = d.profile_location !== undefined ? d.profile_location : finalStatus;
+        const rawStatus = d.profile_location !== undefined ? d.profile_location : finalStatus;
+        const freshStatus = ['Karyawan', 'Anak Magang', 'Anak PKL'].includes(rawStatus) ? rawStatus : '';
 
         setName(freshName);
         setTempName(freshName);
@@ -388,6 +384,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 type="text"
                 className="profile-name-edit-input"
                 value={tempName}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setTempName(e.target.value)}
                 onBlur={() => {
                   const trimmed = tempName.trim();
@@ -444,6 +441,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 type="text"
                 className="profile-name-edit-input"
                 value={tempJob}
+                onClick={(e) => e.stopPropagation()}
                 onChange={(e) => setTempJob(e.target.value)}
                 onBlur={() => {
                   const trimmed = tempJob.trim();
@@ -476,33 +474,48 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             onClick={() => {
               if (editingField !== 'status') {
                 if (editingField) commitActiveEdit();
-                setTempStatus(profileStatus || 'Karyawan');
+                const initialChoice = profileStatus || 'Karyawan';
+                setTempStatus(initialChoice);
+                setProfileStatus(initialChoice);
                 setEditingField('status');
               }
             }}
           >
             <div className="profile-row-label-text">STATUS</div>
             {editingField === 'status' ? (
-              <select
-                id="statusSelect"
-                className="profile-name-edit-input"
-                value={tempStatus}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(val)) {
-                    setTempStatus(val);
-                    setProfileStatus(val);
-                  }
-                }}
-                onBlur={() => {
-                  if (editingField === 'status') setEditingField(null);
-                }}
-                autoFocus
+              <div
+                style={{ width: '100%', maxWidth: '420px' }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
               >
-                <option value="Karyawan">Karyawan</option>
-                <option value="Anak Magang">Anak Magang</option>
-                <option value="Anak PKL">Anak PKL</option>
-              </select>
+                <select
+                  id="statusSelect"
+                  className="profile-name-edit-input"
+                  value={tempStatus || profileStatus || 'Karyawan'}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(val)) {
+                      setTempStatus(val);
+                      setProfileStatus(val);
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      commitActiveEdit();
+                    } else if (e.key === 'Escape') {
+                      setTempStatus(profileStatus);
+                      setEditingField(null);
+                    }
+                  }}
+                  autoFocus
+                >
+                  <option value="Karyawan">Karyawan</option>
+                  <option value="Anak Magang">Anak Magang</option>
+                  <option value="Anak PKL">Anak PKL</option>
+                </select>
+              </div>
             ) : (
               <div className="profile-row-value-text" id="profileStatus">
                 {profileStatus ? profileStatus : <span className="is-muted">Belum dipilih</span>}

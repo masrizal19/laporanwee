@@ -117,7 +117,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [userName]);
+  }, []);
 
   // Clamping calculation
   const clampCoordinates = useCallback((x: number, y: number, z: number, meta?: { w: number; h: number; base: number }) => {
