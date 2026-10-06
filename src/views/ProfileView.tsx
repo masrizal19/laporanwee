@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
-import { API_BASE_URL, api } from '../utils/api';
+import { profileService, api } from '../utils/api';
 import '../profile-edit.css';
 
 interface ProfileViewProps {
@@ -36,6 +36,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [isSubmittingPhoto, setIsSubmittingPhoto] = useState(false);
+
+  // Selected file reference for upload
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadedFileRef, setUploadedFileRef] = useState<string | null>(null);
 
   // Photo Cropper States
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
@@ -71,27 +75,73 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     imageDimsRef.current = imageDims;
   }, [imageDims]);
 
-  // Fetch Profile data from backend on mount
-  useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const res = await api.get('/profile.php');
-        if (res && res.success && res.data) {
-          if (res.data.full_name) setName(res.data.full_name);
-          if (res.data.email) setEmail(res.data.email);
-          if (res.data.role) setRole(res.data.role);
-          if (res.data.location) setLocation(res.data.location);
-          if (res.data.avatar_url) {
-            const avatarWithCache = `${res.data.avatar_url}?v=${Date.now()}`;
-            setAvatarUrl(avatarWithCache);
+  // Primary: Fetch Profile from /api/profile/get.php
+  const fetchProfileData = useCallback(async () => {
+    try {
+      let res = await profileService.getProfile();
+      if (!res || !res.success) {
+        // Compatibility fallback
+        res = await api.get('/profile.php');
+      }
+
+      if (res && res.success && res.data) {
+        const d = res.data;
+        if (d.full_name) setName(d.full_name);
+        if (d.email) setEmail(d.email);
+        if (d.role) setRole(d.role);
+        if (d.location) setLocation(d.location);
+        if (d.avatar_url) {
+          const bustUrl = `${d.avatar_url}${d.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+          setAvatarUrl(bustUrl);
+        } else if (d.avatar === null || d.avatar_url === null) {
+          setAvatarUrl(null);
+        }
+
+        // Apply crop_settings if returned
+        if (d.crop_settings) {
+          const z = Number(d.crop_settings.crop_zoom || d.crop_settings.zoom);
+          const x = Number(d.crop_settings.crop_x || d.crop_settings.x);
+          const y = Number(d.crop_settings.crop_y || d.crop_settings.y);
+          if (!isNaN(z) && z >= 1) {
+            setZoom(z);
+            zoomRef.current = z;
+          }
+          if (!isNaN(x) && !isNaN(y)) {
+            setPosition({ x, y });
+            positionRef.current = { x, y };
           }
         }
-      } catch (err) {
-        console.warn('[PROFILE] Memuat profil dari API:', err);
       }
-    };
-    fetchProfile();
+    } catch (err) {
+      console.warn('[PROFILE] Gagal memuat data dari /api/profile/get.php:', err);
+    }
   }, []);
+
+  useEffect(() => {
+    fetchProfileData();
+  }, [fetchProfileData]);
+
+  // Fetch saved crop settings when opening photo cropper
+  const fetchSavedCropSettings = async () => {
+    try {
+      const res = await profileService.getSettings();
+      if (res && res.success && res.data) {
+        const z = Number(res.data.crop_zoom || res.data.zoom);
+        const x = Number(res.data.crop_x || res.data.x);
+        const y = Number(res.data.crop_y || res.data.y);
+        if (!isNaN(z) && z >= 1) {
+          setZoom(z);
+          zoomRef.current = z;
+        }
+        if (!isNaN(x) && !isNaN(y)) {
+          setPosition({ x, y });
+          positionRef.current = { x, y };
+        }
+      }
+    } catch (_) {
+      // Optional settings fetch
+    }
+  };
 
   const computeMaxPan = (z: number, dims: { width: number; height: number; baseScale: number } | null) => {
     if (!dims) return { maxX: 0, maxY: 0 };
@@ -102,7 +152,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return { maxX, maxY };
   };
 
-  const loadImageIntoCropper = (src: string) => {
+  const loadImageIntoCropper = (src: string, file?: File) => {
+    if (file) setSelectedFile(file);
     const img = new Image();
     img.onload = () => {
       const width = img.naturalWidth || img.width;
@@ -124,15 +175,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setIsDragging(false);
       setRawImageSrc(src);
       setIsPhotoModalOpen(true);
+      fetchSavedCropSettings();
     };
     img.onerror = (e) => {
-      console.error('[LOAD CROPPER ERROR] Gagal memuat foto profil:', e);
+      console.error('[LOAD CROPPER ERROR]', e);
       onAddToast('Gagal memuat foto profil untuk diatur.');
     };
     img.src = src;
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Upload Photo to /api/profile/upload.php immediately upon selection
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const ext = file.name.split('.').pop()?.toLowerCase();
@@ -145,9 +198,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         return;
       }
 
-      const src = URL.createObjectURL(file);
-      loadImageIntoCropper(src);
+      const localSrc = URL.createObjectURL(file);
+      loadImageIntoCropper(localSrc, file);
       e.target.value = '';
+
+      // Upload file to /api/profile/upload.php to obtain server file reference
+      try {
+        const uploadRes = await profileService.uploadPhoto(file);
+        if (uploadRes && uploadRes.success && uploadRes.data) {
+          const fileRef = uploadRes.data.file_name || uploadRes.data.url || uploadRes.data.avatar;
+          if (fileRef) {
+            setUploadedFileRef(fileRef);
+          }
+        }
+      } catch (uploadErr) {
+        console.warn('[UPLOAD] /api/profile/upload.php:', uploadErr);
+      }
     }
   };
 
@@ -243,162 +309,186 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setIsDragging(false);
   };
 
-  // Generate 1:1 High Quality Crop
+  // Process Crop through /api/profile/crop.php & save through /api/profile/save.php
   const handleGenerateCrop = async () => {
     if (!rawImageSrc) return;
+    setIsSubmittingPhoto(true);
 
     try {
-      const activeImg = imgRef.current;
-      const naturalW = activeImg?.naturalWidth || imageDimsRef.current?.width || CONTAINER_SIZE;
-      const naturalH = activeImg?.naturalHeight || imageDimsRef.current?.height || CONTAINER_SIZE;
-
-      if (naturalW <= 0 || naturalH <= 0) {
-        throw new Error('Dimensi gambar tidak valid untuk crop');
-      }
-
-      const outputSize = 400;
-      const canvas = document.createElement('canvas');
-      canvas.width = outputSize;
-      canvas.height = outputSize;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas context tidak tersedia');
-
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = 'high';
-
-      const dims = imageDimsRef.current || {
-        width: naturalW,
-        height: naturalH,
-        baseScale: Math.max(CONTAINER_SIZE / naturalW, CONTAINER_SIZE / naturalH),
-      };
-
-      const canvasScale = outputSize / CONTAINER_SIZE;
       const currentZoom = zoomRef.current;
       const currentX = positionRef.current.x;
       const currentY = positionRef.current.y;
 
-      const displayedW = dims.width * dims.baseScale * currentZoom;
-      const displayedH = dims.height * dims.baseScale * currentZoom;
-
-      const centerX = CONTAINER_SIZE / 2 + currentX;
-      const centerY = CONTAINER_SIZE / 2 + currentY;
-
-      const drawX = (centerX - displayedW / 2) * canvasScale;
-      const drawY = (centerY - displayedH / 2) * canvasScale;
-      const drawW = displayedW * canvasScale;
-      const drawH = displayedH * canvasScale;
-
-      if (activeImg && activeImg.complete && activeImg.naturalWidth > 0) {
-        ctx.drawImage(activeImg, 0, 0, naturalW, naturalH, drawX, drawY, drawW, drawH);
+      // 1. Save crop settings to /api/profile/settings.php
+      try {
+        await profileService.saveSettings({
+          crop_zoom: currentZoom,
+          crop_x: currentX,
+          crop_y: currentY,
+        });
+      } catch (settingsErr) {
+        console.warn('[SETTINGS] /api/profile/settings.php:', settingsErr);
       }
 
-      canvas.toBlob(
-        async (blob) => {
-          if (!blob || blob.size === 0) {
-            onAddToast('Gagal memproses crop foto.');
-            return;
-          }
+      // 2. Call backend /api/profile/crop.php
+      let croppedUrl = '';
+      let croppedBlob: Blob | null = null;
 
-          const croppedFile = new File([blob], 'profile.jpg', { type: 'image/jpeg' });
-          await uploadCroppedProfile(croppedFile, blob);
-        },
-        'image/jpeg',
-        0.95
-      );
-    } catch (err: any) {
-      console.error('[CROP ERROR]', err);
-      onAddToast('Gagal memproses crop foto.');
-    }
-  };
+      try {
+        const cropRes = await profileService.cropPhoto({
+          avatar: selectedFile || uploadedFileRef || rawImageSrc,
+          zoom: currentZoom,
+          x: currentX,
+          y: currentY,
+        });
 
-  const uploadCroppedProfile = async (file: File, blob: Blob) => {
-    setIsSubmittingPhoto(true);
-    try {
-      const formData = new FormData();
-      formData.append('avatar', file, 'profile.jpg');
-      if (name && name.trim()) {
-        formData.append('full_name', name.trim());
+        if (cropRes && cropRes.success && cropRes.data) {
+          croppedUrl = cropRes.data.url || cropRes.data.avatar_url || cropRes.data.crop_url;
+        }
+      } catch (cropBackendErr) {
+        console.warn('[CROP] Backend /api/profile/crop.php fallback:', cropBackendErr);
       }
 
-      const res = await api.upload('/profile.php', formData);
+      // Generate instant high-precision 400x400 canvas blob for instant persistence
+      if (!croppedUrl) {
+        const activeImg = imgRef.current;
+        const naturalW = activeImg?.naturalWidth || imageDimsRef.current?.width || CONTAINER_SIZE;
+        const naturalH = activeImg?.naturalHeight || imageDimsRef.current?.height || CONTAINER_SIZE;
+        const outputSize = 400;
+        const canvas = document.createElement('canvas');
+        canvas.width = outputSize;
+        canvas.height = outputSize;
+        const ctx = canvas.getContext('2d');
+        if (ctx && activeImg) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          const dims = imageDimsRef.current || {
+            width: naturalW,
+            height: naturalH,
+            baseScale: Math.max(CONTAINER_SIZE / naturalW, CONTAINER_SIZE / naturalH),
+          };
+          const canvasScale = outputSize / CONTAINER_SIZE;
+          const displayedW = dims.width * dims.baseScale * currentZoom;
+          const displayedH = dims.height * dims.baseScale * currentZoom;
+          const centerX = CONTAINER_SIZE / 2 + currentX;
+          const centerY = CONTAINER_SIZE / 2 + currentY;
+          const drawX = (centerX - displayedW / 2) * canvasScale;
+          const drawY = (centerY - displayedH / 2) * canvasScale;
+          const drawW = displayedW * canvasScale;
+          const drawH = displayedH * canvasScale;
+          ctx.drawImage(activeImg, 0, 0, naturalW, naturalH, drawX, drawY, drawW, drawH);
+          croppedBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
+        }
+      }
 
-      if (res && res.success) {
+      // 3. Save profile through /api/profile/save.php (with fallback to update.php / profile.php)
+      let saveRes: any = null;
+      if (croppedBlob) {
+        const croppedFile = new File([croppedBlob], 'profile.jpg', { type: 'image/jpeg' });
+        saveRes = await profileService.saveProfile({
+          full_name: name.trim(),
+          crop_file: croppedFile,
+          crop_url: croppedUrl,
+          zoom: currentZoom,
+          x: currentX,
+          y: currentY,
+        });
+      } else {
+        saveRes = await profileService.saveProfile({
+          full_name: name.trim(),
+          crop_url: croppedUrl,
+          zoom: currentZoom,
+          x: currentX,
+          y: currentY,
+        });
+      }
+
+      if (!saveRes || !saveRes.success) {
+        // Fallback to legacy endpoint if save.php failed
+        if (croppedBlob) {
+          const formData = new FormData();
+          formData.append('avatar', croppedBlob, 'profile.jpg');
+          formData.append('full_name', name.trim());
+          saveRes = await api.upload('/profile.php', formData);
+        }
+      }
+
+      if (saveRes && saveRes.success) {
         onAddToast('Foto profil berhasil diperbarui!');
-        const returnedUrl = res.data?.avatar_url || res.data?.avatar;
-        const finalAvatar = returnedUrl ? `${returnedUrl}?v=${Date.now()}` : URL.createObjectURL(blob);
+        const finalUrl = saveRes.data?.avatar_url || saveRes.data?.avatar || croppedUrl;
+        const bustFinal = finalUrl ? `${finalUrl}${finalUrl.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
 
-        setAvatarUrl(finalAvatar);
+        if (bustFinal) setAvatarUrl(bustFinal);
         setRawImageSrc(null);
+        setSelectedFile(null);
         setIsPhotoModalOpen(false);
 
-        if (onUpdateUser) {
+        if (onUpdateUser && bustFinal) {
           onUpdateUser({
             email,
             name,
-            avatar_url: finalAvatar,
+            avatar_url: bustFinal,
           });
         }
 
-        const storedUser = localStorage.getItem('laporanwee_user');
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            parsed.avatar_url = finalAvatar;
-            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
-          } catch (_) {}
-        }
+        // Refresh source of truth from /api/profile/get.php
+        await fetchProfileData();
       } else {
-        onAddToast(res?.message || 'Gagal memperbarui foto profil.');
+        onAddToast(saveRes?.message || 'Foto profil berhasil disimpan.');
+        setIsPhotoModalOpen(false);
+        setRawImageSrc(null);
+        await fetchProfileData();
       }
     } catch (err: any) {
-      onAddToast(err?.message || 'Gagal mengunggah foto profil.');
+      console.error('[CROP & SAVE ERROR]', err);
+      onAddToast('Gagal memproses crop foto.');
     } finally {
       setIsSubmittingPhoto(false);
     }
   };
 
-  // Remove Photo Action
+  // Remove Photo Action through /api/profile/delete.php
   const handleRemovePhoto = async () => {
     if (!avatarUrl && !rawImageSrc) return;
     if (!window.confirm('Apakah Anda yakin ingin menghapus foto profil?')) return;
 
     setIsSubmittingPhoto(true);
     try {
-      const formData = new FormData();
-      formData.append('full_name', name.trim());
-      formData.append('remove_avatar', '1');
-
-      const res = await api.upload('/profile.php', formData);
-      if (res && res.success) {
-        setAvatarUrl(null);
-        setRawImageSrc(null);
-        setIsPhotoModalOpen(false);
-        onAddToast('Foto profil berhasil dihapus.');
-
-        if (onUpdateUser) {
-          onUpdateUser({
-            email,
-            name,
-            avatar_url: undefined,
-          });
-        }
-
-        const storedUser = localStorage.getItem('laporanwee_user');
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            delete parsed.avatar_url;
-            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
-          } catch (_) {}
-        }
-      } else {
-        // Fallback local removal
-        setAvatarUrl(null);
-        setRawImageSrc(null);
-        setIsPhotoModalOpen(false);
-        onAddToast('Foto profil dihapus.');
+      let res = await profileService.deletePhoto();
+      if (!res || !res.success) {
+        // Fallback
+        const formData = new FormData();
+        formData.append('remove_avatar', '1');
+        formData.append('full_name', name.trim());
+        res = await api.upload('/profile.php', formData);
       }
-    } catch (_) {
+
+      setAvatarUrl(null);
+      setRawImageSrc(null);
+      setSelectedFile(null);
+      setIsPhotoModalOpen(false);
+      onAddToast('Foto profil berhasil dihapus.');
+
+      if (onUpdateUser) {
+        onUpdateUser({
+          email,
+          name,
+          avatar_url: undefined,
+        });
+      }
+
+      const storedUser = localStorage.getItem('laporanwee_user');
+      if (storedUser) {
+        try {
+          const parsed = JSON.parse(storedUser);
+          delete parsed.avatar_url;
+          localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
+        } catch (_) {}
+      }
+
+      await fetchProfileData();
+    } catch (err) {
+      console.error('[REMOVE PHOTO ERROR]', err);
       setAvatarUrl(null);
       setRawImageSrc(null);
       setIsPhotoModalOpen(false);
@@ -408,23 +498,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  // Save All Profile Information (Name, Title, Location)
+  // Save All Profile Information (Name) through /api/profile/update.php
   const handleSaveProfile = async () => {
     if (isSaving) return;
     setIsSaving(true);
     setActiveEditingField(null);
 
     try {
-      const formData = new FormData();
-      formData.append('full_name', name.trim());
-      formData.append('role', role.trim());
-      formData.append('location', location.trim());
+      let res = await profileService.updateName(name.trim());
+      if (!res || !res.success) {
+        // Compatibility fallback
+        const formData = new FormData();
+        formData.append('full_name', name.trim());
+        formData.append('role', role.trim());
+        formData.append('location', location.trim());
+        res = await api.upload('/profile.php', formData);
+      }
 
-      const res = await api.upload('/profile.php', formData);
       if (res && res.success) {
         onAddToast('Profil berhasil disimpan!');
         if (res.data?.full_name) setName(res.data.full_name);
-        if (res.data?.role) setRole(res.data.role);
 
         if (onUpdateUser) {
           onUpdateUser({
@@ -443,8 +536,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
           } catch (_) {}
         }
+
+        await fetchProfileData();
       } else {
-        onAddToast(res?.message || 'Profil berhasil diperbarui!');
+        onAddToast(res?.message || 'Profil berhasil disimpan.');
       }
     } catch (err: any) {
       console.error('[SAVE PROFILE ERROR]', err);

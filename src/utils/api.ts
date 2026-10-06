@@ -1900,4 +1900,72 @@ export const realtimeService = {
   },
 };
 
+// ==========================================
+// PROFILE SERVICE (/api/profile/)
+// ==========================================
+export const profileService = {
+  getProfile: async () => {
+    return api.get('/profile/get.php');
+  },
+  updateName: async (fullName: string) => {
+    return api.post('/profile/update.php', { full_name: fullName });
+  },
+  uploadPhoto: async (file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return api.upload('/profile/upload.php', formData);
+  },
+  cropPhoto: async (params: { avatar?: string | File; zoom: number; x: number; y: number }) => {
+    if (params.avatar instanceof File) {
+      const formData = new FormData();
+      formData.append('avatar', params.avatar);
+      formData.append('zoom', String(params.zoom));
+      formData.append('x', String(params.x));
+      formData.append('y', String(params.y));
+      return api.upload('/profile/crop.php', formData);
+    }
+    return api.post('/profile/crop.php', {
+      avatar: params.avatar,
+      zoom: params.zoom,
+      x: params.x,
+      y: params.y,
+    });
+  },
+  saveProfile: async (params: {
+    full_name?: string;
+    crop_file?: string | File;
+    crop_url?: string;
+    zoom?: number;
+    x?: number;
+    y?: number;
+  }) => {
+    if (params.crop_file instanceof File) {
+      const formData = new FormData();
+      if (params.full_name) formData.append('full_name', params.full_name);
+      formData.append('crop_file', params.crop_file);
+      if (params.crop_url) formData.append('crop_url', params.crop_url);
+      if (params.zoom !== undefined) formData.append('zoom', String(params.zoom));
+      if (params.x !== undefined) formData.append('x', String(params.x));
+      if (params.y !== undefined) formData.append('y', String(params.y));
+      return api.upload('/profile/save.php', formData);
+    }
+    return api.post('/profile/save.php', params);
+  },
+  replacePhoto: async (file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+    return api.upload('/profile/replace.php', formData);
+  },
+  deletePhoto: async () => {
+    return api.post('/profile/delete.php', {});
+  },
+  getSettings: async () => {
+    return api.get('/profile/settings.php');
+  },
+  saveSettings: async (settings: { crop_zoom: number; crop_x: number; crop_y: number }) => {
+    return api.post('/profile/settings.php', settings);
+  },
+};
+
+
 
