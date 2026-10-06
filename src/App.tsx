@@ -39,6 +39,7 @@ import {
   api,
   profileService,
   withAvatarCacheBust,
+  getAbsoluteAvatarUrl,
   extractAvatarFromResponse,
   getLatestProfileSaveTimestamp,
   activityService,
@@ -161,8 +162,12 @@ export function App() {
     const handleProfileUpdate = (e: any) => {
       const detail = e.detail;
       if (!detail) return;
+      let targetEmail = '';
+      let targetId = '';
       setUser((prev) => {
         if (!prev) return null;
+        targetEmail = prev.email ? prev.email.toLowerCase() : '';
+        targetId = prev.id ? String(prev.id) : '';
         const freshName = detail.name || detail.full_name || prev.name;
         const freshAvatar = detail.avatar_url !== undefined ? (detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null) : prev.avatar_url;
 
@@ -179,6 +184,27 @@ export function App() {
         };
         return updated;
       });
+
+      // Synchronize presence list / team members if current user is in members list
+      setMembers((prevMembers) =>
+        prevMembers.map((m) => {
+          const isMatch = (targetId && String(m.id) === targetId) || (targetEmail && m.email?.toLowerCase() === targetEmail);
+          if (isMatch) {
+            const freshName = detail.name || detail.full_name || m.name;
+            const freshAvatar = detail.avatar_url !== undefined ? (detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null) : m.avatar_url;
+            return {
+              ...m,
+              name: freshName,
+              full_name: freshName,
+              img: freshAvatar ? getAbsoluteAvatarUrl(freshAvatar, freshName) : m.img,
+              avatar_url: freshAvatar,
+              profile_title: detail.profile_title !== undefined ? detail.profile_title : m.profile_title,
+              profile_location: detail.profile_location !== undefined ? detail.profile_location : m.profile_location,
+            };
+          }
+          return m;
+        })
+      );
     };
 
     window.addEventListener('laporanwee-profile-updated', handleProfileUpdate);
@@ -1800,6 +1826,8 @@ export function App() {
             reportId={selectedReportId}
             initialReport={reports.find((r) => String(r.id).trim() === String(selectedReportId).trim())}
             projects={projects}
+            userName={user.name}
+            avatarUrl={(user as any)?.avatar_url}
             onNavigate={handleNavigate}
             onUpdateStatus={handleUpdateReportStatus}
             onReportUpdated={handleReportUpdated}

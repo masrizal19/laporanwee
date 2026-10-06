@@ -3,7 +3,7 @@ import { Project, ProjectDocument, Report, ViewType, DailyReportFile } from '../
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { projectService } from '../utils/projectService';
-import { API_BASE_URL, dailyReportService, normalizeFileUrl } from '../utils/api';
+import { API_BASE_URL, dailyReportService, normalizeFileUrl, getAbsoluteAvatarUrl } from '../utils/api';
 import { DailyReportForm } from '../components/DailyReportForm';
 
 interface ReportDetailViewProps {
@@ -11,6 +11,8 @@ interface ReportDetailViewProps {
   reportId?: string;
   initialReport?: Report;
   projects?: Project[];
+  userName?: string;
+  avatarUrl?: string | null;
   onNavigate: (view: ViewType) => void;
   onUpdateStatus: (reportId: string, newStatus: Report['status']) => void;
   onReportUpdated?: (updatedReport: Report) => void;
@@ -30,6 +32,8 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   reportId,
   initialReport,
   projects,
+  userName,
+  avatarUrl,
   onNavigate,
   onUpdateStatus,
   onReportUpdated,
@@ -254,10 +258,11 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
     e.preventDefault();
     if (!newComment.trim()) return;
 
+    const resolvedUserAvatar = avatarUrl ? getAbsoluteAvatarUrl(avatarUrl, userName) : '';
     const commentItem: Comment = {
       id: `c_${Date.now()}`,
-      name: 'Rangga Arya (Anda)',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+      name: `${userName || 'Pengguna'} (Anda)`,
+      avatar: resolvedUserAvatar || '',
       time: 'Baru saja',
       text: newComment.trim(),
     };
@@ -444,10 +449,40 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
         </button>
 
         <div className="rd-chip">
-          <img
-            src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"
-            alt={currentData.person}
-          />
+          {(() => {
+            const isMe = userName && currentData.person && userName.trim().toLowerCase() === currentData.person.trim().toLowerCase();
+            const reportAvatar = (currentData as any).personAvatar || (currentData as any).user_avatar || (currentData as any).avatar_url;
+            const rawAvatar = isMe ? (avatarUrl || reportAvatar) : reportAvatar;
+            const resolved = rawAvatar ? getAbsoluteAvatarUrl(rawAvatar, currentData.person) : null;
+            return resolved ? (
+              <img
+                src={resolved}
+                alt={currentData.person}
+                style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  background: 'var(--primary-color, #4A55FF)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  flexShrink: 0,
+                }}
+              >
+                {(currentData.person || 'U').trim().charAt(0).toUpperCase()}
+              </div>
+            );
+          })()}
           <div>
             <b>{currentData.person}</b>
             <span>Pelapor Kerja</span>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
-import { api, teamService } from '../utils/api';
+import { api, teamService, getAbsoluteAvatarUrl } from '../utils/api';
 
 interface TeamViewProps {
   activities: Activity[];
@@ -125,11 +125,12 @@ export const TeamView: React.FC<TeamViewProps> = ({
   };
 
   // Helper to render dynamic member avatar or clean initial badge
-  const renderMemberAvatar = (m: { name?: string; img?: string }, size: string = '36px', fontSize: string = '13px') => {
-    if (m && m.img) {
+  const renderMemberAvatar = (m: { name?: string; img?: string; avatar_url?: string | null }, size: string = '36px', fontSize: string = '13px') => {
+    const avatarSrc = m && (m.img || (m.avatar_url ? getAbsoluteAvatarUrl(m.avatar_url, m.name) : undefined));
+    if (avatarSrc) {
       return (
         <img
-          src={m.img}
+          src={avatarSrc}
           alt={m.name || 'Anggota'}
           style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
           onError={(e) => {
@@ -414,7 +415,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
                       {renderMemberAvatar(m, '36px', '13px')}
                       <div className="m-info">
                         <b>{m.name}</b>
-                        <span>{m.role}</span>
+                        <span>{m.profile_title || m.role}</span>
                       </div>
                     </div>
                   ))
@@ -439,7 +440,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
                       {renderMemberAvatar(m, '36px', '13px')}
                       <div className="m-info">
                         <b>{m.name}</b>
-                        <span>{m.role}</span>
+                        <span>{m.profile_title || m.role}</span>
                       </div>
                     </div>
                   ))

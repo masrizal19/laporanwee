@@ -4,6 +4,7 @@ import { Icon } from '../components/icons';
 import { projectService } from '../utils/projectService';
 import { MediaViewerModal } from '../components/MediaViewerModal';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
+import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -584,7 +585,14 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 <div className="sl">Tim Penanggung Jawab</div>
                 <div className="avatar-stack" style={{ marginTop: '4px' }}>
                   {project.team.map((img, i) => (
-                    <img key={i} src={img} alt="Tim" />
+                    <img
+                      key={i}
+                      src={getAbsoluteAvatarUrl(img)}
+                      alt="Tim"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                      }}
+                    />
                   ))}
                 </div>
               </div>

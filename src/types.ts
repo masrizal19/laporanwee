@@ -53,6 +53,9 @@ export interface TeamMember {
   email: string;
   role: string;
   img?: string;
+  avatar_url?: string | null;
+  profile_title?: string;
+  profile_location?: string;
   status: 'working' | 'break' | 'offline';
   is_online?: boolean;
   last_seen?: string | null;

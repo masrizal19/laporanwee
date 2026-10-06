@@ -4,7 +4,7 @@ import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
 import { MediaViewerModal } from '../components/MediaViewerModal';
-import { computeTargetProgress } from '../utils/api';
+import { computeTargetProgress, getAbsoluteAvatarUrl } from '../utils/api';
 
 interface TasksViewProps {
   tasks: Task[];
@@ -432,15 +432,19 @@ export const TasksView: React.FC<TasksViewProps> = ({
         m.email?.toLowerCase() === assignee.toLowerCase()
     );
 
-    if (
-      foundMember?.img &&
-      (foundMember.img.startsWith('http://') || foundMember.img.startsWith('https://'))
-    ) {
+    const memberAvatar = foundMember
+      ? (foundMember.img || (foundMember.avatar_url ? getAbsoluteAvatarUrl(foundMember.avatar_url, foundMember.name) : undefined))
+      : undefined;
+
+    if (memberAvatar) {
       return (
         <img
-          src={foundMember.img}
+          src={memberAvatar}
           alt={assignee}
           style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }}
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
         />
       );
     }

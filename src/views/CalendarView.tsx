@@ -427,7 +427,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               </div>
               <div className="team-strip">
                 {members.map((m) => {
-                  const avatarUrl = getAbsoluteAvatarUrl(m.img, m.name);
+                  const avatarUrl = getAbsoluteAvatarUrl(m.avatar_url || m.img, m.name);
 
                   return (
                     <div key={m.id} className="team-mini">

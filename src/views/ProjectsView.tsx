@@ -4,6 +4,7 @@ import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 import { projectService } from '../utils/projectService';
+import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface ProjectsViewProps {
   projects: Project[];
@@ -305,7 +306,14 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                 <div className="proj-foot">
                   <div className="avatar-stack">
                     {p.team.map((img, i) => (
-                      <img key={i} src={img} alt="Team" />
+                      <img
+                        key={i}
+                        src={getAbsoluteAvatarUrl(img)}
+                        alt="Team"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
                     ))}
                   </div>
 

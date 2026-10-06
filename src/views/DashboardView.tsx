@@ -4,6 +4,7 @@ import { Icon } from '../components/icons';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 import { getUserFirstName } from '../utils/userUtils';
 import { projectService } from '../utils/projectService';
+import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -98,12 +99,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   };
 
   // Helper to render dynamic member avatar or clean initial badge
-  const renderAvatarItem = (m: { name?: string; img?: string }, idx: number, isSmall: boolean = false) => {
+  const renderAvatarItem = (m: { name?: string; img?: string; avatar_url?: string | null }, idx: number, isSmall: boolean = false) => {
     const size = isSmall ? '24px' : '32px';
     const fontSize = isSmall ? '10px' : '12px';
+    const avatarSrc = m && (m.img || (m.avatar_url ? getAbsoluteAvatarUrl(m.avatar_url, m.name) : undefined));
 
-    if (m.img) {
-      return <img key={idx} src={m.img} alt={m.name || 'Anggota'} />;
+    if (avatarSrc) {
+      return (
+        <img
+          key={idx}
+          src={avatarSrc}
+          alt={m.name || 'Anggota'}
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
     }
     const initial = (m.name || 'U').trim().charAt(0).toUpperCase();
     return (
