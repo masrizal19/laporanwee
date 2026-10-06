@@ -295,8 +295,6 @@ export function App() {
     '/analitik': 'analytics',
     '/admin/ui-settings': 'ui-settings',
     '/ui-settings': 'ui-settings',
-    '/profil': 'profile',
-    '/profile': 'profile',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -309,7 +307,7 @@ export function App() {
     'reports': '/laporan',
     'report-detail': '/laporan',
     'create-report': '/laporan',
-    'profile': '/profil',
+    'profile': '/dashboard',
     'analytics': '/analitik',
     'ui-settings': '/admin/ui-settings',
   };
