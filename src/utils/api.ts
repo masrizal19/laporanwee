@@ -141,6 +141,8 @@ export interface ProfileUpdatePayload {
   name?: string;
   email?: string;
   role?: string;
+  profile_title?: string;
+  profile_location?: string;
   avatar_url?: string | null;
   updated_at?: string;
 }
@@ -154,6 +156,8 @@ export const syncAuthenticatedUser = (profileData: ProfileUpdatePayload) => {
     ...(profileData.name !== undefined ? { name: profileData.name, full_name: profileData.name } : {}),
     ...(profileData.email !== undefined ? { email: profileData.email } : {}),
     ...(profileData.role !== undefined ? { role: profileData.role } : {}),
+    ...(profileData.profile_title !== undefined ? { profile_title: profileData.profile_title } : {}),
+    ...(profileData.profile_location !== undefined ? { profile_location: profileData.profile_location } : {}),
     avatar_url: profileData.avatar_url !== undefined ? profileData.avatar_url : stored?.avatar_url,
   };
 
@@ -2011,7 +2015,14 @@ export const profileService = {
     formData.append('avatar', file);
     return api.upload('/profile/upload.php', formData);
   },
-  cropPhoto: async (params: { avatar?: string | File; zoom: number; x: number; y: number }) => {
+  cropPhoto: async (params: {
+    avatar?: string | File;
+    avatar_url?: string;
+    source_file?: string;
+    zoom: number;
+    x: number;
+    y: number;
+  }) => {
     if (params.avatar instanceof File) {
       const formData = new FormData();
       formData.append('avatar', params.avatar);
@@ -2020,8 +2031,10 @@ export const profileService = {
       formData.append('y', String(params.y));
       return api.upload('/profile/crop.php', formData);
     }
+    const avatarVal = typeof params.avatar === 'string' ? params.avatar : (params.avatar_url || params.source_file || '');
     return api.post('/profile/crop.php', {
-      avatar: params.avatar,
+      avatar: avatarVal,
+      avatar_url: avatarVal,
       zoom: params.zoom,
       x: params.x,
       y: params.y,
@@ -2029,6 +2042,8 @@ export const profileService = {
   },
   saveProfile: async (params: {
     full_name?: string;
+    profile_title?: string;
+    profile_location?: string;
     crop_file?: string | File;
     crop_url?: string;
     zoom?: number;
@@ -2037,9 +2052,11 @@ export const profileService = {
   }) => {
     if (params.crop_file instanceof File) {
       const formData = new FormData();
-      if (params.full_name) formData.append('full_name', params.full_name);
+      if (params.full_name !== undefined) formData.append('full_name', params.full_name);
+      if (params.profile_title !== undefined) formData.append('profile_title', params.profile_title);
+      if (params.profile_location !== undefined) formData.append('profile_location', params.profile_location);
       formData.append('crop_file', params.crop_file);
-      if (params.crop_url) formData.append('crop_url', params.crop_url);
+      if (params.crop_url !== undefined) formData.append('crop_url', params.crop_url);
       if (params.zoom !== undefined) formData.append('zoom', String(params.zoom));
       if (params.x !== undefined) formData.append('x', String(params.x));
       if (params.y !== undefined) formData.append('y', String(params.y));

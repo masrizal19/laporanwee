@@ -41,6 +41,8 @@ export interface AuthUser {
   role: string;
   status?: string;
   avatar_url?: string | null;
+  profile_title?: string;
+  profile_location?: string;
   email_verified?: boolean;
 }
 
