@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, Report, ViewType } from '../types';
-import { Icon } from '../components/icons';
 import { API_BASE_URL, api } from '../utils/api';
 
 interface ProfileViewProps {
@@ -42,8 +41,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Status & logs for API testing
-  const [logText, setLogText] = useState<string>('Menunggu...');
+  // Status texts for loading states
   const [statusText, setStatusText] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
@@ -85,41 +83,66 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return { maxX, maxY };
   };
 
+  // Profile data fetcher - Source of Truth
+  const fetchProfileData = async () => {
+    try {
+      const res = await api.get('/profile/get.php');
+      if (res && res.success && res.data) {
+        const p = res.data;
+        if (p.full_name) setName(p.full_name);
+        if (p.email) setEmail(p.email);
+        if (p.role) setRole(p.role);
+        
+        // Cache busted profile photo URL
+        if (p.avatar_url) {
+          const avatarWithCache = `${p.avatar_url}${p.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+          setAvatarUrl(avatarWithCache);
+        } else {
+          setAvatarUrl(null);
+        }
+
+        // Restore crop settings from the settings table response
+        const settings = p.crop_settings || p;
+        if (settings.zoom || settings.crop_zoom) {
+          const restoredZoom = Number(settings.zoom || settings.crop_zoom) || 1;
+          setZoom(restoredZoom);
+          zoomRef.current = restoredZoom;
+        }
+        if (settings.x !== undefined || settings.crop_x !== undefined) {
+          const restoredX = Number(settings.x !== undefined ? settings.x : settings.crop_x) || 0;
+          const restoredY = Number(settings.y !== undefined ? settings.y : settings.crop_y) || 0;
+          setPosition({ x: restoredX, y: restoredY });
+          positionRef.current = { x: restoredX, y: restoredY };
+        }
+
+        // Instantly sync localStorage so other app headers/navbars display updated name and picture
+        const storedUser = localStorage.getItem('laporanwee_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            parsed.name = p.full_name || parsed.name;
+            parsed.avatar_url = p.avatar_url ? `${p.avatar_url}${p.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
+            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
+          } catch (_) {}
+        }
+
+        // Call callback props
+        if (onUpdateUser) {
+          onUpdateUser({
+            email: p.email || email,
+            name: p.full_name || name,
+            avatar_url: p.avatar_url ? `${p.avatar_url}${p.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}` : undefined
+          });
+        }
+      }
+    } catch (err: any) {
+      console.warn('Gagal memuat data profil aktual:', err);
+    }
+  };
+
   // Fetch profile on mount
   useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        setLogText((prev) => `[GET /profile/get.php] Memuat profil...\n` + prev);
-        const res = await api.get('/profile/get.php');
-        if (res && res.success && res.data) {
-          const p = res.data;
-          if (p.full_name) setName(p.full_name);
-          if (p.email) setEmail(p.email);
-          if (p.role) setRole(p.role);
-          if (p.avatar_url) {
-            const avatarWithCache = `${p.avatar_url}${p.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
-            setAvatarUrl(avatarWithCache);
-          }
-
-          // Restore crop settings if they exist in DB
-          if (p.crop_zoom) {
-            setZoom(Number(p.crop_zoom));
-            zoomRef.current = Number(p.crop_zoom);
-          }
-          if (p.crop_x !== undefined && p.crop_y !== undefined) {
-            const initialPos = { x: Number(p.crop_x) || 0, y: Number(p.crop_y) || 0 };
-            setPosition(initialPos);
-            positionRef.current = initialPos;
-          }
-
-          setLogText((prev) => `[GET /profile/get.php SUCCESS]\n` + JSON.stringify(res, null, 2) + `\n\n` + prev);
-        }
-      } catch (err: any) {
-        console.warn('Gagal memuat profil dari API:', err);
-        setLogText((prev) => `[GET /profile/get.php ERROR] ${err.message || err}\n\n` + prev);
-      }
-    };
-    fetchProfile();
+    fetchProfileData();
   }, []);
 
   const placeholder = () => {
@@ -169,8 +192,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       setServerCropResult(null);
       setStatusText('');
       setIsModalOpen(true);
-
-      setLogText((prev) => `[IMAGE READY] loaded info: ${width}x${height}, baseScale: ${baseScale.toFixed(4)}\n\n` + prev);
     };
     img.onerror = () => {
       onAddToast('Gagal memuat foto profil untuk diatur.');
@@ -198,7 +219,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     });
   };
 
-  // Pointer Events for smooth drag across desktop mouse and touch
+  // Pointer Events for smooth drag across desktop mouse and touch (Pointer Capture)
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     if (!rawImageSrc) return;
@@ -279,7 +300,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
     setIsSubmitting(true);
     setStatusText('Memproses crop di server...');
-    setLogText((prev) => `[POST /profile/crop.php] Memulai crop server...\n\n` + prev);
 
     try {
       const fd = new FormData();
@@ -293,7 +313,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       if (res && res.success && res.data) {
         setServerCropResult(res.data);
         setStatusText('Crop server berhasil. Klik Simpan Profil untuk menulis data ke MySQL.');
-        setLogText((prev) => `[POST /profile/crop.php SUCCESS]\n` + JSON.stringify(res, null, 2) + `\n\n` + prev);
       } else {
         throw new Error(res?.message || 'Proses crop gagal.');
       }
@@ -301,7 +320,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       console.error('[API ERROR] Crop error:', err);
       setStatusText('Crop gagal: ' + (err.message || err));
       onAddToast(err.message || 'Gagal memproses crop.');
-      setLogText((prev) => `[POST /profile/crop.php ERROR] ${err.message || err}\n\n` + prev);
     } finally {
       setIsSubmitting(false);
     }
@@ -310,7 +328,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const handleSaveProfile = async () => {
     setIsSubmitting(true);
     setStatusText('Menyimpan profil ke MySQL...');
-    setLogText((prev) => `[POST /profile/save.php] Menyimpan ke MySQL...\n\n` + prev);
 
     try {
       const fd = new FormData();
@@ -327,49 +344,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const res = await api.upload('/profile/save.php', fd);
 
       if (res && res.success && res.data) {
-        const p = res.data;
-        if (p.full_name) setName(p.full_name);
-        if (p.email) setEmail(p.email);
-        if (p.role) setRole(p.role);
-
-        const finalAvatar = p.avatar_url ? `${p.avatar_url}${p.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
-        if (finalAvatar) {
-          setAvatarUrl(finalAvatar);
-        }
-
-        if (p.crop_zoom) {
-          setZoom(Number(p.crop_zoom));
-          zoomRef.current = Number(p.crop_zoom);
-        }
-        if (p.crop_x !== undefined && p.crop_y !== undefined) {
-          const updatedPos = { x: Number(p.crop_x) || 0, y: Number(p.crop_y) || 0 };
-          setPosition(updatedPos);
-          positionRef.current = updatedPos;
-        }
-
-        onAddToast('Profil berhasil disimpan ke MySQL!');
-        setStatusText('Profil, avatar, dan crop settings berhasil disimpan ke MySQL.');
-        setLogText((prev) => `[POST /profile/save.php SUCCESS]\n` + JSON.stringify(res, null, 2) + `\n\n` + prev);
-
-        if (onUpdateUser) {
-          onUpdateUser({
-            email: email,
-            name: p.full_name || name,
-            avatar_url: finalAvatar || undefined,
-          });
-        }
-
-        const storedUser = localStorage.getItem('laporanwee_user');
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            if (finalAvatar) parsed.avatar_url = finalAvatar;
-            if (p.full_name) parsed.name = p.full_name;
-            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
-          } catch (_) {}
-        }
-
+        onAddToast('Profil berhasil disimpan!');
         setIsModalOpen(false);
+        setServerCropResult(null);
+        setStatusText('');
+
+        // Re-fetch profile data from get.php to treat MySQL as Source of Truth
+        await fetchProfileData();
       } else {
         throw new Error(res?.message || 'Gagal menyimpan profil.');
       }
@@ -377,7 +358,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       console.error('[API ERROR] Save error:', err);
       setStatusText('Save gagal: ' + (err.message || err));
       onAddToast(err.message || 'Gagal menyimpan profil.');
-      setLogText((prev) => `[POST /profile/save.php ERROR] ${err.message || err}\n\n` + prev);
     } finally {
       setIsSubmitting(false);
     }
@@ -392,8 +372,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       return;
     }
     setName(n);
-    onAddToast('Nama diubah di UI. Tekan Save di pojok kanan atas untuk menyimpan.');
-    setLogText((prev) => `Nama diubah di UI menjadi "${n}". Tekan Save untuk menyimpan ke database.\n\n` + prev);
+    onAddToast('Nama diubah di UI. Klik Save di pojok kanan atas untuk menyimpan perubahan.');
   };
 
   const handleRoleRowClick = () => {
@@ -402,41 +381,25 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     const r = v.trim();
     if (!r) return;
     setRole(r);
-    onAddToast('Jabatan diubah di UI. Tekan Save untuk menyimpan.');
+    onAddToast('Jabatan diubah di UI. Klik Save di pojok kanan atas untuk menyimpan perubahan.');
   };
 
   const handleDeleteAvatar = async () => {
     if (!window.confirm('Apakah Anda yakin ingin menghapus foto profil?')) return;
     setIsSubmitting(true);
-    setLogText((prev) => `[POST /profile/delete.php] Menghapus avatar...\n\n` + prev);
     try {
       const res = await api.post('/profile/delete.php', {});
       if (res && res.success) {
-        setAvatarUrl(null);
-        setServerCropResult(null);
         onAddToast('Foto profil berhasil dihapus.');
-        setLogText((prev) => `[POST /profile/delete.php SUCCESS]\n` + JSON.stringify(res, null, 2) + `\n\n` + prev);
-        if (onUpdateUser) {
-          onUpdateUser({
-            email,
-            name,
-            avatar_url: undefined,
-          });
-        }
-        const storedUser = localStorage.getItem('laporanwee_user');
-        if (storedUser) {
-          try {
-            const parsed = JSON.parse(storedUser);
-            parsed.avatar_url = null;
-            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
-          } catch (_) {}
-        }
+        setServerCropResult(null);
+        
+        // Re-fetch profile data from get.php to treat MySQL as Source of Truth
+        await fetchProfileData();
       } else {
         throw new Error(res?.message || 'Gagal menghapus foto profil.');
       }
     } catch (err: any) {
       onAddToast(err.message || 'Terjadi kesalahan saat menghapus foto profil.');
-      setLogText((prev) => `[POST /profile/delete.php ERROR] ${err.message || err}\n\n` + prev);
     } finally {
       setIsSubmitting(false);
     }
@@ -450,8 +413,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const baseWidth = activeDims ? activeDims.width * activeDims.baseScale : CONTAINER_SIZE;
   const baseHeight = activeDims ? activeDims.height * activeDims.baseScale : CONTAINER_SIZE;
-
-  const currentToken = localStorage.getItem('laporanwee_token') || '';
 
   return (
     <div className="profile-page-shell">
@@ -563,6 +524,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         .profile-page-shell .avatar-stage {
           display: flex;
           justify-content: center;
+          flex-direction: column;
+          align-items: center;
+          gap: 12px;
         }
         .profile-page-shell .avatar-wrap {
           position: relative;
@@ -626,42 +590,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           font-size: 28px;
           font-weight: 300;
         }
-        .profile-page-shell .api {
-          margin-top: 36px;
-          background: var(--soft);
-          border: 1px solid var(--line);
-          border-radius: 18px;
-          padding: 20px;
-        }
-        .profile-page-shell .api h3 {
-          margin: 0 0 6px;
-          font-size: 18px;
-          font-weight: 800;
-        }
-        .profile-page-shell .api p {
-          font-size: 13px;
-          color: var(--muted);
-          line-height: 1.5;
-          margin: 0 0 14px;
-        }
-        .profile-page-shell .token {
-          display: flex;
-          gap: 10px;
-        }
-        .profile-page-shell .token input {
-          flex: 1;
-          min-width: 0;
-          border: 1px solid #ddd;
-          border-radius: 11px;
-          padding: 12px 14px;
-          background: #fff;
-          outline: none;
-        }
-        .profile-page-shell .token input:focus {
-          border-color: #111;
-        }
         .profile-page-shell .btn {
-          padding: 12px 15px;
+          padding: 10px 14px;
           border-radius: 11px;
           font-weight: 800;
           border: 1px solid #ddd;
@@ -670,6 +600,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           align-items: center;
           justify-content: center;
           gap: 6px;
+          font-size: 13px;
         }
         .profile-page-shell .btn:hover {
           background: var(--soft);
@@ -681,17 +612,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         }
         .profile-page-shell .btn.dark:hover {
           background: #222;
-        }
-        .profile-page-shell .log {
-          margin-top: 12px;
-          background: #fff;
-          border: 1px solid var(--line);
-          border-radius: 11px;
-          padding: 12px;
-          font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-          white-space: pre-wrap;
-          max-height: 210px;
-          overflow: auto;
         }
         .profile-page-shell .modal-bg {
           position: fixed;
@@ -915,9 +835,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             grid-column: 2;
             grid-row: 2;
           }
-          .profile-page-shell .token {
-            flex-direction: column;
-          }
           .profile-page-shell .modal {
             border-radius: 18px;
           }
@@ -973,6 +890,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </svg>
               </button>
             </div>
+            {avatarUrl && (
+              <button
+                className="btn"
+                style={{ borderColor: '#ff4d4f', color: '#ff4d4f', marginTop: '6px' }}
+                onClick={handleDeleteAvatar}
+                disabled={isSubmitting}
+              >
+                Hapus Foto Profil
+              </button>
+            )}
           </div>
         </section>
 
@@ -997,30 +924,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="value muted">LaporanWee Web</div>
             <div className="arrow">›</div>
           </div>
-        </section>
-
-        <section className="api">
-          <h3>Profile API Test</h3>
-          <p>Bearer Token Anda diisi secara otomatis untuk memudahkan testing. Data crop dan settings disimpan langsung ke MySQL menggunakan API modular di backend.</p>
-          <div className="token">
-            <input
-              id="token"
-              type="password"
-              placeholder="Bearer token"
-              value={currentToken}
-              readOnly
-              style={{ opacity: 0.8, cursor: 'not-allowed', background: '#fafafa' }}
-            />
-            {avatarUrl && (
-              <button className="btn" style={{ borderColor: '#ff4d4f', color: '#ff4d4f' }} onClick={handleDeleteAvatar} disabled={isSubmitting}>
-                Hapus Foto
-              </button>
-            )}
-            <button className="btn dark" id="load" onClick={() => window.location.reload()}>
-              Reload Profile
-            </button>
-          </div>
-          <div id="log" className="log">{logText}</div>
         </section>
 
         <input
