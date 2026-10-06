@@ -16,7 +16,13 @@ interface ProfileCropViewProps {
   userEmail: string;
   userName: string;
   avatarUrl?: string | null;
-  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string | null }) => void;
+  onUpdateUser?: (updated: {
+    email: string;
+    name: string;
+    avatar_url?: string | null;
+    profile_title?: string;
+    profile_location?: string;
+  }) => void;
 }
 
 export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
@@ -284,6 +290,8 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
           onUpdateUser({
             name: d.full_name || profileMeta.full_name,
             email: userEmail,
+            profile_title: d.profile_title !== undefined ? d.profile_title : profileMeta.profile_title,
+            profile_location: d.profile_location !== undefined ? d.profile_location : profileMeta.profile_location,
             avatar_url: freshAvatar,
           });
         }
@@ -331,6 +339,8 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
           onUpdateUser({
             name: profileMeta.full_name,
             email: userEmail,
+            profile_title: profileMeta.profile_title,
+            profile_location: profileMeta.profile_location,
             avatar_url: null,
           });
         }

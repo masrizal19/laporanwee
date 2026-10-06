@@ -21,7 +21,13 @@ interface ProfileViewProps {
   userEmail: string;
   userName: string;
   avatarUrl?: string | null;
-  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string | null }) => void;
+  onUpdateUser?: (updated: {
+    email: string;
+    name: string;
+    avatar_url?: string | null;
+    profile_title?: string;
+    profile_location?: string;
+  }) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -127,6 +133,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           onUpdateUser({
             name: freshName || userName,
             email: d.email || userEmail,
+            profile_title: freshTitle,
+            profile_location: freshStatus,
             avatar_url: freshAvatar,
           });
         }
@@ -251,6 +259,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           onUpdateUser({
             name: freshName,
             email,
+            profile_title: freshJob,
+            profile_location: freshStatus,
             avatar_url: freshAvatar,
           });
         }

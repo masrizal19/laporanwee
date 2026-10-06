@@ -201,7 +201,10 @@ export function App() {
       '/kalender',
       '/analitik',
       '/admin/ui-settings',
-      '/ui-settings'
+      '/ui-settings',
+      '/profil',
+      '/profile',
+      '/profil/crop',
     ];
     if (validPaths.includes(hashPart)) {
       return hashPart;
@@ -1870,16 +1873,20 @@ export function App() {
             userName={user.name}
             avatarUrl={(user as any)?.avatar_url}
             onUpdateUser={(updated) => {
-              const updatedUser = {
-                ...user,
-                email: updated.email,
-                name: updated.name,
-                avatar_url: updated.avatar_url,
-              };
-              setUser(updatedUser);
-              try {
-                localStorage.setItem('laporanwee_user', JSON.stringify(updatedUser));
-              } catch (_) {}
+              setUser((prev) => {
+                if (!prev) return null;
+                const updatedUser: AuthUser = {
+                  ...prev,
+                  email: updated.email,
+                  name: updated.name,
+                  full_name: updated.name,
+                  profile_title: updated.profile_title !== undefined ? updated.profile_title : prev.profile_title,
+                  profile_location: updated.profile_location !== undefined ? updated.profile_location : prev.profile_location,
+                  avatar_url: updated.avatar_url !== undefined ? updated.avatar_url : prev.avatar_url,
+                };
+                setStoredUser(updatedUser);
+                return updatedUser;
+              });
             }}
           />
         )}
@@ -1892,16 +1899,20 @@ export function App() {
             userName={user.name}
             avatarUrl={(user as any)?.avatar_url}
             onUpdateUser={(updated) => {
-              const updatedUser = {
-                ...user,
-                email: updated.email,
-                name: updated.name,
-                avatar_url: updated.avatar_url,
-              };
-              setUser(updatedUser);
-              try {
-                localStorage.setItem('laporanwee_user', JSON.stringify(updatedUser));
-              } catch (_) {}
+              setUser((prev) => {
+                if (!prev) return null;
+                const updatedUser: AuthUser = {
+                  ...prev,
+                  email: updated.email,
+                  name: updated.name,
+                  full_name: updated.name,
+                  profile_title: updated.profile_title !== undefined ? updated.profile_title : prev.profile_title,
+                  profile_location: updated.profile_location !== undefined ? updated.profile_location : prev.profile_location,
+                  avatar_url: updated.avatar_url !== undefined ? updated.avatar_url : prev.avatar_url,
+                };
+                setStoredUser(updatedUser);
+                return updatedUser;
+              });
             }}
           />
         )}
