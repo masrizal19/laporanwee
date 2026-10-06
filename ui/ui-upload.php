@@ -65,6 +65,19 @@ try {
         response(false, 'Format file tidak didukung. Gunakan JPG, PNG, WEBP, atau SVG.', [], 400);
     }
 
+    // Real MIME type verification
+    if ($ext === 'svg') {
+        $fileHeader = @file_get_contents($file['tmp_name'], false, null, 0, 1000);
+        if ($fileHeader === false || strpos($fileHeader, '<svg') === false) {
+            response(false, 'File yang diunggah bukan merupakan berkas SVG valid.', [], 400);
+        }
+    } else {
+        $imageInfo = @getimagesize($file['tmp_name']);
+        if ($imageInfo === false) {
+            response(false, 'File yang diunggah bukan merupakan gambar valid.', [], 400);
+        }
+    }
+
     $uploadDir = dirname(__DIR__, 2) . '/uploads/ui/';
     if (!file_exists($uploadDir)) {
         mkdir($uploadDir, 0755, true);
@@ -74,8 +87,17 @@ try {
     $uploadPath = $uploadDir . $randomFileName;
 
     if (move_uploaded_file($file['tmp_name'], $uploadPath)) {
-        $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+        $protocol = 'http';
+        if (
+            (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] === 'on' || $_SERVER['HTTPS'] === 1)) ||
+            (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+        ) {
+            $protocol = 'https';
+        }
         $host = $_SERVER['HTTP_HOST'];
+        if (strpos($host, 'mkverse.my.id') !== false || strpos($host, 'run.app') !== false) {
+            $protocol = 'https';
+        }
         // Root public uploads path
         $publicUrl = $protocol . '://' . $host . '/uploads/ui/' . $randomFileName;
 
@@ -92,6 +114,6 @@ try {
     }
 
 } catch (Exception $e) {
-    response(false, 'Terjadi kesalahan sistem: ' . $e->getMessage(), [], 500);
+    response(false, 'Terjadi kesalahan sistem. Silakan hubungi administrator.', [], 500);
 }
 ?>

@@ -92,5 +92,5 @@ try {
     ], 200);
 
 } catch (Exception $e) {
-    response(false, 'Terjadi kesalahan sistem saat menghapus laporan: ' . $e->getMessage(), [], 500);
+    response(false, 'Terjadi kesalahan sistem saat menghapus laporan. Silakan hubungi administrator.', [], 500);
 }

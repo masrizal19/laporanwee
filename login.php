@@ -55,5 +55,5 @@ try {
     ], 200);
 
 } catch (Exception $e) {
-    response(false, 'Terjadi kesalahan sistem: ' . $e->getMessage(), [], 500);
+    response(false, 'Terjadi kesalahan sistem. Silakan hubungi administrator.', [], 500);
 }

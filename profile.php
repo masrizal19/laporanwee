@@ -87,6 +87,12 @@ try {
                 response(false, 'Format file foto tidak didukung. Gunakan JPG, PNG, atau WEBP.', [], 400);
             }
 
+            // Real MIME type verification via getimagesize
+            $imageInfo = @getimagesize($file['tmp_name']);
+            if ($imageInfo === false) {
+                response(false, 'File yang diunggah bukan merupakan gambar valid.', [], 400);
+            }
+
             $uploadDir = 'uploads/profile/';
             if (!file_exists($uploadDir)) {
                 mkdir($uploadDir, 0755, true);
@@ -96,9 +102,18 @@ try {
             $uploadPath = $uploadDir . $randomFileName;
 
             if (move_uploaded_file($file['tmp_name'], $uploadPath)) {
-                // Construct public URL
-                $protocol = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http';
+                // Construct public URL, default to https if using official production/preview domains or proxied ssl
+                $protocol = 'http';
+                if (
+                    (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] === 'on' || $_SERVER['HTTPS'] === 1)) ||
+                    (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https')
+                ) {
+                    $protocol = 'https';
+                }
                 $host = $_SERVER['HTTP_HOST'];
+                if (strpos($host, 'mkverse.my.id') !== false || strpos($host, 'run.app') !== false) {
+                    $protocol = 'https';
+                }
                 $avatarUrl = $protocol . '://' . $host . '/' . $uploadPath;
             } else {
                 response(false, 'Gagal mengunggah file foto profil ke server.', [], 500);
@@ -135,6 +150,6 @@ try {
     }
 
 } catch (Exception $e) {
-    response(false, 'Terjadi kesalahan sistem: ' . $e->getMessage(), [], 500);
+    response(false, 'Terjadi kesalahan sistem. Silakan hubungi administrator.', [], 500);
 }
 ?>

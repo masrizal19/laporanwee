@@ -228,5 +228,5 @@ try {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();
     }
-    response(false, 'Terjadi kesalahan sistem saat memperbarui status: ' . $e->getMessage(), [], 500);
+    response(false, 'Terjadi kesalahan sistem saat memperbarui status. Silakan hubungi administrator.', [], 500);
 }

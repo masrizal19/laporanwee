@@ -21,6 +21,14 @@ header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Vary: Origin");
 header("Access-Control-Max-Age: 86400");
 
+// Security Headers
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: SAMEORIGIN");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Strict-Transport-Security: max-age=31536000; includeSubDomains; preload");
+header("Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()");
+header("Content-Security-Policy: default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; img-src 'self' https: data: blob:; connect-src 'self' https:; font-src 'self' https: data:;");
+
 // Handle preflight OPTIONS request before processing
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -40,12 +48,12 @@ try {
         PDO::ATTR_EMULATE_PREPARES => false,
     ]);
 } catch (PDOException $e) {
-    // If connection fails, output JSON error using the requested response format
+    // If connection fails, output JSON error using the requested response format (safely hiding raw credentials/errors)
     http_response_code(500);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'success' => false,
-        'message' => 'Gagal terhubung ke database: ' . $e->getMessage()
+        'message' => 'Gagal terhubung ke database. Silakan coba beberapa saat lagi.'
     ]);
     exit();
 }
