@@ -82,47 +82,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     return { maxX, maxY };
   };
 
-  // Global window listeners while dragging to guarantee smooth dragging even outside container
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const onGlobalPointerMove = (e: PointerEvent) => {
-      if (!isDraggingRef.current) return;
-      const dx = e.clientX - dragStartRef.current.startX;
-      const dy = e.clientY - dragStartRef.current.startY;
-      const rawX = dragStartRef.current.initialX + dx;
-      const rawY = dragStartRef.current.initialY + dy;
-
-      const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
-        width: imgRef.current.naturalWidth,
-        height: imgRef.current.naturalHeight,
-        baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
-      } : null);
-
-      const { maxX, maxY } = computeMaxPan(zoomRef.current, dims);
-      const clampedX = Math.max(-maxX, Math.min(maxX, rawX));
-      const clampedY = Math.max(-maxY, Math.min(maxY, rawY));
-
-      setPosition({ x: clampedX, y: clampedY });
-      positionRef.current = { x: clampedX, y: clampedY };
-    };
-
-    const onGlobalPointerUp = () => {
-      isDraggingRef.current = false;
-      setIsDragging(false);
-    };
-
-    window.addEventListener('pointermove', onGlobalPointerMove);
-    window.addEventListener('pointerup', onGlobalPointerUp);
-    window.addEventListener('pointercancel', onGlobalPointerUp);
-
-    return () => {
-      window.removeEventListener('pointermove', onGlobalPointerMove);
-      window.removeEventListener('pointerup', onGlobalPointerUp);
-      window.removeEventListener('pointercancel', onGlobalPointerUp);
-    };
-  }, [isDragging]);
-
   const loadImageIntoCropper = (src: string) => {
     const img = new Image();
     img.onload = () => {
@@ -196,9 +155,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  // Zoom control (Target 6, 7, 8, 9)
+  // Zoom control (Target 6, 7, 8, 9, 12, 13)
   const handleZoomChange = (nextZoom: number) => {
-    const clampedZoom = Math.max(1, Math.min(3, Math.round(nextZoom * 100) / 100));
+    const clampedZoom = Math.max(1, Math.min(4, Math.round(nextZoom * 100) / 100));
     setZoom(clampedZoom);
     zoomRef.current = clampedZoom;
 
@@ -217,12 +176,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     });
   };
 
-  // Pointer Events for smooth drag across desktop mouse and touch (Target 4, 5, 9)
+  // Pointer Events for smooth drag across desktop mouse and touch (Target 4, 5, 7, 8, 9, 14)
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
     e.preventDefault();
     try {
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      e.currentTarget.setPointerCapture(e.pointerId);
     } catch (_) {}
 
     isDraggingRef.current = true;
@@ -262,8 +221,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       isDraggingRef.current = false;
       setIsDragging(false);
       try {
-        if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) {
-          (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+          e.currentTarget.releasePointerCapture(e.pointerId);
         }
       } catch (_) {}
     }
@@ -275,11 +234,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.08 : -0.08;
+    const delta = e.deltaY < 0 ? 0.05 : -0.05;
     handleZoomChange(zoomRef.current + delta);
   };
 
-  // Reset to initial valid state (Target 5)
+  // Reset to initial valid state (Target 5, 16)
   const handleResetCrop = () => {
     setZoom(1);
     zoomRef.current = 1;
@@ -785,8 +744,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
               const baseWidth = activeDims ? activeDims.width * activeDims.baseScale : CONTAINER_SIZE;
               const baseHeight = activeDims ? activeDims.height * activeDims.baseScale : CONTAINER_SIZE;
-              const left = (CONTAINER_SIZE - baseWidth) / 2;
-              const top = (CONTAINER_SIZE - baseHeight) / 2;
 
               return (
                 <div
@@ -831,11 +788,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     }}
                     style={{
                       position: 'absolute',
-                      left: `${left}px`,
-                      top: `${top}px`,
+                      left: '50%',
+                      top: '50%',
                       width: `${baseWidth}px`,
                       height: `${baseHeight}px`,
-                      transform: `translate3d(${position.x}px, ${position.y}px, 0) scale(${zoom})`,
+                      transform: `translate3d(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px), 0) scale(${zoom})`,
                       transformOrigin: 'center center',
                       maxWidth: 'none',
                       maxHeight: 'none',
@@ -843,7 +800,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       userSelect: 'none',
                       WebkitUserSelect: 'none',
                       transition: isDragging ? 'none' : 'transform 0.08s ease-out',
-                      willChange: isDragging ? 'transform' : 'auto',
+                      willChange: 'transform',
                     }}
                   />
                 </div>
@@ -864,8 +821,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               <input
                 type="range"
                 min="1"
-                max="3"
-                step="0.02"
+                max="4"
+                step="0.01"
                 value={zoom}
                 onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
                 style={{ width: '130px', accentColor: 'var(--primary-color, #4A55FF)', cursor: 'pointer' }}
