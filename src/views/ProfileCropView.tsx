@@ -3,6 +3,7 @@ import { ViewType } from '../types';
 import {
   profileService,
   extractAvatarFromResponse,
+  getAbsoluteAvatarUrl,
   withAvatarCacheBust,
   recordProfileSaveTimestamp,
   getLatestProfileSaveTimestamp,
@@ -29,7 +30,9 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 }) => {
   // State
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [rawImageSrc, setRawImageSrc] = useState<string | null>(
+    initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null
+  );
   const [isImageLoaded, setIsImageLoaded] = useState(false);
   const [imageMeta, setImageMeta] = useState<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
 
@@ -49,6 +52,17 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
   const [isProcessingCrop, setIsProcessingCrop] = useState(false);
   const [isSavingCrop, setIsSavingCrop] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Profile metadata to preserve during save
+  const [profileMeta, setProfileMeta] = useState<{
+    full_name: string;
+    profile_title: string;
+    profile_location: string;
+  }>({
+    full_name: userName || userEmail?.split('@')[0] || '',
+    profile_title: '',
+    profile_location: '',
+  });
 
   // Internal refs
   const dragRef = useRef<{
@@ -74,48 +88,29 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     metaRef.current = imageMeta;
   }, [imageMeta]);
 
-  // Load existing profile and crop settings on mount with request sequence guard
+  // Load existing profile on mount with request sequence guard
   useEffect(() => {
     let isMounted = true;
     const requestInitiatedAt = Date.now();
 
     const initData = async () => {
       try {
-        const [profileRes, settingsRes] = await Promise.allSettled([
-          profileService.getProfile(),
-          profileService.getSettings(),
-        ]);
-
+        const res = await profileService.getProfile();
         if (!isMounted) return;
-        // Ignore stale GET responses if a save occurred after this request started
         if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
 
-        let initialImg: string | null = null;
-        let initialZoom = 1;
-        let initialX = 0;
-        let initialY = 0;
-
-        if (profileRes.status === 'fulfilled' && profileRes.value?.success && profileRes.value?.data) {
-          const d = profileRes.value.data;
-          const rawAvatar = extractAvatarFromResponse(profileRes.value);
-          if (rawAvatar) {
-            initialImg = withAvatarCacheBust(rawAvatar, d.updated_at || Date.now());
+        if (res && res.success && res.data) {
+          const d = res.data;
+          const rawAvatar = extractAvatarFromResponse(res);
+          if (rawAvatar && !rawImageSrc) {
+            setRawImageSrc(withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()));
           }
-        }
 
-        if (settingsRes.status === 'fulfilled' && settingsRes.value?.success && settingsRes.value?.data) {
-          const s = settingsRes.value.data;
-          const z = Number(s.crop_zoom || s.zoom);
-          const x = Number(s.crop_x || s.x);
-          const y = Number(s.crop_y || s.y);
-          if (!isNaN(z) && z >= 1) initialZoom = z;
-          if (!isNaN(x)) initialX = x;
-          if (!isNaN(y)) initialY = y;
-        }
-
-        if (initialImg && !rawImageSrc) {
-          setRawImageSrc(initialImg);
-          setCrop({ zoom: initialZoom, x: initialX, y: initialY });
+          setProfileMeta({
+            full_name: d.full_name || d.name || userName,
+            profile_title: d.profile_title || d.title || '',
+            profile_location: d.profile_location || d.status || d.location || '',
+          });
         }
       } catch (e) {
         console.warn('[ProfileCropView] Initialization notice:', e);
@@ -127,9 +122,9 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [userName]);
 
-  // Clamping calculation based on exact Golden Reference formulas
+  // Clamping calculation
   const clampCoordinates = useCallback((x: number, y: number, z: number, meta?: { w: number; h: number; base: number }) => {
     const m = meta || metaRef.current;
     const cropEl = cropAreaRef.current;
@@ -150,7 +145,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     };
   }, []);
 
-  // Update zoom with coordinate clamping
   const applyZoom = useCallback(
     (newZoom: number) => {
       const clampedZoom = Math.max(1, Math.min(4, parseFloat(newZoom.toFixed(2))));
@@ -162,526 +156,432 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         x: clampedPos.x,
         y: clampedPos.y,
       });
-
-      console.log('[CROP_DEBUG] ZOOM_CHANGE', {
-        zoom: clampedZoom,
-        x: clampedPos.x,
-        y: clampedPos.y,
-      });
     },
     [clampCoordinates]
   );
 
-  // Initialize image on load
-  const handleImageLoaded = useCallback(() => {
+  const handleImageLoaded = useCallback((imgEl: HTMLImageElement) => {
+    const naturalWidth = imgEl.naturalWidth || 500;
+    const naturalHeight = imgEl.naturalHeight || 500;
     const cropEl = cropAreaRef.current;
-    const imgEl = imgRef.current;
-    if (!cropEl || !imgEl) return;
+    const cropSize = cropEl ? cropEl.clientWidth : 300;
 
-    const nw = imgEl.naturalWidth || 400;
-    const nh = imgEl.naturalHeight || 400;
-    const cropSize = cropEl.clientWidth || 300;
-
-    // baseScale formula: Math.max(cropSize / nw, cropSize / nh)
-    const baseScale = Math.max(cropSize / nw, cropSize / nh);
-
-    const newMeta = { w: nw, h: nh, base: baseScale };
+    const base = Math.max(cropSize / naturalWidth, cropSize / naturalHeight);
+    const newMeta = { w: naturalWidth, h: naturalHeight, base };
     setImageMeta(newMeta);
-    metaRef.current = newMeta;
     setIsImageLoaded(true);
 
-    // Initial clamp
-    const current = cropStateRef.current;
-    const clamped = clampCoordinates(current.x, current.y, current.zoom, newMeta);
-    setCrop((prev) => ({ ...prev, x: clamped.x, y: clamped.y }));
-
-    console.log('[CROP_DEBUG] CROP_READY', {
-      naturalWidth: nw,
-      naturalHeight: nh,
-      cropSize,
-      baseScale,
-    });
+    const clamped = clampCoordinates(0, 0, 1, newMeta);
+    setCrop({ zoom: 1, x: clamped.x, y: clamped.y });
   }, [clampCoordinates]);
 
-  // Pointer Events for single-touch / mouse drag with pointer capture
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isImageLoaded) return;
-    e.preventDefault();
-    e.stopPropagation();
-
-    const cropEl = cropAreaRef.current;
-    if (cropEl) {
-      try {
-        cropEl.setPointerCapture(e.pointerId);
-      } catch (_) {}
+  // File selection
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onAddToast('Pilih file gambar yang valid.');
+      return;
     }
 
+    setSelectedFile(file);
+    setServerCropResult(null);
+    setIsImageLoaded(false);
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const resStr = evt.target?.result as string;
+      if (resStr) {
+        setRawImageSrc(resStr);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Drag handlers
+  const handlePointerDown = (e: React.PointerEvent) => {
+    if (!rawImageSrc) return;
+    e.preventDefault();
+    setIsDragging(true);
     dragRef.current = {
       active: true,
       id: e.pointerId,
       sx: e.clientX,
       sy: e.clientY,
-      ix: cropStateRef.current.x,
-      iy: cropStateRef.current.y,
+      ix: crop.x,
+      iy: crop.y,
     };
-    setIsDragging(true);
-
-    console.log('[CROP_DEBUG] POINTER_DOWN', {
-      pointerId: e.pointerId,
-      clientX: e.clientX,
-      clientY: e.clientY,
-    });
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {}
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag.active || drag.id !== e.pointerId) return;
-
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current.active) return;
     e.preventDefault();
-    e.stopPropagation();
 
-    const dx = e.clientX - drag.sx;
-    const dy = e.clientY - drag.sy;
+    const dx = e.clientX - dragRef.current.sx;
+    const dy = e.clientY - dragRef.current.sy;
 
-    const clamped = clampCoordinates(drag.ix + dx, drag.iy + dy, cropStateRef.current.zoom);
+    const targetX = dragRef.current.ix + dx;
+    const targetY = dragRef.current.iy + dy;
 
-    setCrop((prev) => ({
-      ...prev,
-      x: clamped.x,
-      y: clamped.y,
-    }));
-
-    console.log('[CROP_DEBUG] POINTER_MOVE', {
-      dx,
-      dy,
-      x: clamped.x,
-      y: clamped.y,
-    });
+    const clamped = clampCoordinates(targetX, targetY, crop.zoom);
+    setCrop((prev) => ({ ...prev, x: clamped.x, y: clamped.y }));
   };
 
-  const handlePointerStop = (e: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (drag.id === e.pointerId || drag.active) {
-      const cropEl = cropAreaRef.current;
-      if (cropEl) {
-        try {
-          cropEl.releasePointerCapture(e.pointerId);
-        } catch (_) {}
-      }
-      dragRef.current = { active: false, id: null, sx: 0, sy: 0, ix: 0, iy: 0 };
-      setIsDragging(false);
-
-      console.log('[CROP_DEBUG] POINTER_UP', {
-        pointerId: e.pointerId,
-      });
-    }
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!dragRef.current.active) return;
+    setIsDragging(false);
+    dragRef.current.active = false;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {}
   };
 
   // Wheel zoom
-  const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
-    if (!isImageLoaded) return;
+  const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.08 : -0.08;
-    applyZoom(cropStateRef.current.zoom + delta);
+    const delta = e.deltaY < 0 ? 0.15 : -0.15;
+    applyZoom(crop.zoom + delta);
   };
 
-  // File selection
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (rawImageSrc && rawImageSrc.startsWith('blob:')) {
-      URL.revokeObjectURL(rawImageSrc);
-    }
-
-    const objectUrl = URL.createObjectURL(file);
-    setSelectedFile(file);
-    setRawImageSrc(objectUrl);
-    setIsImageLoaded(false);
-    setServerCropResult(null);
-    setStatusMessage('');
-
-    // Reset crop state on new image
-    setCrop({ zoom: 1, x: 0, y: 0 });
-
-    console.log('[CROP_DEBUG] FILE_SELECTED', {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-    });
+  const handleReset = () => {
+    const clamped = clampCoordinates(0, 0, 1);
+    setCrop({ zoom: 1, x: clamped.x, y: clamped.y });
+    setStatusMessage('Posisi direset ke awal.');
   };
 
-  // Reset Crop to defaults
-  const handleResetCrop = () => {
-    setCrop({ zoom: 1, x: 0, y: 0 });
-    setStatusMessage('Posisi crop direset ke posisi awal.');
-  };
-
-  // Process Server-Side Crop via /api/profile/crop.php
-  const processServerCrop = async () => {
-    if (!rawImageSrc && !selectedFile) {
-      setStatusMessage('Pilih foto terlebih dahulu.');
+  // Server Crop Request
+  const handleProcessCrop = async () => {
+    if (!rawImageSrc) {
+      onAddToast('Belum ada foto untuk diproses.');
       return;
     }
-
     setIsProcessingCrop(true);
-    setStatusMessage('Mengirim koordinat crop ke server...');
-
-    console.log('[CROP_DEBUG] CROP_REQUEST', {
-      hasSelectedFile: !!selectedFile,
-      zoom: crop.zoom,
-      x: crop.x,
-      y: crop.y,
-    });
+    setStatusMessage('Memproses pemotongan gambar...');
 
     try {
-      const res = await profileService.cropPhoto({
-        avatar: selectedFile || rawImageSrc || undefined,
-        zoom: crop.zoom,
-        x: crop.x,
-        y: crop.y,
-      });
-
-      console.log('[CROP_DEBUG] CROP_RESPONSE', res);
-
-      if (res && res.success && res.data) {
-        setServerCropResult(res.data);
-        setStatusMessage('Berhasil membuat preview crop dari server. Klik "Simpan Foto Profil" untuk menerapkan.');
-        onAddToast('Preview crop server berhasil dibuat!');
+      let cropRes;
+      if (selectedFile instanceof File) {
+        cropRes = await profileService.cropPhoto({
+          avatar: selectedFile,
+          zoom: crop.zoom,
+          x: crop.x,
+          y: crop.y,
+        });
       } else {
-        setStatusMessage(res?.message || 'Gagal memproses crop di server.');
+        cropRes = await profileService.cropPhoto({
+          avatar: rawImageSrc,
+          zoom: crop.zoom,
+          x: crop.x,
+          y: crop.y,
+        });
+      }
+
+      if (cropRes && cropRes.success) {
+        setServerCropResult(cropRes.data || cropRes);
+        setStatusMessage('Pemotongan berhasil! Silakan simpan.');
+        onAddToast('Preview crop berhasil dibuat.');
+      } else {
+        onAddToast(cropRes?.message || 'Gagal memproses crop.');
+        setStatusMessage('Gagal memproses crop.');
       }
     } catch (err: any) {
-      console.error('[CROP_ERROR] processServerCrop:', err);
-      setStatusMessage(err.message || 'Terjadi kesalahan saat memproses crop di server.');
-      onAddToast('Gagal memproses crop: ' + (err.message || 'Kesalahan server'));
+      onAddToast('Error crop: ' + (err.message || 'Kesalahan server'));
+      setStatusMessage('Error memproses crop.');
     } finally {
       setIsProcessingCrop(false);
     }
   };
 
-  // Save Cropped Profile to MySQL via /api/profile/save.php (Instant, non-blocking flow)
-  const saveCroppedProfile = async () => {
+  // Save Final Profile & Crop via profileService.saveProfile
+  const handleSaveCrop = async () => {
     if (isSavingCrop) return;
     setIsSavingCrop(true);
-    setStatusMessage('Menyimpan foto profil ke database...');
-
-    console.log('[CROP_DEBUG] SAVE_REQUEST', {
-      zoom: crop.zoom,
-      x: crop.x,
-      y: crop.y,
-      cropResult: serverCropResult,
-    });
-
     try {
-      // 1. Primary request: save profile to MySQL
-      const saveRes = await profileService.saveProfile({
-        full_name: userName,
-        crop_file: serverCropResult?.file_name || selectedFile || undefined,
-        crop_url: serverCropResult?.crop_url || serverCropResult?.file_url || undefined,
+      const savePayload: any = {
+        full_name: profileMeta.full_name,
+        profile_title: profileMeta.profile_title,
+        profile_location: profileMeta.profile_location,
         zoom: crop.zoom,
         x: crop.x,
         y: crop.y,
-      });
+      };
 
-      console.log('[CROP_DEBUG] SAVE_RESPONSE', saveRes);
-
-      // Record save timestamp for race condition prevention
-      recordProfileSaveTimestamp();
-
-      // Determine fresh avatar URL with cache busting
-      const rawUrl = extractAvatarFromResponse(saveRes) || serverCropResult?.crop_url || serverCropResult?.file_url || initialAvatarUrl;
-      const freshAvatarUrl = rawUrl ? withAvatarCacheBust(rawUrl, saveRes?.data?.updated_at || Date.now()) : null;
-
-      // 2. Immediately sync global authenticated user state & cache
-      syncAuthenticatedUser({
-        name: saveRes?.data?.full_name || userName,
-        email: userEmail,
-        avatar_url: freshAvatarUrl,
-        updated_at: saveRes?.data?.updated_at,
-      });
-
-      if (onUpdateUser) {
-        onUpdateUser({
-          name: saveRes?.data?.full_name || userName,
-          email: userEmail,
-          avatar_url: freshAvatarUrl,
-        });
+      if (selectedFile instanceof File) {
+        savePayload.crop_file = selectedFile;
+      } else if (serverCropResult?.crop_url || serverCropResult?.file_url || serverCropResult?.file_name) {
+        savePayload.crop_url = serverCropResult.crop_url || serverCropResult.file_url || serverCropResult.file_name;
+      } else if (rawImageSrc && !rawImageSrc.startsWith('data:image/svg+xml')) {
+        savePayload.crop_url = rawImageSrc;
       }
 
-      onAddToast('Foto profil berhasil diperbarui!');
+      const res = await profileService.saveProfile(savePayload);
+      recordProfileSaveTimestamp();
 
-      // 3. Immediately navigate back to profile (instant response, no artificial delay)
-      onNavigate('profile');
+      if (res && res.success) {
+        onAddToast('Foto profil dan metadata berhasil disimpan!');
+        const d = res.data || res;
+        const rawAvatar = extractAvatarFromResponse(res) || serverCropResult?.crop_url || serverCropResult?.file_url || serverCropResult?.avatar_url;
+        const freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : (d.avatar_url !== undefined ? d.avatar_url : null);
 
-      // 4. Background revalidation (non-blocking)
-      (async () => {
-        try {
-          await profileService.saveSettings({
-            crop_zoom: crop.zoom,
-            crop_x: crop.x,
-            crop_y: crop.y,
+        syncAuthenticatedUser({
+          avatar_url: freshAvatar,
+          ...(d.full_name ? { name: d.full_name } : {}),
+          ...(d.profile_title !== undefined ? { profile_title: d.profile_title } : {}),
+          ...(d.profile_location !== undefined ? { profile_location: d.profile_location } : {}),
+        });
+
+        if (onUpdateUser) {
+          onUpdateUser({
+            name: d.full_name || profileMeta.full_name,
+            email: userEmail,
+            avatar_url: freshAvatar,
           });
-        } catch (_) {}
-      })();
+        }
+
+        window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', {
+          detail: {
+            avatar_url: freshAvatar,
+            full_name: d.full_name || profileMeta.full_name,
+            profile_title: d.profile_title,
+            profile_location: d.profile_location,
+          },
+        }));
+
+        onNavigate('profile');
+      } else {
+        onAddToast(res?.message || 'Gagal menyimpan foto profil.');
+      }
     } catch (err: any) {
-      console.error('[CROP_ERROR] saveCroppedProfile:', err);
-      setStatusMessage(err.message || 'Gagal menyimpan foto profil.');
-      onAddToast('Gagal menyimpan foto profil: ' + (err.message || 'Kesalahan server'));
+      onAddToast('Gagal menyimpan foto: ' + (err.message || 'Kesalahan server'));
+    } finally {
       setIsSavingCrop(false);
     }
   };
 
-  // Delete profile photo via /api/profile/delete.php
-  const deleteProfilePhoto = async () => {
+  // Delete Photo
+  const handleDeletePhoto = async () => {
     if (isDeleting) return;
     setIsDeleting(true);
     try {
-      await profileService.deletePhoto();
+      const res = await profileService.deletePhoto();
       recordProfileSaveTimestamp();
 
-      if (rawImageSrc && rawImageSrc.startsWith('blob:')) {
-        URL.revokeObjectURL(rawImageSrc);
-      }
+      if (res && res.success) {
+        onAddToast('Foto profil berhasil dihapus.');
+        setRawImageSrc(null);
+        setSelectedFile(null);
+        setServerCropResult(null);
 
-      setSelectedFile(null);
-      setRawImageSrc(null);
-      setServerCropResult(null);
-      setIsImageLoaded(false);
-
-      // Immediately sync state to null avatar
-      syncAuthenticatedUser({
-        name: userName,
-        email: userEmail,
-        avatar_url: null,
-      });
-
-      if (onUpdateUser) {
-        onUpdateUser({
-          name: userName,
-          email: userEmail,
+        syncAuthenticatedUser({
           avatar_url: null,
         });
-      }
 
-      onAddToast('Foto profil berhasil dihapus.');
-      onNavigate('profile');
+        if (onUpdateUser) {
+          onUpdateUser({
+            name: profileMeta.full_name,
+            email: userEmail,
+            avatar_url: null,
+          });
+        }
+
+        window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', { detail: { avatar_url: null } }));
+        onNavigate('profile');
+      } else {
+        onAddToast(res?.message || 'Gagal menghapus foto.');
+      }
     } catch (err: any) {
       onAddToast('Gagal menghapus foto: ' + (err.message || 'Kesalahan server'));
+    } finally {
       setIsDeleting(false);
     }
   };
 
+  // Calculation for image transform style
+  const imageTransformStyle = {
+    transform: `translate(-50%, -50%) translate(${crop.x}px, ${crop.y}px) scale(${crop.zoom})`,
+    maxWidth: 'none',
+    maxHeight: 'none',
+    width: imageMeta.w > 0 ? `${imageMeta.w * imageMeta.base}px` : 'auto',
+    height: imageMeta.h > 0 ? `${imageMeta.h * imageMeta.base}px` : 'auto',
+  };
+
+  const previewAvatarSrc = serverCropResult?.crop_url || serverCropResult?.file_url || serverCropResult?.avatar_url || rawImageSrc;
+
   return (
-    <div className="profile-page-root profile-crop-page-root">
-      {/* Top Bar Header */}
+    <div className="profile-crop-page-root">
+      {/* Header */}
       <header className="profile-top-bar">
         <div className="profile-top-left">
           <button
             type="button"
             className="profile-back-circle"
             onClick={() => onNavigate('profile')}
-            aria-label="Kembali ke profil"
-            title="Kembali ke Profil"
+            aria-label="Kembali ke profile"
+            title="Kembali ke Profile"
           >
             ←
           </button>
           <span className="profile-brand-title">Atur Crop Foto</span>
         </div>
-        <div>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <button
             type="button"
             className="profile-top-save-btn"
-            onClick={() => onNavigate('profile')}
+            style={{ background: '#dc2626' }}
+            onClick={handleDeletePhoto}
+            disabled={isDeleting}
           >
-            Selesai
+            {isDeleting ? 'Menghapus...' : 'Hapus Foto'}
+          </button>
+          <button
+            type="button"
+            className="profile-top-save-btn"
+            onClick={handleSaveCrop}
+            disabled={isSavingCrop}
+          >
+            {isSavingCrop ? 'Menyimpan...' : 'Simpan Foto'}
           </button>
         </div>
       </header>
 
-      {/* Main Full-Page Cropper Stage */}
-      <main className="profile-shell-main" style={{ maxWidth: '680px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-          <h1 className="profile-main-title" style={{ fontSize: '32px', margin: '0 0 8px' }}>
-            Sesuaikan Posisi &amp; Zoom
-          </h1>
-          <p className="profile-crop-hint" style={{ fontSize: '14px', maxWidth: '520px', margin: '0 auto' }}>
-            Geser foto di dalam lingkaran. Gunakan slider, tombol −/+, atau scroll mouse untuk memperbesar/memperkecil foto.
-          </p>
-        </div>
+      {/* Main Container */}
+      <main className="profile-shell-main" style={{ maxWidth: '640px', margin: '0 auto', paddingBottom: '40px' }}>
+        <h1 className="profile-main-title" style={{ fontSize: '22px', marginBottom: '8px' }}>Atur &amp; Potong Foto Profil</h1>
+        <p className="profile-crop-hint" style={{ marginBottom: '24px' }}>
+          Geser foto di dalam lingkaran, gunakan slider zoom atau scroll mouse untuk menyesuaikan ukuran.
+        </p>
 
-        {/* Circular Crop Area */}
-        <div className="profile-crop-stage">
-          <div
-            id="crop"
-            ref={cropAreaRef}
-            className={`profile-crop-area ${isDragging ? 'is-dragging' : ''}`}
-            onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerStop}
-            onPointerCancel={handlePointerStop}
-            onWheel={handleWheel}
-          >
-            {rawImageSrc ? (
-              <img
-                ref={imgRef}
-                id="img"
-                className="profile-crop-image"
-                src={rawImageSrc}
-                alt="Crop Preview"
-                draggable={false}
-                onLoad={handleImageLoaded}
-                style={{
-                  width: `${imageMeta.w * imageMeta.base}px`,
-                  height: `${imageMeta.h * imageMeta.base}px`,
-                  transform: `translate3d(calc(-50% + ${crop.x}px), calc(-50% + ${crop.y}px), 0) scale(${crop.zoom})`,
-                }}
-              />
-            ) : (
-              <div
-                style={{
-                  display: 'grid',
-                  placeItems: 'center',
-                  height: '100%',
-                  color: '#888',
-                  fontSize: '13px',
-                  padding: '20px',
-                  textAlign: 'center',
-                }}
-              >
-                Pilih foto untuk memulai crop
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Zoom Controls */}
-        <div className="profile-zoom-bar">
-          <button
-            type="button"
-            className="profile-zoom-step-btn"
-            id="minus"
-            onClick={() => applyZoom(crop.zoom - 0.1)}
-            disabled={!isImageLoaded}
-            aria-label="Zoom out"
-          >
-            −
-          </button>
+        {/* File Picker Option */}
+        <div style={{ marginBottom: '20px', display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center' }}>
           <input
-            id="slider"
-            type="range"
-            className="profile-zoom-slider"
-            min="1"
-            max="4"
-            step="0.01"
-            value={crop.zoom}
-            disabled={!isImageLoaded}
-            onChange={(e) => applyZoom(parseFloat(e.target.value))}
-            aria-label="Zoom slider"
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/*"
+            style={{ display: 'none' }}
           />
           <button
             type="button"
-            className="profile-zoom-step-btn"
-            id="plus"
-            onClick={() => applyZoom(crop.zoom + 0.1)}
-            disabled={!isImageLoaded}
-            aria-label="Zoom in"
+            className="profile-top-save-btn"
+            style={{ background: 'var(--profile-surface, #2a2a2a)', color: 'var(--profile-text, #fff)', border: '1px solid rgba(255,255,255,0.1)' }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Pilih Foto Baru...
+          </button>
+        </div>
+
+        {/* Cropper Stage Area */}
+        <div
+          className="profile-crop-stage"
+          ref={cropAreaRef}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+          onWheel={handleWheel}
+          style={{
+            position: 'relative',
+            width: '300px',
+            height: '300px',
+            margin: '0 auto 20px auto',
+            borderRadius: '50%',
+            overflow: 'hidden',
+            background: '#111',
+            cursor: isDragging ? 'grabbing' : 'grab',
+            touchAction: 'none',
+            border: '3px solid var(--profile-accent, #3b82f6)',
+          }}
+        >
+          {rawImageSrc ? (
+            <img
+              ref={imgRef}
+              src={rawImageSrc}
+              alt="Crop Source"
+              onLoad={(e) => handleImageLoaded(e.currentTarget)}
+              style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                userSelect: 'none',
+                pointerEvents: 'none',
+                ...imageTransformStyle,
+              }}
+            />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#888' }}>
+              Belum ada foto
+            </div>
+          )}
+        </div>
+
+        {/* Zoom Controls Bar */}
+        <div className="profile-zoom-bar" style={{ display: 'flex', gap: '12px', alignItems: 'center', justifyContent: 'center', marginBottom: '20px' }}>
+          <button
+            type="button"
+            onClick={() => applyZoom(crop.zoom - 0.2)}
+            style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#333', color: '#fff', border: 'none', fontSize: '18px', cursor: 'pointer' }}
+          >
+            -
+          </button>
+          <input
+            type="range"
+            min="1"
+            max="4"
+            step="0.05"
+            value={crop.zoom}
+            onChange={(e) => applyZoom(parseFloat(e.target.value))}
+            style={{ width: '200px', accentColor: 'var(--profile-accent, #3b82f6)' }}
+          />
+          <button
+            type="button"
+            onClick={() => applyZoom(crop.zoom + 0.2)}
+            style={{ width: '38px', height: '38px', borderRadius: '50%', background: '#333', color: '#fff', border: 'none', fontSize: '18px', cursor: 'pointer' }}
           >
             +
           </button>
-          <div className="profile-zoom-value-badge" id="zval">
-            {Math.round(crop.zoom * 100)}%
-          </div>
-        </div>
-
-        {/* Buttons Panel */}
-        <div className="profile-modal-actions" style={{ justifyContent: 'center', marginTop: '24px' }}>
-          {rawImageSrc && (
-            <button
-              type="button"
-              className="profile-action-btn is-danger"
-              onClick={deleteProfilePhoto}
-              disabled={isDeleting || isSavingCrop}
-              style={{ marginRight: 'auto' }}
-            >
-              {isDeleting ? 'Menghapus...' : 'Hapus Foto'}
-            </button>
-          )}
-
           <button
             type="button"
-            className="profile-action-btn"
-            id="choose"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {rawImageSrc ? 'Ganti Foto' : 'Pilih Foto'}
-          </button>
-
-          <button
-            type="button"
-            className="profile-action-btn"
-            id="reset"
-            onClick={handleResetCrop}
-            disabled={!isImageLoaded}
+            onClick={handleReset}
+            style={{ padding: '8px 14px', borderRadius: '8px', background: '#333', color: '#fff', border: 'none', fontSize: '13px', cursor: 'pointer' }}
           >
             Reset
           </button>
-
-          <button
-            type="button"
-            className="profile-action-btn is-dark"
-            id="process"
-            onClick={processServerCrop}
-            disabled={!rawImageSrc || isProcessingCrop || isSavingCrop}
-          >
-            {isProcessingCrop ? 'Memproses...' : 'Proses Crop'}
-          </button>
         </div>
 
-        {/* Status Message */}
-        {statusMessage && (
-          <div id="status" className="profile-status-message">
-            {statusMessage}
-          </div>
-        )}
-
-        {/* Server Crop Result Preview */}
-        {serverCropResult && (
-          <div id="result" className="profile-server-result-box" style={{ marginTop: '28px' }}>
-            <strong style={{ fontSize: '15px' }}>Hasil Crop Server</strong>
-            <img
-              id="resultImg"
-              className="profile-result-avatar-preview"
-              src={withAvatarCacheBust(serverCropResult.crop_url || serverCropResult.file_url)}
-              alt="Hasil Crop Server"
-            />
-            <div id="meta" className="profile-result-metadata">
-              {`400 × 400 JPEG · zoom ${crop.zoom.toFixed(2)} · x ${crop.x.toFixed(2)} · y ${crop.y.toFixed(2)}`}
+        {/* Action Button: Process Crop */}
+        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+          <button
+            type="button"
+            className="profile-top-save-btn"
+            onClick={handleProcessCrop}
+            disabled={isProcessingCrop || !rawImageSrc}
+            style={{ padding: '12px 28px', fontSize: '15px' }}
+          >
+            {isProcessingCrop ? 'Memproses Crop...' : 'Proses Crop Preview'}
+          </button>
+          {statusMessage && (
+            <div style={{ marginTop: '10px', fontSize: '13px', color: 'var(--profile-muted, #aaa)' }}>
+              {statusMessage}
             </div>
-            <div className="profile-modal-actions" style={{ justifyContent: 'center', marginTop: '16px' }}>
-              <button
-                type="button"
-                className="profile-action-btn is-dark"
-                id="saveProfile"
-                onClick={saveCroppedProfile}
-                disabled={isSavingCrop}
-                style={{ padding: '14px 28px', fontSize: '15px' }}
-              >
-                {isSavingCrop ? 'Menyimpan...' : 'Simpan Foto Profil'}
-              </button>
+          )}
+        </div>
+
+        {/* Server Crop Result Preview Section */}
+        {previewAvatarSrc && (
+          <div style={{ textAlign: 'center', background: 'rgba(255,255,255,0.03)', padding: '20px', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <h3 style={{ fontSize: '15px', marginBottom: '12px', color: '#fff' }}>Preview Hasil Foto Profil</h3>
+            <div style={{ width: '110px', height: '110px', borderRadius: '50%', overflow: 'hidden', margin: '0 auto', border: '2px solid var(--profile-accent, #3b82f6)' }}>
+              <img
+                src={previewAvatarSrc.startsWith('data:') ? previewAvatarSrc : getAbsoluteAvatarUrl(previewAvatarSrc)}
+                alt="Avatar Preview"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
             </div>
           </div>
         )}
-
-        {/* Hidden File Input */}
-        <input
-          ref={fileInputRef}
-          id="file"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          onChange={handleFileInputChange}
-          style={{ display: 'none' }}
-        />
       </main>
     </div>
   );

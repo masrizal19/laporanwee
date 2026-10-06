@@ -32,17 +32,20 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   avatarUrl: initialAvatarUrl,
   onUpdateUser,
 }) => {
-  // User Profile State
+  // Profile State
   const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna');
-  const [role, setRole] = useState('Profile User');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
-  const [location, setLocation] = useState('LaporanWee Web');
+  const [profileTitle, setProfileTitle] = useState('');
+  const [profileStatus, setProfileStatus] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
   const [imageError, setImageError] = useState(false);
 
-  // Inline editing state
-  const [isEditingName, setIsEditingName] = useState(false);
+  // Inline editing state: 'name' | 'job' | 'status' | null
+  const [editingField, setEditingField] = useState<'name' | 'job' | 'status' | null>(null);
   const [tempName, setTempName] = useState(name);
+  const [tempJob, setTempJob] = useState(profileTitle);
+  const [tempStatus, setTempStatus] = useState(profileStatus);
+
   const [isSaving, setIsSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -51,10 +54,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   }, [name]);
 
   useEffect(() => {
+    setTempJob(profileTitle);
+  }, [profileTitle]);
+
+  useEffect(() => {
+    setTempStatus(profileStatus);
+  }, [profileStatus]);
+
+  useEffect(() => {
     setImageError(false);
   }, [avatarUrl]);
 
-  // Synchronize when initialAvatarUrl prop updates from App.tsx
   useEffect(() => {
     if (initialAvatarUrl !== undefined) {
       setAvatarUrl(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
@@ -74,51 +84,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     if (themeObj.surface_color) targetEl.style.setProperty('--profile-surface', themeObj.surface_color);
   }, []);
 
-  // Primary: Load Profile data from modular /api/profile/get.php
+  // Load Profile from modular /api/profile/get.php
   const loadProfile = useCallback(async (quiet = false) => {
     const requestInitiatedAt = Date.now();
     try {
       const res = await profileService.getProfile();
-      // Guard against race conditions where a newer save already finished
       if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
 
       if (res && res.success && res.data) {
         const d = res.data;
-        if (d.full_name) setName(d.full_name);
+        const freshName = d.full_name || d.name;
+        if (freshName) setName(freshName);
         if (d.email) setEmail(d.email);
-        if (d.role) setRole(d.role);
-        if (d.location) setLocation(d.location);
+
+        const freshTitle = d.profile_title !== undefined ? d.profile_title : (d.title || '');
+        setProfileTitle(freshTitle);
+
+        const freshStatus = d.profile_location !== undefined ? d.profile_location : (d.status || d.location || '');
+        setProfileStatus(freshStatus);
 
         const rawAvatar = extractAvatarFromResponse(res);
-        if (rawAvatar) {
-          const fresh = withAvatarCacheBust(rawAvatar, d.updated_at || Date.now());
-          setAvatarUrl(fresh);
-          syncAuthenticatedUser({
-            name: d.full_name || userName,
+        let freshAvatar = avatarUrl;
+        if (rawAvatar !== undefined) {
+          freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : null;
+          setAvatarUrl(freshAvatar);
+        }
+
+        syncAuthenticatedUser({
+          name: freshName || userName,
+          email: d.email || userEmail,
+          profile_title: freshTitle,
+          profile_location: freshStatus,
+          avatar_url: freshAvatar,
+        });
+
+        if (onUpdateUser) {
+          onUpdateUser({
+            name: freshName || userName,
             email: d.email || userEmail,
-            avatar_url: fresh,
+            avatar_url: freshAvatar,
           });
-          if (onUpdateUser) {
-            onUpdateUser({
-              name: d.full_name || userName,
-              email: d.email || userEmail,
-              avatar_url: fresh,
-            });
-          }
-        } else if (rawAvatar === null || d.avatar_url === null || d.avatar === null) {
-          setAvatarUrl(null);
-          syncAuthenticatedUser({
-            name: d.full_name || userName,
-            email: d.email || userEmail,
-            avatar_url: null,
-          });
-          if (onUpdateUser) {
-            onUpdateUser({
-              name: d.full_name || userName,
-              email: d.email || userEmail,
-              avatar_url: null,
-            });
-          }
         }
 
         if (d.theme) {
@@ -130,17 +135,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         console.warn('[PROFILE] loadProfile notice:', err);
       }
     }
-  }, [applyTheme, onUpdateUser, userEmail, userName]);
+  }, [applyTheme, onUpdateUser, userEmail, userName, avatarUrl]);
 
   useEffect(() => {
     loadProfile(true);
 
-    // Listen to custom profile update event from crop page or other components
     const handleProfileUpdated = (e: any) => {
       const detail = e.detail;
       if (!detail) return;
       if (detail.name || detail.full_name) {
         setName(detail.name || detail.full_name);
+      }
+      if (detail.profile_title !== undefined) {
+        setProfileTitle(detail.profile_title);
+      }
+      if (detail.profile_location !== undefined) {
+        setProfileStatus(detail.profile_location);
       }
       if (detail.avatar_url !== undefined) {
         setAvatarUrl(detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null);
@@ -153,30 +163,52 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     };
   }, [loadProfile]);
 
-  // Save Full Profile via /api/profile/update.php
+  // Save Full Profile via POST /profile/save.php
   const handleSaveProfile = async () => {
     if (isSaving) return;
     setIsSaving(true);
     try {
       const trimmedName = name.trim();
-      const res = await profileService.updateName(trimmedName);
+      const trimmedJob = profileTitle.trim();
+      const trimmedStatus = profileStatus.trim();
+
+      const res = await profileService.saveProfile({
+        full_name: trimmedName,
+        profile_title: trimmedJob,
+        profile_location: trimmedStatus,
+      });
       recordProfileSaveTimestamp();
 
       if (res && res.success) {
         onAddToast('Profil berhasil disimpan!');
-        const freshName = res.data?.full_name || trimmedName;
+        const d = res.data || res;
+        const freshName = d.full_name || d.name || trimmedName;
+        const freshJob = d.profile_title !== undefined ? d.profile_title : trimmedJob;
+        const freshStatus = d.profile_location !== undefined ? d.profile_location : trimmedStatus;
+
+        setName(freshName);
+        setProfileTitle(freshJob);
+        setProfileStatus(freshStatus);
+
+        let freshAvatar = avatarUrl;
+        if (d.avatar_url !== undefined) {
+          freshAvatar = d.avatar_url ? withAvatarCacheBust(d.avatar_url, d.updated_at || Date.now()) : null;
+          setAvatarUrl(freshAvatar);
+        }
 
         syncAuthenticatedUser({
           name: freshName,
           email,
-          avatar_url: avatarUrl,
+          profile_title: freshJob,
+          profile_location: freshStatus,
+          avatar_url: freshAvatar,
         });
 
         if (onUpdateUser) {
           onUpdateUser({
             name: freshName,
             email,
-            avatar_url: avatarUrl || undefined,
+            avatar_url: freshAvatar,
           });
         }
       } else {
@@ -189,12 +221,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   };
 
-  // Navigate to dedicated crop page
   const handleGoToCrop = () => {
     onNavigate('profile-crop');
   };
 
-  // Generate SVG avatar placeholder with initials
   const getInitialsAvatar = () => {
     const initials = (name || email || 'U')
       .split(' ')
@@ -257,7 +287,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 alt="Profile Avatar"
                 className="profile-avatar-element"
                 onError={() => {
-                  // Fallback visual display without deleting authoritative avatar state
                   setImageError(true);
                 }}
               />
@@ -287,14 +316,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         <section className="profile-rows-list">
           {/* Row 1: Name */}
           <div
-            className={`profile-detail-row ${isEditingName ? 'is-active-edit' : 'is-clickable'}`}
+            className={`profile-detail-row ${editingField === 'name' ? 'is-active-edit' : 'is-clickable'}`}
             id="nameRow"
             onClick={() => {
-              if (!isEditingName) setIsEditingName(true);
+              if (editingField !== 'name') {
+                setTempName(name);
+                setEditingField('name');
+              }
             }}
           >
-            <div className="profile-row-label-text">Name</div>
-            {isEditingName ? (
+            <div className="profile-row-label-text">NAME</div>
+            {editingField === 'name' ? (
               <input
                 id="nameEdit"
                 type="text"
@@ -308,14 +340,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   } else {
                     setTempName(name);
                   }
-                  setIsEditingName(false);
+                  setEditingField(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.currentTarget.blur();
                   } else if (e.key === 'Escape') {
                     setTempName(name);
-                    setIsEditingName(false);
+                    setEditingField(null);
                   }
                 }}
                 autoFocus
@@ -328,30 +360,94 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="profile-row-arrow-icon">›</div>
           </div>
 
-          {/* Row 2: Email */}
+          {/* Row 2: Email (Readonly) */}
           <div className="profile-detail-row">
-            <div className="profile-row-label-text">Email</div>
+            <div className="profile-row-label-text">EMAIL</div>
             <div className="profile-row-value-text is-muted" id="email">
               {email || '—'}
             </div>
             <div className="profile-row-arrow-icon">›</div>
           </div>
 
-          {/* Row 3: Title */}
-          <div className="profile-detail-row">
-            <div className="profile-row-label-text">Title</div>
-            <div className="profile-row-value-text is-muted" id="role">
-              {role || 'Profile User'}
-            </div>
+          {/* Row 3: PEKERJAAN */}
+          <div
+            className={`profile-detail-row ${editingField === 'job' ? 'is-active-edit' : 'is-clickable'}`}
+            id="jobRow"
+            onClick={() => {
+              if (editingField !== 'job') {
+                setTempJob(profileTitle);
+                setEditingField('job');
+              }
+            }}
+          >
+            <div className="profile-row-label-text">PEKERJAAN</div>
+            {editingField === 'job' ? (
+              <input
+                id="jobEdit"
+                type="text"
+                className="profile-name-edit-input"
+                value={tempJob}
+                onChange={(e) => setTempJob(e.target.value)}
+                onBlur={() => {
+                  const trimmed = tempJob.trim();
+                  setProfileTitle(trimmed);
+                  setEditingField(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  } else if (e.key === 'Escape') {
+                    setTempJob(profileTitle);
+                    setEditingField(null);
+                  }
+                }}
+                placeholder="Contoh: Editor, Designer..."
+                autoFocus
+              />
+            ) : (
+              <div className="profile-row-value-text" id="profileTitle">
+                {profileTitle ? profileTitle : <span className="is-muted">Belum diatur</span>}
+              </div>
+            )}
             <div className="profile-row-arrow-icon">›</div>
           </div>
 
-          {/* Row 4: Location */}
-          <div className="profile-detail-row">
-            <div className="profile-row-label-text">Location</div>
-            <div className="profile-row-value-text is-muted">
-              {location || 'Not set'}
-            </div>
+          {/* Row 4: STATUS */}
+          <div
+            className={`profile-detail-row ${editingField === 'status' ? 'is-active-edit' : 'is-clickable'}`}
+            id="statusRow"
+            onClick={() => {
+              if (editingField !== 'status') {
+                setTempStatus(profileStatus || 'Karyawan');
+                setEditingField('status');
+              }
+            }}
+          >
+            <div className="profile-row-label-text">STATUS</div>
+            {editingField === 'status' ? (
+              <select
+                id="statusSelect"
+                className="profile-name-edit-input"
+                value={tempStatus}
+                onChange={(e) => {
+                  setTempStatus(e.target.value);
+                  setProfileStatus(e.target.value);
+                  setEditingField(null);
+                }}
+                onBlur={() => {
+                  setEditingField(null);
+                }}
+                autoFocus
+              >
+                <option value="Karyawan">Karyawan</option>
+                <option value="Anak Magang">Anak Magang</option>
+                <option value="Anak PKL">Anak PKL</option>
+              </select>
+            ) : (
+              <div className="profile-row-value-text" id="profileStatus">
+                {profileStatus ? profileStatus : <span className="is-muted">Belum dipilih</span>}
+              </div>
+            )}
             <div className="profile-row-arrow-icon">›</div>
           </div>
         </section>
