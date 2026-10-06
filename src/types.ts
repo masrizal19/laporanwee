@@ -40,7 +40,7 @@ export interface AuthUser {
   full_name?: string;
   role: string;
   status?: string;
-  avatar_url?: string;
+  avatar_url?: string | null;
   email_verified?: boolean;
 }
 

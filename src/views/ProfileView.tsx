@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Project, Report, ViewType } from '../types';
-import { profileService, setStoredUser, getStoredUser } from '../utils/api';
+import {
+  profileService,
+  withAvatarCacheBust,
+  getLatestProfileSaveTimestamp,
+  recordProfileSaveTimestamp,
+  syncAuthenticatedUser,
+} from '../utils/api';
 import '../profile-edit.css';
 
 interface ProfileViewProps {
@@ -13,7 +19,7 @@ interface ProfileViewProps {
   userEmail: string;
   userName: string;
   avatarUrl?: string | null;
-  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string }) => void;
+  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string | null }) => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
@@ -30,6 +36,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
   const [location, setLocation] = useState('LaporanWee Web');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
+  const [imageError, setImageError] = useState(false);
 
   // Inline editing state
   const [isEditingName, setIsEditingName] = useState(false);
@@ -40,6 +47,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   useEffect(() => {
     setTempName(name);
   }, [name]);
+
+  useEffect(() => {
+    setImageError(false);
+  }, [avatarUrl]);
 
   // Apply Theme from Profile API to CSS Variables
   const applyTheme = useCallback((themeObj?: any) => {
@@ -56,18 +67,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   // Primary: Load Profile data from modular /api/profile/get.php
   const loadProfile = useCallback(async (quiet = false) => {
+    const requestInitiatedAt = Date.now();
     try {
       const res = await profileService.getProfile();
+      // Guard against race conditions where a newer save already finished
+      if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
+
       if (res && res.success && res.data) {
         const d = res.data;
         if (d.full_name) setName(d.full_name);
         if (d.email) setEmail(d.email);
         if (d.role) setRole(d.role);
         if (d.location) setLocation(d.location);
+
         if (d.avatar_url) {
-          const avatarWithBust = `${d.avatar_url}${d.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
-          setAvatarUrl(avatarWithBust);
-        } else if (d.avatar === null || d.avatar_url === null) {
+          const fresh = withAvatarCacheBust(d.avatar_url, d.updated_at || Date.now());
+          setAvatarUrl(fresh);
+        } else if (d.avatar_url === null || d.avatar === null) {
           setAvatarUrl(null);
         }
 
@@ -77,13 +93,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
     } catch (err: any) {
       if (!quiet) {
-        console.warn('[PROFILE] loadProfile error:', err);
+        console.warn('[PROFILE] loadProfile notice:', err);
       }
     }
   }, [applyTheme]);
 
   useEffect(() => {
     loadProfile(true);
+
+    // Listen to custom profile update event from crop page or other components
+    const handleProfileUpdated = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      if (detail.name || detail.full_name) {
+        setName(detail.name || detail.full_name);
+      }
+      if (detail.avatar_url !== undefined) {
+        setAvatarUrl(detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null);
+      }
+    };
+
+    window.addEventListener('laporanwee-profile-updated', handleProfileUpdated);
+    return () => {
+      window.removeEventListener('laporanwee-profile-updated', handleProfileUpdated);
+    };
   }, [loadProfile]);
 
   // Save Full Profile via /api/profile/update.php
@@ -93,21 +126,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     try {
       const trimmedName = name.trim();
       const res = await profileService.updateName(trimmedName);
+      recordProfileSaveTimestamp();
+
       if (res && res.success) {
         onAddToast('Profil berhasil disimpan!');
+        const freshName = res.data?.full_name || trimmedName;
+
+        syncAuthenticatedUser({
+          name: freshName,
+          email,
+          avatar_url: avatarUrl,
+        });
+
         if (onUpdateUser) {
           onUpdateUser({
-            name: trimmedName,
+            name: freshName,
             email,
             avatar_url: avatarUrl || undefined,
-          });
-        }
-        const stored = getStoredUser();
-        if (stored) {
-          setStoredUser({
-            ...stored,
-            name: trimmedName,
-            full_name: trimmedName,
           });
         }
       } else {
@@ -161,7 +196,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             onClick={handleSaveProfile}
             disabled={isSaving}
           >
-            {isSaving ? 'Saving...' : 'Save'}
+            {isSaving ? 'Menyimpan...' : 'Simpan'}
           </button>
         </div>
       </header>
@@ -184,11 +219,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="profile-avatar-wrap-box">
               <img
                 id="avatar"
-                src={avatarUrl || getInitialsAvatar()}
+                src={!imageError && avatarUrl ? avatarUrl : getInitialsAvatar()}
                 alt="Profile Avatar"
                 className="profile-avatar-element"
                 onError={() => {
-                  setAvatarUrl(null);
+                  // Fallback visual display without deleting authoritative avatar state
+                  setImageError(true);
                 }}
               />
               <button

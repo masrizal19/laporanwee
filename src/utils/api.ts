@@ -69,6 +69,66 @@ export const normalizeFileUrl = (rawUrl?: string): string => {
 };
 
 /**
+ * Safe avatar URL cache-busting helper.
+ * Correctly adds or updates ?v= parameter without duplicating query strings.
+ */
+export const withAvatarCacheBust = (rawUrl?: string | null, version?: string | number): string => {
+  if (!rawUrl || typeof rawUrl !== 'string') return '';
+  const url = rawUrl.trim();
+  if (!url || url.startsWith('data:') || url.startsWith('blob:')) return url;
+
+  const v = version !== undefined && version !== null ? String(version) : String(Date.now());
+  try {
+    const isAbsolute = url.startsWith('http://') || url.startsWith('https://');
+    const dummyBase = isAbsolute ? undefined : 'https://api-laporanwe.mkverse.my.id';
+    const parsed = new URL(url, dummyBase);
+    parsed.searchParams.set('v', v);
+    return isAbsolute ? parsed.toString() : `${parsed.pathname}${parsed.search}`;
+  } catch (_) {
+    const cleanUrl = url.split('?')[0];
+    return `${cleanUrl}?v=${encodeURIComponent(v)}`;
+  }
+};
+
+let latestProfileSaveTimestamp = 0;
+
+export const recordProfileSaveTimestamp = () => {
+  latestProfileSaveTimestamp = Date.now();
+  return latestProfileSaveTimestamp;
+};
+
+export const getLatestProfileSaveTimestamp = () => latestProfileSaveTimestamp;
+
+export interface ProfileUpdatePayload {
+  id?: number;
+  full_name?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  avatar_url?: string | null;
+  updated_at?: string;
+}
+
+export const syncAuthenticatedUser = (profileData: ProfileUpdatePayload) => {
+  const stored = getStoredUser();
+  const updatedUser = {
+    ...stored,
+    ...(profileData.id !== undefined ? { id: profileData.id } : {}),
+    ...(profileData.full_name !== undefined ? { full_name: profileData.full_name, name: profileData.full_name } : {}),
+    ...(profileData.name !== undefined ? { name: profileData.name, full_name: profileData.name } : {}),
+    ...(profileData.email !== undefined ? { email: profileData.email } : {}),
+    ...(profileData.role !== undefined ? { role: profileData.role } : {}),
+    avatar_url: profileData.avatar_url !== undefined ? profileData.avatar_url : stored?.avatar_url,
+  };
+
+  setStoredUser(updatedUser);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', { detail: updatedUser }));
+  }
+  return updatedUser;
+};
+
+/**
  * Guarantees a clean absolute HTTPS URL to the official backend:
  * https://api-laporanwe.mkverse.my.id/api/...
  */
@@ -1340,24 +1400,24 @@ export const replaceReportFile = dailyReportService.replaceReportFile;
 // 6. TEAM & PRESENCE SERVICE
 // ==========================================
 
-export const getAbsoluteAvatarUrl = (img?: string | null, userName?: string): string => {
+export const getAbsoluteAvatarUrl = (img?: string | null, _userName?: string): string => {
   if (!img || typeof img !== 'string' || img.trim() === '' || img === 'null' || img === 'undefined' || img.includes('placeholder')) {
-    console.log(`[PROFILE PHOTO] ${userName || 'User'} -> (No valid avatar)`);
     return '';
   }
   let finalUrl = img.trim();
-  if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
-    if (finalUrl.includes('https://api-laporanwe.mkverse.my.id/https://')) {
-      finalUrl = finalUrl.substring(finalUrl.indexOf('https://', 8));
-    }
-  } else if (finalUrl.startsWith('/')) {
-    finalUrl = `https://api-laporanwe.mkverse.my.id${finalUrl}`;
-  } else {
-    finalUrl = `https://api-laporanwe.mkverse.my.id/${finalUrl}`;
+  if (finalUrl.startsWith('data:') || finalUrl.startsWith('blob:')) {
+    return finalUrl;
   }
-  finalUrl = finalUrl.replace(/([^:]\/)\/+/g, '$1');
-  console.log(`[PROFILE PHOTO] ${userName || 'User'} -> ${finalUrl}`);
-  return finalUrl;
+  if (finalUrl.startsWith('http://api-laporanwe.mkverse.my.id')) {
+    finalUrl = finalUrl.replace('http://', 'https://');
+  }
+  if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
+    return finalUrl;
+  }
+  if (finalUrl.startsWith('/')) {
+    return `https://api-laporanwe.mkverse.my.id${finalUrl}`;
+  }
+  return `https://api-laporanwe.mkverse.my.id/${finalUrl}`;
 };
 
 export const teamService = {

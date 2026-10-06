@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ViewType } from '../types';
-import { profileService, setStoredUser, getStoredUser } from '../utils/api';
+import {
+  profileService,
+  withAvatarCacheBust,
+  recordProfileSaveTimestamp,
+  getLatestProfileSaveTimestamp,
+  syncAuthenticatedUser,
+} from '../utils/api';
 import '../profile-edit.css';
 
 interface ProfileCropViewProps {
@@ -9,7 +15,7 @@ interface ProfileCropViewProps {
   userEmail: string;
   userName: string;
   avatarUrl?: string | null;
-  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string }) => void;
+  onUpdateUser?: (updated: { email: string; name: string; avatar_url?: string | null }) => void;
 }
 
 export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
@@ -67,9 +73,10 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     metaRef.current = imageMeta;
   }, [imageMeta]);
 
-  // Load existing profile and crop settings on mount
+  // Load existing profile and crop settings on mount with request sequence guard
   useEffect(() => {
     let isMounted = true;
+    const requestInitiatedAt = Date.now();
 
     const initData = async () => {
       try {
@@ -79,6 +86,8 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         ]);
 
         if (!isMounted) return;
+        // Ignore stale GET responses if a save occurred after this request started
+        if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
 
         let initialImg: string | null = null;
         let initialZoom = 1;
@@ -88,7 +97,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         if (profileRes.status === 'fulfilled' && profileRes.value?.success && profileRes.value?.data) {
           const d = profileRes.value.data;
           if (d.avatar_url) {
-            initialImg = d.avatar_url;
+            initialImg = withAvatarCacheBust(d.avatar_url, d.updated_at || Date.now());
           }
         }
 
@@ -349,8 +358,9 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     }
   };
 
-  // Save Cropped Profile to MySQL via /api/profile/save.php and settings.php
+  // Save Cropped Profile to MySQL via /api/profile/save.php (Instant, non-blocking flow)
   const saveCroppedProfile = async () => {
+    if (isSavingCrop) return;
     setIsSavingCrop(true);
     setStatusMessage('Menyimpan foto profil ke database...');
 
@@ -362,7 +372,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     });
 
     try {
-      // 1. Save profile avatar
+      // 1. Primary request: save profile to MySQL
       const saveRes = await profileService.saveProfile({
         full_name: userName,
         crop_file: serverCropResult?.file_name || selectedFile || undefined,
@@ -374,63 +384,59 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
       console.log('[CROP_DEBUG] SAVE_RESPONSE', saveRes);
 
-      // 2. Save crop settings in background
-      try {
-        await profileService.saveSettings({
-          crop_zoom: crop.zoom,
-          crop_x: crop.x,
-          crop_y: crop.y,
-        });
-      } catch (settingsErr) {
-        console.warn('[ProfileCropView] saveSettings non-fatal error:', settingsErr);
-      }
+      // Record save timestamp for race condition prevention
+      recordProfileSaveTimestamp();
 
-      // 3. Fetch latest profile from /api/profile/get.php
-      const freshProfileRes = await profileService.getProfile();
-      let freshAvatarUrl = serverCropResult?.crop_url || serverCropResult?.file_url || initialAvatarUrl;
+      // Determine fresh avatar URL with cache busting
+      const rawUrl = saveRes?.data?.avatar_url || serverCropResult?.crop_url || serverCropResult?.file_url || initialAvatarUrl;
+      const freshAvatarUrl = withAvatarCacheBust(rawUrl, saveRes?.data?.updated_at || Date.now());
 
-      if (freshProfileRes && freshProfileRes.success && freshProfileRes.data?.avatar_url) {
-        freshAvatarUrl = freshProfileRes.data.avatar_url;
-      }
+      // 2. Immediately sync global authenticated user state & cache
+      syncAuthenticatedUser({
+        name: saveRes?.data?.full_name || userName,
+        email: userEmail,
+        avatar_url: freshAvatarUrl,
+        updated_at: saveRes?.data?.updated_at,
+      });
 
-      // 4. Update global user session state
       if (onUpdateUser) {
         onUpdateUser({
-          name: userName,
+          name: saveRes?.data?.full_name || userName,
           email: userEmail,
-          avatar_url: freshAvatarUrl || undefined,
-        });
-      }
-
-      const stored = getStoredUser();
-      if (stored) {
-        setStoredUser({
-          ...stored,
           avatar_url: freshAvatarUrl,
         });
       }
 
-      onAddToast('Foto profil berhasil disimpan ke database!');
-      setStatusMessage('Foto profil berhasil diperbarui!');
+      onAddToast('Foto profil berhasil diperbarui!');
 
-      // Navigate back to profile view
-      setTimeout(() => {
-        onNavigate('profile');
-      }, 500);
+      // 3. Immediately navigate back to profile (instant response, no artificial delay)
+      onNavigate('profile');
+
+      // 4. Background revalidation (non-blocking)
+      (async () => {
+        try {
+          await profileService.saveSettings({
+            crop_zoom: crop.zoom,
+            crop_x: crop.x,
+            crop_y: crop.y,
+          });
+        } catch (_) {}
+      })();
     } catch (err: any) {
       console.error('[CROP_ERROR] saveCroppedProfile:', err);
       setStatusMessage(err.message || 'Gagal menyimpan foto profil.');
       onAddToast('Gagal menyimpan foto profil: ' + (err.message || 'Kesalahan server'));
-    } finally {
       setIsSavingCrop(false);
     }
   };
 
   // Delete profile photo via /api/profile/delete.php
   const deleteProfilePhoto = async () => {
+    if (isDeleting) return;
     setIsDeleting(true);
     try {
       await profileService.deletePhoto();
+      recordProfileSaveTimestamp();
 
       if (rawImageSrc && rawImageSrc.startsWith('blob:')) {
         URL.revokeObjectURL(rawImageSrc);
@@ -441,6 +447,13 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
       setServerCropResult(null);
       setIsImageLoaded(false);
 
+      // Immediately sync state to null avatar
+      syncAuthenticatedUser({
+        name: userName,
+        email: userEmail,
+        avatar_url: null,
+      });
+
       if (onUpdateUser) {
         onUpdateUser({
           name: userName,
@@ -449,21 +462,10 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         });
       }
 
-      const stored = getStoredUser();
-      if (stored) {
-        setStoredUser({
-          ...stored,
-          avatar_url: null,
-        });
-      }
-
       onAddToast('Foto profil berhasil dihapus.');
-      setTimeout(() => {
-        onNavigate('profile');
-      }, 400);
+      onNavigate('profile');
     } catch (err: any) {
       onAddToast('Gagal menghapus foto: ' + (err.message || 'Kesalahan server'));
-    } finally {
       setIsDeleting(false);
     }
   };
@@ -597,7 +599,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
               type="button"
               className="profile-action-btn is-danger"
               onClick={deleteProfilePhoto}
-              disabled={isDeleting}
+              disabled={isDeleting || isSavingCrop}
               style={{ marginRight: 'auto' }}
             >
               {isDeleting ? 'Menghapus...' : 'Hapus Foto'}
@@ -628,7 +630,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
             className="profile-action-btn is-dark"
             id="process"
             onClick={processServerCrop}
-            disabled={!rawImageSrc || isProcessingCrop}
+            disabled={!rawImageSrc || isProcessingCrop || isSavingCrop}
           >
             {isProcessingCrop ? 'Memproses...' : 'Proses Crop'}
           </button>
@@ -648,7 +650,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
             <img
               id="resultImg"
               className="profile-result-avatar-preview"
-              src={`${serverCropResult.crop_url || serverCropResult.file_url}?v=${Date.now()}`}
+              src={withAvatarCacheBust(serverCropResult.crop_url || serverCropResult.file_url)}
               alt="Hasil Crop Server"
             />
             <div id="meta" className="profile-result-metadata">

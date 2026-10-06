@@ -38,6 +38,8 @@ import { VerifyEmailView } from './views/VerifyEmailView';
 import {
   api,
   profileService,
+  withAvatarCacheBust,
+  getLatestProfileSaveTimestamp,
   activityService,
   calendarService,
   dailyReportService,
@@ -100,16 +102,23 @@ export function App() {
   // Fetch user profile from MySQL database on load to sync avatar_url, role, id and name
   useEffect(() => {
     if (user && getStoredToken()) {
+      const requestInitiatedAt = Date.now();
       profileService.getProfile()
         .then((res) => {
+          // Ignore stale GET responses if a save occurred after this request started
+          if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
+
           if (res && res.success && res.data) {
             setUser((prev) => {
               if (!prev) return null;
+              const serverAvatar = res.data.avatar_url !== undefined ? res.data.avatar_url : prev.avatar_url;
+              const cleanAvatar = serverAvatar ? withAvatarCacheBust(serverAvatar, res.data.updated_at || Date.now()) : null;
+
               if (
                 prev.id === res.data.id &&
                 prev.full_name === res.data.full_name &&
                 prev.role === res.data.role &&
-                prev.avatar_url === res.data.avatar_url
+                prev.avatar_url === cleanAvatar
               ) {
                 return prev;
               }
@@ -119,7 +128,7 @@ export function App() {
                 full_name: res.data.full_name || prev.full_name,
                 name: res.data.full_name || prev.name,
                 role: res.data.role || prev.role,
-                avatar_url: res.data.avatar_url || prev.avatar_url,
+                avatar_url: cleanAvatar,
               };
               setStoredUser(updated);
               console.log('[AUTH] Current user (synced from DB):', {
@@ -141,6 +150,32 @@ export function App() {
         });
     }
   }, [user?.email]);
+
+  // Listen to profile update event from ProfileView or ProfileCropView
+  useEffect(() => {
+    const handleProfileUpdate = (e: any) => {
+      const detail = e.detail;
+      if (!detail) return;
+      setUser((prev) => {
+        if (!prev) return null;
+        const freshName = detail.name || detail.full_name || prev.name;
+        const freshAvatar = detail.avatar_url !== undefined ? (detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null) : prev.avatar_url;
+
+        const updated: AuthUser = {
+          ...prev,
+          name: freshName,
+          full_name: freshName,
+          avatar_url: freshAvatar,
+        };
+        return updated;
+      });
+    };
+
+    window.addEventListener('laporanwee-profile-updated', handleProfileUpdate);
+    return () => {
+      window.removeEventListener('laporanwee-profile-updated', handleProfileUpdate);
+    };
+  }, []);
 
   const getPathFromLocation = (): string => {
     const hashPart = window.location.hash.replace('#', '').split('?')[0];
