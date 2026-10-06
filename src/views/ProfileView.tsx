@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Project, Report, ViewType } from '../types';
-import { Icon } from '../components/icons';
-import { profileService, api } from '../utils/api';
+import { profileService } from '../utils/api';
 import '../profile-edit.css';
 
 interface ProfileViewProps {
@@ -25,24 +24,27 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   avatarUrl: initialAvatarUrl,
   onUpdateUser,
 }) => {
+  // User Profile State
   const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna');
   const [role, setRole] = useState('Profile User');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
   const [location, setLocation] = useState('LaporanWee Web');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
 
+  // Inline editing state
   const [isEditingName, setIsEditingName] = useState(false);
   const [tempName, setTempName] = useState(name);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Modal and Cropper States
+  // Modal and Cropper State (Golden Reference Architecture)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
   const [isImageLoaded, setIsImageLoaded] = useState(false);
-  const [imgNaturalDims, setImgNaturalDims] = useState<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
-  const [zoom, setZoom] = useState<number>(1);
-  const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [imageMeta, setImageMeta] = useState<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
+
+  // Unified Crop State
+  const [crop, setCrop] = useState<{ zoom: number; x: number; y: number }>({ zoom: 1, x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
 
   // Server crop result
@@ -56,8 +58,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [isProcessingCrop, setIsProcessingCrop] = useState(false);
   const [isSavingCrop, setIsSavingCrop] = useState(false);
 
-  const CROP_CONTAINER_SIZE = 300;
-
+  // Internal refs for high performance pointer drag matching Test HTML
   const dragRef = useRef<{
     active: boolean;
     id: number | null;
@@ -67,51 +68,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     iy: number;
   }>({ active: false, id: null, sx: 0, sy: 0, ix: 0, iy: 0 });
 
-  const positionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const zoomRef = useRef<number>(1);
-  const dimsRef = useRef<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
+  const cropStateRef = useRef<{ zoom: number; x: number; y: number }>({ zoom: 1, x: 0, y: 0 });
+  const metaRef = useRef<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
+  const cropAreaRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    positionRef.current = position;
-  }, [position]);
+    cropStateRef.current = crop;
+  }, [crop]);
 
   useEffect(() => {
-    zoomRef.current = zoom;
-  }, [zoom]);
-
-  useEffect(() => {
-    dimsRef.current = imgNaturalDims;
-  }, [imgNaturalDims]);
+    metaRef.current = imageMeta;
+  }, [imageMeta]);
 
   useEffect(() => {
     setTempName(name);
   }, [name]);
 
-  // Apply theme dynamically to CSS variables if provided
-  const applyThemeSettings = useCallback((themeObj?: any) => {
+  // Apply Theme from Profile API to CSS Variables
+  const applyTheme = useCallback((themeObj?: any) => {
     if (!themeObj || typeof themeObj !== 'object') return;
-    const rootEl = rootRef.current || document.documentElement;
+    const targetEl = rootRef.current || document.documentElement;
 
-    if (themeObj.accent_color) rootEl.style.setProperty('--profile-accent', themeObj.accent_color);
-    if (themeObj.primary_color) rootEl.style.setProperty('--profile-primary', themeObj.primary_color);
-    if (themeObj.text_color) rootEl.style.setProperty('--profile-text', themeObj.text_color);
-    if (themeObj.muted_color) rootEl.style.setProperty('--profile-muted', themeObj.muted_color);
-    if (themeObj.background_color) rootEl.style.setProperty('--profile-bg', themeObj.background_color);
-    if (themeObj.surface_color) rootEl.style.setProperty('--profile-surface', themeObj.surface_color);
+    if (themeObj.accent_color) targetEl.style.setProperty('--profile-accent', themeObj.accent_color);
+    if (themeObj.primary_color) targetEl.style.setProperty('--profile-primary', themeObj.primary_color);
+    if (themeObj.text_color) targetEl.style.setProperty('--profile-text', themeObj.text_color);
+    if (themeObj.muted_color) targetEl.style.setProperty('--profile-muted', themeObj.muted_color);
+    if (themeObj.background_color) targetEl.style.setProperty('--profile-bg', themeObj.background_color);
+    if (themeObj.surface_color) targetEl.style.setProperty('--profile-surface', themeObj.surface_color);
   }, []);
 
-  // Primary: Load Profile from /api/profile/get.php
+  // Primary: Load Profile data from /api/profile/get.php
   const loadProfile = useCallback(async (quiet = false) => {
     try {
-      let res = await profileService.getProfile();
-      if (!res || !res.success) {
-        // Compatibility fallback
-        res = await api.get('/profile.php');
-      }
-
+      const res = await profileService.getProfile();
       if (res && res.success && res.data) {
         const d = res.data;
         if (d.full_name) setName(d.full_name);
@@ -119,28 +111,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         if (d.role) setRole(d.role);
         if (d.location) setLocation(d.location);
         if (d.avatar_url) {
-          const avatarBust = `${d.avatar_url}${d.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
-          setAvatarUrl(avatarBust);
+          const avatarWithBust = `${d.avatar_url}${d.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+          setAvatarUrl(avatarWithBust);
         } else if (d.avatar === null || d.avatar_url === null) {
           setAvatarUrl(null);
         }
 
         if (d.theme) {
-          applyThemeSettings(d.theme);
+          applyTheme(d.theme);
         }
 
-        // Apply crop settings if returned
         if (d.crop_settings) {
           const z = Number(d.crop_settings.crop_zoom || d.crop_settings.zoom);
           const x = Number(d.crop_settings.crop_x || d.crop_settings.x);
           const y = Number(d.crop_settings.crop_y || d.crop_settings.y);
           if (!isNaN(z) && z >= 1) {
-            setZoom(z);
-            zoomRef.current = z;
+            setCrop((prev) => ({ ...prev, zoom: z }));
+            cropStateRef.current.zoom = z;
           }
           if (!isNaN(x) && !isNaN(y)) {
-            setPosition({ x, y });
-            positionRef.current = { x, y };
+            setCrop((prev) => ({ ...prev, x, y }));
+            cropStateRef.current.x = x;
+            cropStateRef.current.y = y;
           }
         }
       }
@@ -149,9 +141,9 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         console.warn('[PROFILE] loadProfile error:', err);
       }
     }
-  }, [applyThemeSettings]);
+  }, [applyTheme]);
 
-  // Load Crop Settings from /api/profile/settings.php
+  // Primary: Load Profile Settings from /api/profile/settings.php
   const loadProfileSettings = useCallback(async () => {
     try {
       const res = await profileService.getSettings();
@@ -160,21 +152,22 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         const x = Number(res.data.crop_x || res.data.x);
         const y = Number(res.data.crop_y || res.data.y);
         if (!isNaN(z) && z >= 1) {
-          setZoom(z);
-          zoomRef.current = z;
+          setCrop((prev) => ({ ...prev, zoom: z }));
+          cropStateRef.current.zoom = z;
         }
         if (!isNaN(x) && !isNaN(y)) {
-          setPosition({ x, y });
-          positionRef.current = { x, y };
+          setCrop((prev) => ({ ...prev, x, y }));
+          cropStateRef.current.x = x;
+          cropStateRef.current.y = y;
         }
         if (res.data.theme) {
-          applyThemeSettings(res.data.theme);
+          applyTheme(res.data.theme);
         }
       }
     } catch (_) {}
-  }, [applyThemeSettings]);
+  }, [applyTheme]);
 
-  // Initial fetch and automatic sync on focus/visibility change
+  // Fetch on mount & sync on focus/visibility change
   useEffect(() => {
     loadProfile();
     loadProfileSettings();
@@ -195,17 +188,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     };
   }, [loadProfile, loadProfileSettings]);
 
-  // Cropper math
-  const maxPan = (z = zoomRef.current) => {
-    const size = CROP_CONTAINER_SIZE;
-    const { w, h, base } = dimsRef.current;
+  // Golden Reference Cropper Math Formula
+  const maxPan = (z = cropStateRef.current.zoom) => {
+    const size = cropAreaRef.current?.clientWidth || 300;
+    const { w, h, base } = metaRef.current;
     return {
       x: Math.max(0, (w * base * z - size) / 2),
       y: Math.max(0, (h * base * z - size) / 2),
     };
   };
 
-  const clampPosition = (x: number, y: number, z = zoomRef.current) => {
+  const clampPosition = (x: number, y: number, z = cropStateRef.current.zoom) => {
     const m = maxPan(z);
     return {
       x: Math.max(-m.x, Math.min(m.x, x)),
@@ -213,32 +206,38 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     };
   };
 
-  const applyZoom = (newZ: number) => {
-    const clampedZ = Math.max(1, Math.min(4, Number(newZ) || 1));
-    setZoom(clampedZ);
-    zoomRef.current = clampedZ;
-    const c = clampPosition(positionRef.current.x, positionRef.current.y, clampedZ);
-    setPosition(c);
-    positionRef.current = c;
+  const applyZoom = (newZoomValue: number) => {
+    const clampedZoom = Math.max(1, Math.min(4, Number(newZoomValue) || 1));
+    const clampedPos = clampPosition(cropStateRef.current.x, cropStateRef.current.y, clampedZoom);
+    setCrop({
+      zoom: clampedZoom,
+      x: clampedPos.x,
+      y: clampedPos.y,
+    });
+    cropStateRef.current = {
+      zoom: clampedZoom,
+      x: clampedPos.x,
+      y: clampedPos.y,
+    };
   };
 
-  // Load File into Cropper
-  const loadSelectedFile = (f: File) => {
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) {
+  // Load Selected File into Cropper
+  const loadFileIntoCropper = (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
       onAddToast('Format foto harus JPG, PNG, atau WEBP.');
       return;
     }
-    if (f.size > 10 * 1024 * 1024) {
-      onAddToast('Ukuran maksimal foto 10 MB.');
+    if (file.size > 10 * 1024 * 1024) {
+      onAddToast('Ukuran foto maksimal 10 MB.');
       return;
     }
 
-    setSelectedFile(f);
+    setSelectedFile(file);
     if (rawImageSrc) {
       URL.revokeObjectURL(rawImageSrc);
     }
-    const objectUrl = URL.createObjectURL(f);
-    setRawImageSrc(objectUrl);
+    const blobUrl = URL.createObjectURL(file);
+    setRawImageSrc(blobUrl);
     setServerCropResult(null);
     setStatusMessage('');
 
@@ -246,46 +245,48 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     img.onload = () => {
       const w = img.naturalWidth || img.width;
       const h = img.naturalHeight || img.height;
-      const size = CROP_CONTAINER_SIZE;
+      const size = cropAreaRef.current?.clientWidth || 300;
       const base = Math.max(size / w, size / h);
 
-      const nextDims = { w, h, base };
-      setImgNaturalDims(nextDims);
-      dimsRef.current = nextDims;
-      setZoom(1);
-      zoomRef.current = 1;
-      setPosition({ x: 0, y: 0 });
-      positionRef.current = { x: 0, y: 0 };
+      const nextMeta = { w, h, base };
+      setImageMeta(nextMeta);
+      metaRef.current = nextMeta;
+
+      setCrop({ zoom: 1, x: 0, y: 0 });
+      cropStateRef.current = { zoom: 1, x: 0, y: 0 };
       setIsImageLoaded(true);
       setIsModalOpen(true);
     };
     img.onerror = () => {
-      onAddToast('Gagal memuat file foto.');
+      onAddToast('Gagal memuat foto terpilih.');
     };
-    img.src = objectUrl;
+    img.src = blobUrl;
   };
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) {
-      loadSelectedFile(f);
+    const file = e.target.files?.[0];
+    if (file) {
+      loadFileIntoCropper(file);
     }
     e.target.value = '';
   };
 
-  // Pointer Drag Event Handlers
+  // Golden Reference Pointer Events
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isImageLoaded || (e.pointerType === 'mouse' && e.button !== 0)) return;
     e.preventDefault();
+    e.stopPropagation();
+
     dragRef.current = {
       active: true,
       id: e.pointerId,
       sx: e.clientX,
       sy: e.clientY,
-      ix: positionRef.current.x,
-      iy: positionRef.current.y,
+      ix: cropStateRef.current.x,
+      iy: cropStateRef.current.y,
     };
     setIsDragging(true);
+
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch (_) {}
@@ -294,19 +295,27 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragRef.current.active || e.pointerId !== dragRef.current.id) return;
     e.preventDefault();
-    const c = clampPosition(
+
+    const clampedPos = clampPosition(
       dragRef.current.ix + e.clientX - dragRef.current.sx,
       dragRef.current.iy + e.clientY - dragRef.current.sy,
-      zoomRef.current
+      cropStateRef.current.zoom
     );
-    setPosition(c);
-    positionRef.current = c;
+
+    setCrop((prev) => ({
+      ...prev,
+      x: clampedPos.x,
+      y: clampedPos.y,
+    }));
+    cropStateRef.current.x = clampedPos.x;
+    cropStateRef.current.y = clampedPos.y;
   };
 
-  const stopDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerStop = (e: React.PointerEvent<HTMLDivElement>) => {
     if (dragRef.current.id !== e.pointerId) return;
     dragRef.current.active = false;
     setIsDragging(false);
+
     try {
       if (e.currentTarget.hasPointerCapture(e.pointerId)) {
         e.currentTarget.releasePointerCapture(e.pointerId);
@@ -316,10 +325,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
-    applyZoom(zoomRef.current + (e.deltaY < 0 ? 0.1 : -0.1));
+    applyZoom(cropStateRef.current.zoom + (e.deltaY < 0 ? 0.1 : -0.1));
   };
 
-  // Server Crop via POST /api/profile/crop.php
+  const handleResetCrop = () => {
+    setCrop({ zoom: 1, x: 0, y: 0 });
+    cropStateRef.current = { zoom: 1, x: 0, y: 0 };
+  };
+
+  // Server Crop: POST /api/profile/crop.php
   const processServerCrop = async () => {
     if (!selectedFile) {
       onAddToast('Pilih foto terlebih dahulu.');
@@ -330,21 +344,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     setStatusMessage('Memproses crop di server...');
 
     try {
-      // 1. Save crop settings to /api/profile/settings.php
+      // 1. Save Settings to /api/profile/settings.php
       try {
         await profileService.saveSettings({
-          crop_zoom: zoomRef.current,
-          crop_x: positionRef.current.x,
-          crop_y: positionRef.current.y,
+          crop_zoom: cropStateRef.current.zoom,
+          crop_x: cropStateRef.current.x,
+          crop_y: cropStateRef.current.y,
         });
       } catch (_) {}
 
-      // 2. Upload and crop via /api/profile/crop.php
+      // 2. Execute Server Crop
       const cropRes = await profileService.cropPhoto({
         avatar: selectedFile,
-        zoom: zoomRef.current,
-        x: positionRef.current.x,
-        y: positionRef.current.y,
+        zoom: cropStateRef.current.zoom,
+        x: cropStateRef.current.x,
+        y: cropStateRef.current.y,
       });
 
       if (cropRes && cropRes.success && cropRes.data) {
@@ -355,15 +369,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         throw new Error(cropRes?.message || 'Gagal memproses crop di server.');
       }
     } catch (err: any) {
-      console.error('[CROP SERVER ERROR]', err);
-      setStatusMessage(`Crop gagal: ${err.message || 'Terjadi kesalahan sistem'}`);
+      console.error('[CROP ERROR]', err);
+      setStatusMessage(`Crop gagal: ${err.message || 'Terjadi kesalahan'}`);
       onAddToast(err.message || 'Crop server gagal.');
     } finally {
       setIsProcessingCrop(false);
     }
   };
 
-  // Save Cropped Profile via POST /api/profile/save.php
+  // Save Cropped Profile: POST /api/profile/save.php
   const saveCroppedProfile = async () => {
     if (!serverCropResult) {
       onAddToast('Proses crop terlebih dahulu.');
@@ -381,16 +395,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         full_name: name.trim(),
         crop_file: cropFileName,
         crop_url: cropFileUrl,
-        zoom: zoomRef.current,
-        x: positionRef.current.x,
-        y: positionRef.current.y,
+        zoom: cropStateRef.current.zoom,
+        x: cropStateRef.current.x,
+        y: cropStateRef.current.y,
       });
 
       if (saveRes && saveRes.success) {
         const returnedUrl = saveRes.data?.avatar_url || cropFileUrl;
-        const bustUrl = returnedUrl ? `${returnedUrl}${returnedUrl.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
+        const finalUrl = returnedUrl ? `${returnedUrl}${returnedUrl.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
 
-        if (bustUrl) setAvatarUrl(bustUrl);
+        if (finalUrl) setAvatarUrl(finalUrl);
         if (saveRes.data?.full_name) setName(saveRes.data.full_name);
 
         setStatusMessage('Profil, avatar, dan crop settings berhasil disimpan ke MySQL.');
@@ -400,11 +414,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         setSelectedFile(null);
         setServerCropResult(null);
 
-        if (onUpdateUser && bustUrl) {
+        if (onUpdateUser && finalUrl) {
           onUpdateUser({
             email,
             name,
-            avatar_url: bustUrl,
+            avatar_url: finalUrl,
           });
         }
 
@@ -412,7 +426,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         if (storedUser) {
           try {
             const parsed = JSON.parse(storedUser);
-            if (bustUrl) parsed.avatar_url = bustUrl;
+            if (finalUrl) parsed.avatar_url = finalUrl;
             if (saveRes.data?.full_name) parsed.name = saveRes.data.full_name;
             localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
           } catch (_) {}
@@ -420,18 +434,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
         await loadProfile(true);
       } else {
-        throw new Error(saveRes?.message || 'Gagal menyimpan foto ke profil.');
+        throw new Error(saveRes?.message || 'Gagal menyimpan foto profil.');
       }
     } catch (err: any) {
-      console.error('[SAVE PROFILE ERROR]', err);
-      setStatusMessage(`Save gagal: ${err.message || 'Terjadi kesalahan sistem'}`);
+      console.error('[SAVE ERROR]', err);
+      setStatusMessage(`Save gagal: ${err.message || 'Terjadi kesalahan'}`);
       onAddToast(err.message || 'Gagal menyimpan profil.');
     } finally {
       setIsSavingCrop(false);
     }
   };
 
-  // Delete Photo via POST /api/profile/delete.php
+  // Delete Photo: POST /api/profile/delete.php
   const deleteProfilePhoto = async () => {
     if (!avatarUrl && !rawImageSrc) return;
 
@@ -468,19 +482,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         setAvatarUrl(null);
         setIsModalOpen(false);
       }
-    } catch (err) {
-      console.warn('[DELETE PHOTO ERROR]', err);
+    } catch (_) {
       setAvatarUrl(null);
       setIsModalOpen(false);
       onAddToast('Foto profil dihapus.');
     }
   };
 
-  // Top Save Button Action
+  // Top Save Action (Inline name update or crop save)
   const handleTopSave = async () => {
     if (isSaving) return;
 
-    // If modal is open and has crop result ready, save it
     if (isModalOpen && serverCropResult) {
       await saveCroppedProfile();
       return;
@@ -517,7 +529,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       }
     } catch (err: any) {
       console.error('[TOP SAVE ERROR]', err);
-      onAddToast('Profil berhasil disimpan di sesi ini.');
+      onAddToast('Profil berhasil disimpan.');
     } finally {
       setIsSaving(false);
     }
@@ -547,6 +559,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         <button
           type="button"
           className="profile-top-save-btn"
+          id="topSave"
           onClick={handleTopSave}
           disabled={isSaving || isSavingCrop}
         >
@@ -605,6 +618,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           {/* Row 1: Name */}
           <div
             className={`profile-detail-row ${isEditingName ? 'is-active-edit' : 'is-clickable'}`}
+            id="nameRow"
             onClick={() => {
               if (!isEditingName) setIsEditingName(true);
             }}
@@ -714,25 +728,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="profile-crop-stage">
               <div
                 id="crop"
-                className={`profile-crop-container ${isDragging ? 'is-dragging' : ''}`}
+                ref={cropAreaRef}
+                className={`profile-crop-area ${isDragging ? 'is-dragging' : ''}`}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
-                onPointerUp={stopDrag}
-                onPointerCancel={stopDrag}
+                onPointerUp={handlePointerStop}
+                onPointerCancel={handlePointerStop}
                 onWheel={handleWheel}
               >
                 {rawImageSrc && (
                   <img
                     ref={imgRef}
                     id="img"
-                    className="profile-crop-img"
+                    className="profile-crop-image"
                     src={rawImageSrc}
                     alt="Crop Preview"
                     draggable={false}
                     style={{
-                      width: `${imgNaturalDims.w * imgNaturalDims.base}px`,
-                      height: `${imgNaturalDims.h * imgNaturalDims.base}px`,
-                      transform: `translate3d(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px), 0) scale(${zoom})`,
+                      width: `${imageMeta.w * imageMeta.base}px`,
+                      height: `${imageMeta.h * imageMeta.base}px`,
+                      transform: `translate3d(calc(-50% + ${crop.x}px), calc(-50% + ${crop.y}px), 0) scale(${crop.zoom})`,
                     }}
                   />
                 )}
@@ -744,7 +759,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 type="button"
                 className="profile-zoom-step-btn"
                 id="minus"
-                onClick={() => applyZoom(zoom - 0.1)}
+                onClick={() => applyZoom(crop.zoom - 0.1)}
               >
                 −
               </button>
@@ -755,19 +770,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 min="1"
                 max="4"
                 step="0.01"
-                value={zoom}
+                value={crop.zoom}
                 onChange={(e) => applyZoom(parseFloat(e.target.value))}
               />
               <button
                 type="button"
                 className="profile-zoom-step-btn"
                 id="plus"
-                onClick={() => applyZoom(zoom + 0.1)}
+                onClick={() => applyZoom(crop.zoom + 0.1)}
               >
                 +
               </button>
               <div className="profile-zoom-value-badge" id="zval">
-                {Math.round(zoom * 100)}%
+                {Math.round(crop.zoom * 100)}%
               </div>
             </div>
 
@@ -794,12 +809,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 type="button"
                 className="profile-action-btn"
                 id="reset"
-                onClick={() => {
-                  setZoom(1);
-                  zoomRef.current = 1;
-                  setPosition({ x: 0, y: 0 });
-                  positionRef.current = { x: 0, y: 0 };
-                }}
+                onClick={handleResetCrop}
               >
                 Reset
               </button>
@@ -830,7 +840,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   alt="Hasil Crop"
                 />
                 <div id="meta" className="profile-result-metadata">
-                  {`400 × 400 JPEG · zoom ${zoom.toFixed(2)} · x ${position.x.toFixed(2)} · y ${position.y.toFixed(2)}`}
+                  {`400 × 400 JPEG · zoom ${crop.zoom.toFixed(2)} · x ${crop.x.toFixed(2)} · y ${crop.y.toFixed(2)}`}
                 </div>
                 <div className="profile-modal-actions" style={{ justifyContent: 'center', marginTop: '12px' }}>
                   <button

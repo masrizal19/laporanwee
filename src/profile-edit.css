@@ -247,7 +247,7 @@
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05);
 }
 
-/* Modal and Cropper Styles */
+/* Modal and Cropper Styles - Isolated from global CSS */
 .profile-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -328,37 +328,50 @@
   padding: 4px 0 18px;
 }
 
+/* Explicit CSS isolation for Crop Area */
+#crop,
+.profile-crop-area,
 .profile-crop-container {
-  width: 300px;
-  height: 300px;
-  border-radius: 50%;
-  overflow: hidden;
-  position: relative;
-  background: #111;
-  border: 3px solid var(--profile-accent);
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12);
+  width: 300px !important;
+  height: 300px !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+  position: relative !important;
+  background: #111111 !important;
+  border: 3px solid var(--profile-accent, #111111) !important;
+  cursor: grab !important;
+  touch-action: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  box-shadow: 0 15px 35px rgba(0, 0, 0, 0.12) !important;
+  box-sizing: border-box !important;
+  pointer-events: auto !important;
 }
 
+#crop.dragging,
+.profile-crop-area.is-dragging,
 .profile-crop-container.is-dragging {
-  cursor: grabbing;
+  cursor: grabbing !important;
 }
 
+/* Explicit CSS isolation for Crop Image */
+#img,
+.profile-crop-image,
 .profile-crop-img {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  max-width: none;
-  max-height: none;
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-  transform-origin: center center;
-  will-change: transform;
-  display: block;
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  transform-origin: center center !important;
+  will-change: transform !important;
+  display: block !important;
+  box-sizing: border-box !important;
 }
 
 .profile-zoom-bar {
@@ -554,8 +567,10 @@
   .profile-zoom-bar {
     grid-template-columns: 40px 1fr 40px 55px;
   }
+  #crop,
+  .profile-crop-area,
   .profile-crop-container {
-    width: 260px;
-    height: 260px;
+    width: 260px !important;
+    height: 260px !important;
   }
 }
