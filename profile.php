@@ -32,21 +32,45 @@ $user = null;
 
 try {
     if (!empty($token)) {
-        // Match token in auth_tokens table
+        // Calculate SHA-256 hash of the token
+        $hashedToken = hash('sha256', $token);
+        
+        // Match token in auth_tokens table supporting both hashed and unhashed token keys
         $stmt = $pdo->prepare("
-            SELECT u.* FROM users u
+            SELECT u.*, t.expires_at FROM users u
             JOIN auth_tokens t ON u.id = t.user_id
-            WHERE t.token_hash = :token LIMIT 1
+            WHERE (t.token_hash = :token OR t.token_hash = :hashed_token) LIMIT 1
         ");
-        $stmt->execute(['token' => $token]);
+        $stmt->execute([
+            'token' => $token,
+            'hashed_token' => $hashedToken
+        ]);
         $user = $stmt->fetch();
+
+        if ($user) {
+            // Validate token expiration
+            if (!empty($user['expires_at'])) {
+                $expires = strtotime($user['expires_at']);
+                if ($expires !== false && $expires < time()) {
+                    response(false, 'Unauthorized. Sesi token telah kedaluwarsa.', [], 401);
+                }
+            }
+            // Validate active status
+            if ($user['status'] !== 'active') {
+                response(false, 'Akses ditolak. Akun Anda tidak aktif.', [], 403);
+            }
+        }
     }
 
-    if (!$user && !empty($adminEmailHeader)) {
-        // Fallback match by X-Admin-Email
+    if (!$user && !empty($adminEmailHeader) && empty($token)) {
+        // Fallback match by X-Admin-Email only if no Bearer token was provided
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = :email LIMIT 1");
         $stmt->execute(['email' => $adminEmailHeader]);
         $user = $stmt->fetch();
+        
+        if ($user && $user['status'] !== 'active') {
+            response(false, 'Akses ditolak. Akun Anda tidak aktif.', [], 403);
+        }
     }
 
     if (!$user) {
@@ -61,7 +85,8 @@ try {
                 'email' => $user['email'],
                 'role' => $user['role'] ?? 'Anggota Tim Kreatif',
                 'status' => $user['status'],
-                'avatar_url' => $user['avatar_url'] ?? null
+                'avatar_url' => $user['avatar_url'] ?? null,
+                'updated_at' => $user['updated_at'] ?? null
             ]
         ], 200);
     }
@@ -144,7 +169,8 @@ try {
                 'email' => $updatedUser['email'],
                 'role' => $updatedUser['role'] ?? 'Anggota Tim Kreatif',
                 'status' => $updatedUser['status'],
-                'avatar_url' => $updatedUser['avatar_url'] ?? null
+                'avatar_url' => $updatedUser['avatar_url'] ?? null,
+                'updated_at' => $updatedUser['updated_at'] ?? null
             ]
         ], 200);
     }
