@@ -245,7 +245,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     setCrop({ zoom: 1, x: clamped.x, y: clamped.y });
   };
 
-  // Direct Save Foto (Combines crop + profile save in one go)
+  // Direct Save Foto: crop.php -> save.php -> Profile
   const handleSaveCrop = async () => {
     if (!rawImageSrc) {
       onAddToast('Belum ada foto untuk disimpan.');
@@ -254,21 +254,50 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
     if (isSavingCrop) return;
     setIsSavingCrop(true);
 
+    const currentCrop = cropStateRef.current;
+
     try {
+      // Step 1: Crop processing on server (POST /profile/crop.php)
+      let cropRes;
+      if (selectedFile instanceof File) {
+        cropRes = await profileService.cropPhoto({
+          avatar: selectedFile,
+          zoom: currentCrop.zoom,
+          x: currentCrop.x,
+          y: currentCrop.y,
+        });
+      } else {
+        cropRes = await profileService.cropPhoto({
+          avatar_url: rawImageSrc,
+          avatar: rawImageSrc,
+          zoom: currentCrop.zoom,
+          x: currentCrop.x,
+          y: currentCrop.y,
+        });
+      }
+
+      if (!cropRes || !cropRes.success) {
+        const errorMsg = cropRes?.message || 'Gagal memproses pemotongan foto di server.';
+        onAddToast(`Gagal memotong foto: ${errorMsg}`);
+        setIsSavingCrop(false);
+        return;
+      }
+
+      const cropData = cropRes.data || cropRes;
+      const croppedFileName = cropData.file_name || cropData.crop_file;
+      const croppedUrl = cropData.crop_url || cropData.file_url || cropData.avatar_url;
+
+      // Step 2: Save cropped result to profile with preserved metadata (POST /profile/save.php)
       const savePayload: any = {
         full_name: profileMeta.full_name,
         profile_title: profileMeta.profile_title,
         profile_location: profileMeta.profile_location,
-        zoom: crop.zoom,
-        x: crop.x,
-        y: crop.y,
+        crop_file: croppedFileName,
+        crop_url: croppedUrl,
+        zoom: currentCrop.zoom,
+        x: currentCrop.x,
+        y: currentCrop.y,
       };
-
-      if (selectedFile instanceof File) {
-        savePayload.crop_file = selectedFile;
-      } else if (rawImageSrc && !rawImageSrc.startsWith('data:image/svg+xml')) {
-        savePayload.crop_url = rawImageSrc;
-      }
 
       const res = await profileService.saveProfile(savePayload);
       recordProfileSaveTimestamp();
@@ -276,14 +305,14 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
       if (res && res.success) {
         onAddToast('Foto profil berhasil disimpan.');
         const d = res.data || res;
-        const rawAvatar = extractAvatarFromResponse(res);
+        const rawAvatar = extractAvatarFromResponse(res) || croppedUrl;
         const freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : (d.avatar_url !== undefined ? d.avatar_url : null);
 
         syncAuthenticatedUser({
           avatar_url: freshAvatar,
           ...(d.full_name ? { name: d.full_name } : {}),
-          ...(d.profile_title !== undefined ? { profile_title: d.profile_title } : {}),
-          ...(d.profile_location !== undefined ? { profile_location: d.profile_location } : {}),
+          ...(d.profile_title !== undefined ? { profile_title: d.profile_title } : (profileMeta.profile_title ? { profile_title: profileMeta.profile_title } : {})),
+          ...(d.profile_location !== undefined ? { profile_location: d.profile_location } : (profileMeta.profile_location ? { profile_location: profileMeta.profile_location } : {})),
         });
 
         if (onUpdateUser) {
@@ -300,14 +329,14 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
           detail: {
             avatar_url: freshAvatar,
             full_name: d.full_name || profileMeta.full_name,
-            profile_title: d.profile_title,
-            profile_location: d.profile_location,
+            profile_title: d.profile_title !== undefined ? d.profile_title : profileMeta.profile_title,
+            profile_location: d.profile_location !== undefined ? d.profile_location : profileMeta.profile_location,
           },
         }));
 
         onNavigate('profile');
       } else {
-        const errorMsg = res?.message || 'Gagal menyimpan foto.';
+        const errorMsg = res?.message || 'Gagal menyimpan foto ke profil.';
         onAddToast(`Gagal menyimpan foto: ${errorMsg}`);
       }
     } catch (err: any) {
