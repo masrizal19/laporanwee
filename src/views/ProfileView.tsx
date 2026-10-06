@@ -94,14 +94,19 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       if (res && res.success && res.data) {
         const d = res.data;
         const freshName = d.full_name || d.name;
-        if (freshName) setName(freshName);
+        if (freshName) {
+          setName(freshName);
+          setTempName(freshName);
+        }
         if (d.email) setEmail(d.email);
 
         const freshTitle = d.profile_title !== undefined ? d.profile_title : (d.title || '');
         setProfileTitle(freshTitle);
+        setTempJob(freshTitle);
 
         const freshStatus = d.profile_location !== undefined ? d.profile_location : (d.status || d.location || '');
         setProfileStatus(freshStatus);
+        setTempStatus(freshStatus);
 
         const rawAvatar = extractAvatarFromResponse(res);
         let freshAvatar = avatarUrl;
@@ -144,13 +149,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       const detail = e.detail;
       if (!detail) return;
       if (detail.name || detail.full_name) {
-        setName(detail.name || detail.full_name);
+        const n = detail.name || detail.full_name;
+        setName(n);
+        setTempName(n);
       }
       if (detail.profile_title !== undefined) {
         setProfileTitle(detail.profile_title);
+        setTempJob(detail.profile_title);
       }
       if (detail.profile_location !== undefined) {
         setProfileStatus(detail.profile_location);
+        setTempStatus(detail.profile_location);
       }
       if (detail.avatar_url !== undefined) {
         setAvatarUrl(detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null);
@@ -163,32 +172,66 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     };
   }, [loadProfile]);
 
+  // Commit any active inline edit before saving
+  const commitActiveEdit = () => {
+    if (editingField === 'name') {
+      const trimmed = tempName.trim();
+      if (trimmed) setName(trimmed);
+      else setTempName(name);
+    } else if (editingField === 'job') {
+      const trimmed = tempJob.trim();
+      setProfileTitle(trimmed);
+    } else if (editingField === 'status') {
+      const trimmed = tempStatus.trim();
+      if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(trimmed)) {
+        setProfileStatus(trimmed);
+      }
+    }
+    setEditingField(null);
+  };
+
   // Save Full Profile via POST /profile/save.php
   const handleSaveProfile = async () => {
     if (isSaving) return;
+    // Commit active inline editing first
+    commitActiveEdit();
+
+    const finalName = (editingField === 'name' ? tempName : name).trim();
+    if (!finalName) {
+      onAddToast('Nama profil tidak boleh kosong.');
+      return;
+    }
+
+    const finalJob = (editingField === 'job' ? tempJob : profileTitle).trim();
+    const finalStatus = (editingField === 'status' ? tempStatus : profileStatus).trim();
+
+    if (finalStatus && !['Karyawan', 'Anak Magang', 'Anak PKL'].includes(finalStatus)) {
+      onAddToast('Status harus bernilai: Karyawan, Anak Magang, atau Anak PKL.');
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const trimmedName = name.trim();
-      const trimmedJob = profileTitle.trim();
-      const trimmedStatus = profileStatus.trim();
-
       const res = await profileService.saveProfile({
-        full_name: trimmedName,
-        profile_title: trimmedJob,
-        profile_location: trimmedStatus,
+        full_name: finalName,
+        profile_title: finalJob,
+        profile_location: finalStatus,
       });
       recordProfileSaveTimestamp();
 
       if (res && res.success) {
-        onAddToast('Profil berhasil disimpan!');
+        onAddToast('Profil berhasil disimpan.');
         const d = res.data || res;
-        const freshName = d.full_name || d.name || trimmedName;
-        const freshJob = d.profile_title !== undefined ? d.profile_title : trimmedJob;
-        const freshStatus = d.profile_location !== undefined ? d.profile_location : trimmedStatus;
+        const freshName = d.full_name || d.name || finalName;
+        const freshJob = d.profile_title !== undefined ? d.profile_title : finalJob;
+        const freshStatus = d.profile_location !== undefined ? d.profile_location : finalStatus;
 
         setName(freshName);
+        setTempName(freshName);
         setProfileTitle(freshJob);
+        setTempJob(freshJob);
         setProfileStatus(freshStatus);
+        setTempStatus(freshStatus);
 
         let freshAvatar = avatarUrl;
         if (d.avatar_url !== undefined) {
@@ -212,10 +255,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           });
         }
       } else {
-        onAddToast(res?.message || 'Gagal menyimpan profil.');
+        const errorMsg = res?.message || 'Gagal menyimpan profil.';
+        onAddToast(`Profil gagal disimpan: ${errorMsg}`);
       }
     } catch (err: any) {
-      onAddToast('Gagal menyimpan profil: ' + (err.message || 'Kesalahan server'));
+      const errorMsg = err?.message || 'Kesalahan server';
+      onAddToast(`Profil gagal disimpan: ${errorMsg}`);
     } finally {
       setIsSaving(false);
     }
@@ -320,6 +365,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             id="nameRow"
             onClick={() => {
               if (editingField !== 'name') {
+                if (editingField) commitActiveEdit();
                 setTempName(name);
                 setEditingField('name');
               }
@@ -340,7 +386,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   } else {
                     setTempName(name);
                   }
-                  setEditingField(null);
+                  if (editingField === 'name') setEditingField(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -375,6 +421,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             id="jobRow"
             onClick={() => {
               if (editingField !== 'job') {
+                if (editingField) commitActiveEdit();
                 setTempJob(profileTitle);
                 setEditingField('job');
               }
@@ -391,7 +438,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 onBlur={() => {
                   const trimmed = tempJob.trim();
                   setProfileTitle(trimmed);
-                  setEditingField(null);
+                  if (editingField === 'job') setEditingField(null);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
@@ -401,7 +448,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     setEditingField(null);
                   }
                 }}
-                placeholder="Contoh: Editor, Designer..."
+                placeholder="Contoh: EDITOR, Designer..."
                 autoFocus
               />
             ) : (
@@ -418,6 +465,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             id="statusRow"
             onClick={() => {
               if (editingField !== 'status') {
+                if (editingField) commitActiveEdit();
                 setTempStatus(profileStatus || 'Karyawan');
                 setEditingField('status');
               }
@@ -430,12 +478,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 className="profile-name-edit-input"
                 value={tempStatus}
                 onChange={(e) => {
-                  setTempStatus(e.target.value);
-                  setProfileStatus(e.target.value);
-                  setEditingField(null);
+                  const val = e.target.value;
+                  if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(val)) {
+                    setTempStatus(val);
+                    setProfileStatus(val);
+                  }
                 }}
                 onBlur={() => {
-                  setEditingField(null);
+                  if (editingField === 'status') setEditingField(null);
                 }}
                 autoFocus
               >

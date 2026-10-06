@@ -131,6 +131,8 @@ export function App() {
               full_name: res.data.full_name || prev.full_name,
               name: res.data.full_name || prev.name,
               role: res.data.role || prev.role,
+              profile_title: res.data.profile_title !== undefined ? res.data.profile_title : prev.profile_title,
+              profile_location: res.data.profile_location !== undefined ? res.data.profile_location : prev.profile_location,
               avatar_url: cleanAvatar,
             };
             setStoredUser(updated);
@@ -164,10 +166,15 @@ export function App() {
         const freshName = detail.name || detail.full_name || prev.name;
         const freshAvatar = detail.avatar_url !== undefined ? (detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null) : prev.avatar_url;
 
+        const freshTitle = detail.profile_title !== undefined ? detail.profile_title : prev.profile_title;
+        const freshLocation = detail.profile_location !== undefined ? detail.profile_location : prev.profile_location;
+
         const updated: AuthUser = {
           ...prev,
           name: freshName,
           full_name: freshName,
+          profile_title: freshTitle,
+          profile_location: freshLocation,
           avatar_url: freshAvatar,
         };
         return updated;
