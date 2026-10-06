@@ -27,6 +27,7 @@ import { TasksView } from './views/TasksView';
 import { TeamView } from './views/TeamView';
 import { CalendarView } from './views/CalendarView';
 import { ProfileView } from './views/ProfileView';
+import { ProfileCropView } from './views/ProfileCropView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AdminUISettingsView } from './views/AdminUISettingsView';
 
@@ -36,6 +37,7 @@ import { RegisterView } from './views/RegisterView';
 import { VerifyEmailView } from './views/VerifyEmailView';
 import {
   api,
+  profileService,
   activityService,
   calendarService,
   dailyReportService,
@@ -98,7 +100,7 @@ export function App() {
   // Fetch user profile from MySQL database on load to sync avatar_url, role, id and name
   useEffect(() => {
     if (user && getStoredToken()) {
-      api.get('/profile.php')
+      profileService.getProfile()
         .then((res) => {
           if (res && res.success && res.data) {
             setUser((prev) => {
@@ -1811,13 +1813,35 @@ export function App() {
           />
         )}
 
-        {(currentView === 'profile' || currentView === 'profile-crop') && (
+        {currentView === 'profile' && (
           <ProfileView
             projects={projects}
             reports={reports}
             onNavigate={handleNavigate}
             onSelectProject={(id) => setSelectedProjectId(id)}
             onSelectReport={(id) => setSelectedReportId(id)}
+            onAddToast={addToast}
+            userEmail={user.email}
+            userName={user.name}
+            avatarUrl={(user as any)?.avatar_url}
+            onUpdateUser={(updated) => {
+              const updatedUser = {
+                ...user,
+                email: updated.email,
+                name: updated.name,
+                avatar_url: updated.avatar_url,
+              };
+              setUser(updatedUser);
+              try {
+                localStorage.setItem('laporanwee_user', JSON.stringify(updatedUser));
+              } catch (_) {}
+            }}
+          />
+        )}
+
+        {currentView === 'profile-crop' && (
+          <ProfileCropView
+            onNavigate={handleNavigate}
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}

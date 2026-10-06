@@ -247,77 +247,17 @@
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.05);
 }
 
-/* Modal and Cropper Styles - Isolated from global CSS */
-.profile-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: none;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  z-index: 100;
-}
-
-.profile-modal-backdrop.is-open {
-  display: flex;
-}
-
-.profile-modal-card {
-  width: min(620px, 100%);
-  max-height: 92vh;
-  overflow: auto;
-  background: #fff;
-  border-radius: 22px;
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.25);
-  box-sizing: border-box;
-}
-
-.profile-modal-header {
-  padding: 20px 22px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--profile-line);
-  position: sticky;
-  top: 0;
-  background: #fff;
-  z-index: 3;
-}
-
-.profile-modal-header h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 800;
+/* Dedicated Full-Page Profile Cropper Styles - Isolated from global CSS */
+.profile-crop-page-root {
+  min-height: 100vh;
+  background: var(--profile-bg);
   color: var(--profile-text);
-}
-
-.profile-modal-close-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: 1px solid var(--profile-line);
-  font-size: 22px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  background: transparent;
-  color: var(--profile-text);
-  transition: background-color 0.15s ease;
-}
-
-.profile-modal-close-btn:hover {
-  background: var(--profile-soft);
-}
-
-.profile-modal-body {
-  padding: 20px 22px;
 }
 
 .profile-crop-hint {
   text-align: center;
   color: var(--profile-muted);
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.5;
   margin: 0 0 16px;
 }
@@ -325,7 +265,7 @@
 .profile-crop-stage {
   display: flex;
   justify-content: center;
-  padding: 4px 0 18px;
+  padding: 10px 0 24px;
 }
 
 /* Explicit CSS isolation for Crop Area */
@@ -557,12 +497,6 @@
   .profile-row-arrow-icon {
     grid-column: 2;
     grid-row: 2;
-  }
-  .profile-modal-card {
-    border-radius: 18px;
-  }
-  .profile-modal-body {
-    padding: 16px;
   }
   .profile-zoom-bar {
     grid-template-columns: 40px 1fr 40px 55px;
