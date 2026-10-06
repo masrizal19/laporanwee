@@ -9,6 +9,7 @@ export type ViewType =
   | 'report-detail'
   | 'create-report'
   | 'profile'
+  | 'profile-crop'
   | 'analytics'
   | 'ui-settings';
 

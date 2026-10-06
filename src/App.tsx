@@ -297,6 +297,7 @@ export function App() {
     '/ui-settings': 'ui-settings',
     '/profil': 'profile',
     '/profile': 'profile',
+    '/profil/crop': 'profile-crop',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -310,6 +311,7 @@ export function App() {
     'report-detail': '/laporan',
     'create-report': '/laporan',
     'profile': '/profil',
+    'profile-crop': '/profil/crop',
     'analytics': '/analitik',
     'ui-settings': '/admin/ui-settings',
   };
@@ -1809,7 +1811,7 @@ export function App() {
           />
         )}
 
-        {currentView === 'profile' && (
+        {(currentView === 'profile' || currentView === 'profile-crop') && (
           <ProfileView
             projects={projects}
             reports={reports}
