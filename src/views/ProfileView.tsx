@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Project, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
-import { Modal } from '../components/Modal';
 import { profileService, api } from '../utils/api';
 import '../profile-edit.css';
 
@@ -26,42 +25,54 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   avatarUrl: initialAvatarUrl,
   onUpdateUser,
 }) => {
-  const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna LaporanWee');
-  const [role, setRole] = useState('Principal Product Designer');
+  const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna');
+  const [role, setRole] = useState('Profile User');
   const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
-  const [location, setLocation] = useState('San Francisco, CA');
+  const [location, setLocation] = useState('LaporanWee Web');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl || null);
 
-  const [activeEditingField, setActiveEditingField] = useState<'name' | 'role' | 'location' | null>(null);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [tempName, setTempName] = useState(name);
   const [isSaving, setIsSaving] = useState(false);
-  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
-  const [isSubmittingPhoto, setIsSubmittingPhoto] = useState(false);
 
-  // Selected file reference for upload
+  // Modal and Cropper States
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [uploadedFileRef, setUploadedFileRef] = useState<string | null>(null);
-
-  // Photo Cropper States
   const [rawImageSrc, setRawImageSrc] = useState<string | null>(null);
+  const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [imgNaturalDims, setImgNaturalDims] = useState<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
   const [zoom, setZoom] = useState<number>(1);
   const [position, setPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [imageDims, setImageDims] = useState<{ width: number; height: number; baseScale: number } | null>(null);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const CONTAINER_SIZE = 240;
+  // Server crop result
+  const [serverCropResult, setServerCropResult] = useState<{
+    crop_url?: string;
+    file_url?: string;
+    file_name?: string;
+    avatar_url?: string;
+  } | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string>('');
+  const [isProcessingCrop, setIsProcessingCrop] = useState(false);
+  const [isSavingCrop, setIsSavingCrop] = useState(false);
 
-  const isDraggingRef = useRef<boolean>(false);
-  const dragStartRef = useRef<{
-    startX: number;
-    startY: number;
-    initialX: number;
-    initialY: number;
-  }>({ startX: 0, startY: 0, initialX: 0, initialY: 0 });
+  const CROP_CONTAINER_SIZE = 300;
+
+  const dragRef = useRef<{
+    active: boolean;
+    id: number | null;
+    sx: number;
+    sy: number;
+    ix: number;
+    iy: number;
+  }>({ active: false, id: null, sx: 0, sy: 0, ix: 0, iy: 0 });
+
   const positionRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const zoomRef = useRef<number>(1);
-  const imageDimsRef = useRef<{ width: number; height: number; baseScale: number } | null>(null);
+  const dimsRef = useRef<{ w: number; h: number; base: number }>({ w: 0, h: 0, base: 1 });
   const imgRef = useRef<HTMLImageElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     positionRef.current = position;
@@ -72,11 +83,28 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   }, [zoom]);
 
   useEffect(() => {
-    imageDimsRef.current = imageDims;
-  }, [imageDims]);
+    dimsRef.current = imgNaturalDims;
+  }, [imgNaturalDims]);
 
-  // Primary: Fetch Profile from /api/profile/get.php
-  const fetchProfileData = useCallback(async () => {
+  useEffect(() => {
+    setTempName(name);
+  }, [name]);
+
+  // Apply theme dynamically to CSS variables if provided
+  const applyThemeSettings = useCallback((themeObj?: any) => {
+    if (!themeObj || typeof themeObj !== 'object') return;
+    const rootEl = rootRef.current || document.documentElement;
+
+    if (themeObj.accent_color) rootEl.style.setProperty('--profile-accent', themeObj.accent_color);
+    if (themeObj.primary_color) rootEl.style.setProperty('--profile-primary', themeObj.primary_color);
+    if (themeObj.text_color) rootEl.style.setProperty('--profile-text', themeObj.text_color);
+    if (themeObj.muted_color) rootEl.style.setProperty('--profile-muted', themeObj.muted_color);
+    if (themeObj.background_color) rootEl.style.setProperty('--profile-bg', themeObj.background_color);
+    if (themeObj.surface_color) rootEl.style.setProperty('--profile-surface', themeObj.surface_color);
+  }, []);
+
+  // Primary: Load Profile from /api/profile/get.php
+  const loadProfile = useCallback(async (quiet = false) => {
     try {
       let res = await profileService.getProfile();
       if (!res || !res.success) {
@@ -91,13 +119,17 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         if (d.role) setRole(d.role);
         if (d.location) setLocation(d.location);
         if (d.avatar_url) {
-          const bustUrl = `${d.avatar_url}${d.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
-          setAvatarUrl(bustUrl);
+          const avatarBust = `${d.avatar_url}${d.avatar_url.includes('?') ? '&' : '?'}v=${Date.now()}`;
+          setAvatarUrl(avatarBust);
         } else if (d.avatar === null || d.avatar_url === null) {
           setAvatarUrl(null);
         }
 
-        // Apply crop_settings if returned
+        if (d.theme) {
+          applyThemeSettings(d.theme);
+        }
+
+        // Apply crop settings if returned
         if (d.crop_settings) {
           const z = Number(d.crop_settings.crop_zoom || d.crop_settings.zoom);
           const x = Number(d.crop_settings.crop_x || d.crop_settings.x);
@@ -112,17 +144,15 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           }
         }
       }
-    } catch (err) {
-      console.warn('[PROFILE] Gagal memuat data dari /api/profile/get.php:', err);
+    } catch (err: any) {
+      if (!quiet) {
+        console.warn('[PROFILE] loadProfile error:', err);
+      }
     }
-  }, []);
+  }, [applyThemeSettings]);
 
-  useEffect(() => {
-    fetchProfileData();
-  }, [fetchProfileData]);
-
-  // Fetch saved crop settings when opening photo cropper
-  const fetchSavedCropSettings = async () => {
+  // Load Crop Settings from /api/profile/settings.php
+  const loadProfileSettings = useCallback(async () => {
     try {
       const res = await profileService.getSettings();
       if (res && res.success && res.data) {
@@ -137,386 +167,330 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           setPosition({ x, y });
           positionRef.current = { x, y };
         }
+        if (res.data.theme) {
+          applyThemeSettings(res.data.theme);
+        }
       }
-    } catch (_) {
-      // Optional settings fetch
+    } catch (_) {}
+  }, [applyThemeSettings]);
+
+  // Initial fetch and automatic sync on focus/visibility change
+  useEffect(() => {
+    loadProfile();
+    loadProfileSettings();
+
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        loadProfile(true);
+        loadProfileSettings();
+      }
+    };
+
+    window.addEventListener('focus', onFocusOrVisible);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      window.removeEventListener('focus', onFocusOrVisible);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [loadProfile, loadProfileSettings]);
+
+  // Cropper math
+  const maxPan = (z = zoomRef.current) => {
+    const size = CROP_CONTAINER_SIZE;
+    const { w, h, base } = dimsRef.current;
+    return {
+      x: Math.max(0, (w * base * z - size) / 2),
+      y: Math.max(0, (h * base * z - size) / 2),
+    };
+  };
+
+  const clampPosition = (x: number, y: number, z = zoomRef.current) => {
+    const m = maxPan(z);
+    return {
+      x: Math.max(-m.x, Math.min(m.x, x)),
+      y: Math.max(-m.y, Math.min(m.y, y)),
+    };
+  };
+
+  const applyZoom = (newZ: number) => {
+    const clampedZ = Math.max(1, Math.min(4, Number(newZ) || 1));
+    setZoom(clampedZ);
+    zoomRef.current = clampedZ;
+    const c = clampPosition(positionRef.current.x, positionRef.current.y, clampedZ);
+    setPosition(c);
+    positionRef.current = c;
+  };
+
+  // Load File into Cropper
+  const loadSelectedFile = (f: File) => {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) {
+      onAddToast('Format foto harus JPG, PNG, atau WEBP.');
+      return;
     }
-  };
+    if (f.size > 10 * 1024 * 1024) {
+      onAddToast('Ukuran maksimal foto 10 MB.');
+      return;
+    }
 
-  const computeMaxPan = (z: number, dims: { width: number; height: number; baseScale: number } | null) => {
-    if (!dims) return { maxX: 0, maxY: 0 };
-    const scaledW = dims.width * dims.baseScale * z;
-    const scaledH = dims.height * dims.baseScale * z;
-    const maxX = Math.max(0, (scaledW - CONTAINER_SIZE) / 2);
-    const maxY = Math.max(0, (scaledH - CONTAINER_SIZE) / 2);
-    return { maxX, maxY };
-  };
+    setSelectedFile(f);
+    if (rawImageSrc) {
+      URL.revokeObjectURL(rawImageSrc);
+    }
+    const objectUrl = URL.createObjectURL(f);
+    setRawImageSrc(objectUrl);
+    setServerCropResult(null);
+    setStatusMessage('');
 
-  const loadImageIntoCropper = (src: string, file?: File) => {
-    if (file) setSelectedFile(file);
     const img = new Image();
     img.onload = () => {
-      const width = img.naturalWidth || img.width;
-      const height = img.naturalHeight || img.height;
-      if (width <= 0 || height <= 0) return;
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const size = CROP_CONTAINER_SIZE;
+      const base = Math.max(size / w, size / h);
 
-      const scaleX = CONTAINER_SIZE / width;
-      const scaleY = CONTAINER_SIZE / height;
-      const baseScale = Math.max(scaleX, scaleY);
-
-      const newDims = { width, height, baseScale };
-      setImageDims(newDims);
-      imageDimsRef.current = newDims;
+      const nextDims = { w, h, base };
+      setImgNaturalDims(nextDims);
+      dimsRef.current = nextDims;
       setZoom(1);
       zoomRef.current = 1;
       setPosition({ x: 0, y: 0 });
       positionRef.current = { x: 0, y: 0 };
-      isDraggingRef.current = false;
-      setIsDragging(false);
-      setRawImageSrc(src);
-      setIsPhotoModalOpen(true);
-      fetchSavedCropSettings();
+      setIsImageLoaded(true);
+      setIsModalOpen(true);
     };
-    img.onerror = (e) => {
-      console.error('[LOAD CROPPER ERROR]', e);
-      onAddToast('Gagal memuat foto profil untuk diatur.');
+    img.onerror = () => {
+      onAddToast('Gagal memuat file foto.');
     };
-    img.src = src;
+    img.src = objectUrl;
   };
 
-  // Upload Photo to /api/profile/upload.php immediately upon selection
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const ext = file.name.split('.').pop()?.toLowerCase();
-      if (!['jpg', 'jpeg', 'png', 'webp'].includes(ext || '')) {
-        onAddToast('Format file foto harus JPG, PNG, atau WEBP.');
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        onAddToast('Ukuran file foto maksimal 10 MB.');
-        return;
-      }
-
-      const localSrc = URL.createObjectURL(file);
-      loadImageIntoCropper(localSrc, file);
-      e.target.value = '';
-
-      // Upload file to /api/profile/upload.php to obtain server file reference
-      try {
-        const uploadRes = await profileService.uploadPhoto(file);
-        if (uploadRes && uploadRes.success && uploadRes.data) {
-          const fileRef = uploadRes.data.file_name || uploadRes.data.url || uploadRes.data.avatar;
-          if (fileRef) {
-            setUploadedFileRef(fileRef);
-          }
-        }
-      } catch (uploadErr) {
-        console.warn('[UPLOAD] /api/profile/upload.php:', uploadErr);
-      }
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) {
+      loadSelectedFile(f);
     }
+    e.target.value = '';
   };
 
-  // Zoom control (1 to 4 with 0.01 step)
-  const handleZoomChange = (nextZoom: number) => {
-    const clampedZoom = Math.max(1, Math.min(4, Math.round(nextZoom * 100) / 100));
-    setZoom(clampedZoom);
-    zoomRef.current = clampedZoom;
-
-    const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
-      width: imgRef.current.naturalWidth,
-      height: imgRef.current.naturalHeight,
-      baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
-    } : null);
-
-    const { maxX, maxY } = computeMaxPan(clampedZoom, dims);
-    setPosition((prev) => {
-      const nextX = Math.max(-maxX, Math.min(maxX, prev.x));
-      const nextY = Math.max(-maxY, Math.min(maxY, prev.y));
-      positionRef.current = { x: nextX, y: nextY };
-      return { x: nextX, y: nextY };
-    });
-  };
-
-  // Pointer Events for drag with setPointerCapture
+  // Pointer Drag Event Handlers
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    if (!isImageLoaded || (e.pointerType === 'mouse' && e.button !== 0)) return;
     e.preventDefault();
+    dragRef.current = {
+      active: true,
+      id: e.pointerId,
+      sx: e.clientX,
+      sy: e.clientY,
+      ix: positionRef.current.x,
+      iy: positionRef.current.y,
+    };
+    setIsDragging(true);
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
     } catch (_) {}
-
-    isDraggingRef.current = true;
-    setIsDragging(true);
-    dragStartRef.current = {
-      startX: e.clientX,
-      startY: e.clientY,
-      initialX: positionRef.current.x,
-      initialY: positionRef.current.y,
-    };
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current) return;
+    if (!dragRef.current.active || e.pointerId !== dragRef.current.id) return;
     e.preventDefault();
-    const dx = e.clientX - dragStartRef.current.startX;
-    const dy = e.clientY - dragStartRef.current.startY;
-    const rawX = dragStartRef.current.initialX + dx;
-    const rawY = dragStartRef.current.initialY + dy;
-
-    const dims = imageDimsRef.current || (imgRef.current?.naturalWidth ? {
-      width: imgRef.current.naturalWidth,
-      height: imgRef.current.naturalHeight,
-      baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
-    } : null);
-
-    const { maxX, maxY } = computeMaxPan(zoomRef.current, dims);
-    const clampedX = Math.max(-maxX, Math.min(maxX, rawX));
-    const clampedY = Math.max(-maxY, Math.min(maxY, rawY));
-
-    setPosition({ x: clampedX, y: clampedY });
-    positionRef.current = { x: clampedX, y: clampedY };
+    const c = clampPosition(
+      dragRef.current.ix + e.clientX - dragRef.current.sx,
+      dragRef.current.iy + e.clientY - dragRef.current.sy,
+      zoomRef.current
+    );
+    setPosition(c);
+    positionRef.current = c;
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingRef.current) {
-      isDraggingRef.current = false;
-      setIsDragging(false);
-      try {
-        if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-          e.currentTarget.releasePointerCapture(e.pointerId);
-        }
-      } catch (_) {}
-    }
-  };
-
-  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    handlePointerUp(e);
+  const stopDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current.id !== e.pointerId) return;
+    dragRef.current.active = false;
+    setIsDragging(false);
+    try {
+      if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }
+    } catch (_) {}
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.05 : -0.05;
-    handleZoomChange(zoomRef.current + delta);
+    applyZoom(zoomRef.current + (e.deltaY < 0 ? 0.1 : -0.1));
   };
 
-  const handleResetCrop = () => {
-    setZoom(1);
-    zoomRef.current = 1;
-    setPosition({ x: 0, y: 0 });
-    positionRef.current = { x: 0, y: 0 };
-    isDraggingRef.current = false;
-    setIsDragging(false);
-  };
+  // Server Crop via POST /api/profile/crop.php
+  const processServerCrop = async () => {
+    if (!selectedFile) {
+      onAddToast('Pilih foto terlebih dahulu.');
+      return;
+    }
 
-  // Process Crop through /api/profile/crop.php & save through /api/profile/save.php
-  const handleGenerateCrop = async () => {
-    if (!rawImageSrc) return;
-    setIsSubmittingPhoto(true);
+    setIsProcessingCrop(true);
+    setStatusMessage('Memproses crop di server...');
 
     try {
-      const currentZoom = zoomRef.current;
-      const currentX = positionRef.current.x;
-      const currentY = positionRef.current.y;
-
       // 1. Save crop settings to /api/profile/settings.php
       try {
         await profileService.saveSettings({
-          crop_zoom: currentZoom,
-          crop_x: currentX,
-          crop_y: currentY,
+          crop_zoom: zoomRef.current,
+          crop_x: positionRef.current.x,
+          crop_y: positionRef.current.y,
         });
-      } catch (settingsErr) {
-        console.warn('[SETTINGS] /api/profile/settings.php:', settingsErr);
-      }
+      } catch (_) {}
 
-      // 2. Call backend /api/profile/crop.php
-      let croppedUrl = '';
-      let croppedBlob: Blob | null = null;
+      // 2. Upload and crop via /api/profile/crop.php
+      const cropRes = await profileService.cropPhoto({
+        avatar: selectedFile,
+        zoom: zoomRef.current,
+        x: positionRef.current.x,
+        y: positionRef.current.y,
+      });
 
-      try {
-        const cropRes = await profileService.cropPhoto({
-          avatar: selectedFile || uploadedFileRef || rawImageSrc,
-          zoom: currentZoom,
-          x: currentX,
-          y: currentY,
-        });
-
-        if (cropRes && cropRes.success && cropRes.data) {
-          croppedUrl = cropRes.data.url || cropRes.data.avatar_url || cropRes.data.crop_url;
-        }
-      } catch (cropBackendErr) {
-        console.warn('[CROP] Backend /api/profile/crop.php fallback:', cropBackendErr);
-      }
-
-      // Generate instant high-precision 400x400 canvas blob for instant persistence
-      if (!croppedUrl) {
-        const activeImg = imgRef.current;
-        const naturalW = activeImg?.naturalWidth || imageDimsRef.current?.width || CONTAINER_SIZE;
-        const naturalH = activeImg?.naturalHeight || imageDimsRef.current?.height || CONTAINER_SIZE;
-        const outputSize = 400;
-        const canvas = document.createElement('canvas');
-        canvas.width = outputSize;
-        canvas.height = outputSize;
-        const ctx = canvas.getContext('2d');
-        if (ctx && activeImg) {
-          ctx.imageSmoothingEnabled = true;
-          ctx.imageSmoothingQuality = 'high';
-          const dims = imageDimsRef.current || {
-            width: naturalW,
-            height: naturalH,
-            baseScale: Math.max(CONTAINER_SIZE / naturalW, CONTAINER_SIZE / naturalH),
-          };
-          const canvasScale = outputSize / CONTAINER_SIZE;
-          const displayedW = dims.width * dims.baseScale * currentZoom;
-          const displayedH = dims.height * dims.baseScale * currentZoom;
-          const centerX = CONTAINER_SIZE / 2 + currentX;
-          const centerY = CONTAINER_SIZE / 2 + currentY;
-          const drawX = (centerX - displayedW / 2) * canvasScale;
-          const drawY = (centerY - displayedH / 2) * canvasScale;
-          const drawW = displayedW * canvasScale;
-          const drawH = displayedH * canvasScale;
-          ctx.drawImage(activeImg, 0, 0, naturalW, naturalH, drawX, drawY, drawW, drawH);
-          croppedBlob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/jpeg', 0.95));
-        }
-      }
-
-      // 3. Save profile through /api/profile/save.php (with fallback to update.php / profile.php)
-      let saveRes: any = null;
-      if (croppedBlob) {
-        const croppedFile = new File([croppedBlob], 'profile.jpg', { type: 'image/jpeg' });
-        saveRes = await profileService.saveProfile({
-          full_name: name.trim(),
-          crop_file: croppedFile,
-          crop_url: croppedUrl,
-          zoom: currentZoom,
-          x: currentX,
-          y: currentY,
-        });
+      if (cropRes && cropRes.success && cropRes.data) {
+        setServerCropResult(cropRes.data);
+        setStatusMessage('Crop server berhasil. Klik Simpan Profil untuk menulis data ke MySQL.');
+        onAddToast('Crop server berhasil!');
       } else {
-        saveRes = await profileService.saveProfile({
-          full_name: name.trim(),
-          crop_url: croppedUrl,
-          zoom: currentZoom,
-          x: currentX,
-          y: currentY,
-        });
+        throw new Error(cropRes?.message || 'Gagal memproses crop di server.');
       }
+    } catch (err: any) {
+      console.error('[CROP SERVER ERROR]', err);
+      setStatusMessage(`Crop gagal: ${err.message || 'Terjadi kesalahan sistem'}`);
+      onAddToast(err.message || 'Crop server gagal.');
+    } finally {
+      setIsProcessingCrop(false);
+    }
+  };
 
-      if (!saveRes || !saveRes.success) {
-        // Fallback to legacy endpoint if save.php failed
-        if (croppedBlob) {
-          const formData = new FormData();
-          formData.append('avatar', croppedBlob, 'profile.jpg');
-          formData.append('full_name', name.trim());
-          saveRes = await api.upload('/profile.php', formData);
-        }
-      }
+  // Save Cropped Profile via POST /api/profile/save.php
+  const saveCroppedProfile = async () => {
+    if (!serverCropResult) {
+      onAddToast('Proses crop terlebih dahulu.');
+      return;
+    }
+
+    setIsSavingCrop(true);
+    setStatusMessage('Menyimpan profil ke MySQL...');
+
+    try {
+      const cropFileName = serverCropResult.file_name || '';
+      const cropFileUrl = serverCropResult.crop_url || serverCropResult.file_url || '';
+
+      const saveRes = await profileService.saveProfile({
+        full_name: name.trim(),
+        crop_file: cropFileName,
+        crop_url: cropFileUrl,
+        zoom: zoomRef.current,
+        x: positionRef.current.x,
+        y: positionRef.current.y,
+      });
 
       if (saveRes && saveRes.success) {
-        onAddToast('Foto profil berhasil diperbarui!');
-        const finalUrl = saveRes.data?.avatar_url || saveRes.data?.avatar || croppedUrl;
-        const bustFinal = finalUrl ? `${finalUrl}${finalUrl.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
+        const returnedUrl = saveRes.data?.avatar_url || cropFileUrl;
+        const bustUrl = returnedUrl ? `${returnedUrl}${returnedUrl.includes('?') ? '&' : '?'}v=${Date.now()}` : null;
 
-        if (bustFinal) setAvatarUrl(bustFinal);
+        if (bustUrl) setAvatarUrl(bustUrl);
+        if (saveRes.data?.full_name) setName(saveRes.data.full_name);
+
+        setStatusMessage('Profil, avatar, dan crop settings berhasil disimpan ke MySQL.');
+        onAddToast('Profil dan foto berhasil disimpan!');
+        setIsModalOpen(false);
         setRawImageSrc(null);
         setSelectedFile(null);
-        setIsPhotoModalOpen(false);
+        setServerCropResult(null);
 
-        if (onUpdateUser && bustFinal) {
+        if (onUpdateUser && bustUrl) {
           onUpdateUser({
             email,
             name,
-            avatar_url: bustFinal,
+            avatar_url: bustUrl,
           });
         }
 
-        // Refresh source of truth from /api/profile/get.php
-        await fetchProfileData();
+        const storedUser = localStorage.getItem('laporanwee_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            if (bustUrl) parsed.avatar_url = bustUrl;
+            if (saveRes.data?.full_name) parsed.name = saveRes.data.full_name;
+            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
+          } catch (_) {}
+        }
+
+        await loadProfile(true);
       } else {
-        onAddToast(saveRes?.message || 'Foto profil berhasil disimpan.');
-        setIsPhotoModalOpen(false);
-        setRawImageSrc(null);
-        await fetchProfileData();
+        throw new Error(saveRes?.message || 'Gagal menyimpan foto ke profil.');
       }
     } catch (err: any) {
-      console.error('[CROP & SAVE ERROR]', err);
-      onAddToast('Gagal memproses crop foto.');
+      console.error('[SAVE PROFILE ERROR]', err);
+      setStatusMessage(`Save gagal: ${err.message || 'Terjadi kesalahan sistem'}`);
+      onAddToast(err.message || 'Gagal menyimpan profil.');
     } finally {
-      setIsSubmittingPhoto(false);
+      setIsSavingCrop(false);
     }
   };
 
-  // Remove Photo Action through /api/profile/delete.php
-  const handleRemovePhoto = async () => {
+  // Delete Photo via POST /api/profile/delete.php
+  const deleteProfilePhoto = async () => {
     if (!avatarUrl && !rawImageSrc) return;
-    if (!window.confirm('Apakah Anda yakin ingin menghapus foto profil?')) return;
 
-    setIsSubmittingPhoto(true);
     try {
-      let res = await profileService.deletePhoto();
-      if (!res || !res.success) {
-        // Fallback
-        const formData = new FormData();
-        formData.append('remove_avatar', '1');
-        formData.append('full_name', name.trim());
-        res = await api.upload('/profile.php', formData);
+      const res = await profileService.deletePhoto();
+      if (res && res.success) {
+        setAvatarUrl(null);
+        setRawImageSrc(null);
+        setSelectedFile(null);
+        setServerCropResult(null);
+        setIsModalOpen(false);
+        onAddToast('Foto profil berhasil dihapus.');
+
+        if (onUpdateUser) {
+          onUpdateUser({
+            email,
+            name,
+            avatar_url: undefined,
+          });
+        }
+
+        const storedUser = localStorage.getItem('laporanwee_user');
+        if (storedUser) {
+          try {
+            const parsed = JSON.parse(storedUser);
+            delete parsed.avatar_url;
+            localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
+          } catch (_) {}
+        }
+
+        await loadProfile(true);
+      } else {
+        onAddToast(res?.message || 'Foto profil dihapus.');
+        setAvatarUrl(null);
+        setIsModalOpen(false);
       }
-
-      setAvatarUrl(null);
-      setRawImageSrc(null);
-      setSelectedFile(null);
-      setIsPhotoModalOpen(false);
-      onAddToast('Foto profil berhasil dihapus.');
-
-      if (onUpdateUser) {
-        onUpdateUser({
-          email,
-          name,
-          avatar_url: undefined,
-        });
-      }
-
-      const storedUser = localStorage.getItem('laporanwee_user');
-      if (storedUser) {
-        try {
-          const parsed = JSON.parse(storedUser);
-          delete parsed.avatar_url;
-          localStorage.setItem('laporanwee_user', JSON.stringify(parsed));
-        } catch (_) {}
-      }
-
-      await fetchProfileData();
     } catch (err) {
-      console.error('[REMOVE PHOTO ERROR]', err);
+      console.warn('[DELETE PHOTO ERROR]', err);
       setAvatarUrl(null);
-      setRawImageSrc(null);
-      setIsPhotoModalOpen(false);
+      setIsModalOpen(false);
       onAddToast('Foto profil dihapus.');
-    } finally {
-      setIsSubmittingPhoto(false);
     }
   };
 
-  // Save All Profile Information (Name) through /api/profile/update.php
-  const handleSaveProfile = async () => {
+  // Top Save Button Action
+  const handleTopSave = async () => {
     if (isSaving) return;
+
+    // If modal is open and has crop result ready, save it
+    if (isModalOpen && serverCropResult) {
+      await saveCroppedProfile();
+      return;
+    }
+
     setIsSaving(true);
-    setActiveEditingField(null);
-
     try {
-      let res = await profileService.updateName(name.trim());
-      if (!res || !res.success) {
-        // Compatibility fallback
-        const formData = new FormData();
-        formData.append('full_name', name.trim());
-        formData.append('role', role.trim());
-        formData.append('location', location.trim());
-        res = await api.upload('/profile.php', formData);
-      }
-
+      const res = await profileService.updateName(name.trim());
       if (res && res.success) {
-        onAddToast('Profil berhasil disimpan!');
+        onAddToast('Perubahan profil berhasil disimpan!');
         if (res.data?.full_name) setName(res.data.full_name);
 
         if (onUpdateUser) {
@@ -537,368 +511,343 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           } catch (_) {}
         }
 
-        await fetchProfileData();
+        await loadProfile(true);
       } else {
         onAddToast(res?.message || 'Profil berhasil disimpan.');
       }
     } catch (err: any) {
-      console.error('[SAVE PROFILE ERROR]', err);
-      onAddToast('Profil diperbarui di sesi ini.');
+      console.error('[TOP SAVE ERROR]', err);
+      onAddToast('Profil berhasil disimpan di sesi ini.');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const defaultAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300&auto=format&fit=crop&q=80";
+  const placeholderSvg =
+    'data:image/svg+xml;charset=UTF-8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500"><rect width="100%" height="100%" fill="#eee"/><circle cx="250" cy="200" r="90" fill="#ccc"/><path d="M110 470c25-110 95-155 140-155s115 45 140 155" fill="#ccc"/></svg>`
+    );
 
   return (
-    <div className="profile-edit-page">
-      <div className="profile-edit-container">
-        {/* Top Header Navigation */}
-        <header className="profile-edit-header">
+    <div className="profile-page-root" ref={rootRef}>
+      {/* Top Header Bar */}
+      <header className="profile-top-bar">
+        <div className="profile-top-left">
           <button
             type="button"
-            className="profile-back-btn"
+            className="profile-back-circle"
             onClick={() => onNavigate('dashboard')}
-            aria-label="Kembali ke Dashboard"
-            title="Kembali"
+            aria-label="Kembali"
           >
-            <Icon name="chevL" size={24} />
+            ‹
           </button>
+          <div className="profile-brand-title">LaporanWee</div>
+        </div>
+        <button
+          type="button"
+          className="profile-top-save-btn"
+          onClick={handleTopSave}
+          disabled={isSaving || isSavingCrop}
+        >
+          {isSaving || isSavingCrop ? 'Saving...' : 'Save'}
+        </button>
+      </header>
 
-          <button
-            type="button"
-            className="profile-save-btn"
-            onClick={handleSaveProfile}
-            disabled={isSaving}
+      {/* Main Shell */}
+      <main className="profile-shell-main">
+        <h1 className="profile-main-title">Edit Profile</h1>
+
+        {/* Hero Section */}
+        <section className="profile-hero-section">
+          <div className="profile-hero-copy">
+            <div className="profile-hero-kicker">Profile Photo</div>
+            <h2 id="displayName">{name || 'Pengguna'}</h2>
+            <p>
+              Versi web dari desain mobile. Foto dapat dipilih, digeser, di-zoom, di-crop di server, lalu disimpan ke
+              database MySQL.
+            </p>
+          </div>
+
+          <div className="profile-avatar-stage">
+            <div className="profile-avatar-wrap-box">
+              <img
+                id="avatar"
+                className="profile-avatar-element"
+                src={avatarUrl || placeholderSvg}
+                alt="Foto Profil"
+                onClick={() => fileInputRef.current?.click()}
+                style={{ cursor: 'pointer' }}
+              />
+              <button
+                type="button"
+                id="editAvatar"
+                className="profile-avatar-edit-button"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Edit foto"
+              >
+                <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinejoin="round"
+                  />
+                  <path d="m14.5 7.5 2 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Rows Information List */}
+        <section className="profile-rows-list">
+          {/* Row 1: Name */}
+          <div
+            className={`profile-detail-row ${isEditingName ? 'is-active-edit' : 'is-clickable'}`}
+            onClick={() => {
+              if (!isEditingName) setIsEditingName(true);
+            }}
           >
-            {isSaving ? 'Saving...' : 'Save'}
-          </button>
-        </header>
+            <div className="profile-row-label-text">Name</div>
+            {isEditingName ? (
+              <input
+                id="nameEdit"
+                type="text"
+                className="profile-name-edit-input"
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                onBlur={() => {
+                  const trimmed = tempName.trim();
+                  if (trimmed) {
+                    setName(trimmed);
+                  } else {
+                    setTempName(name);
+                  }
+                  setIsEditingName(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.currentTarget.blur();
+                  } else if (e.key === 'Escape') {
+                    setTempName(name);
+                    setIsEditingName(false);
+                  }
+                }}
+                autoFocus
+              />
+            ) : (
+              <div className="profile-row-value-text" id="name">
+                {name || '—'}
+              </div>
+            )}
+            <div className="profile-row-arrow-icon">›</div>
+          </div>
 
-        {/* Page Title */}
-        <h1 className="profile-edit-title">Edit Profile</h1>
+          {/* Row 2: Email */}
+          <div className="profile-detail-row">
+            <div className="profile-row-label-text">Email</div>
+            <div className="profile-row-value-text is-muted" id="email">
+              {email || '—'}
+            </div>
+            <div className="profile-row-arrow-icon">›</div>
+          </div>
 
-        {/* Profile Photo Section */}
-        <div className="profile-photo-section">
-          <div className="profile-avatar-wrapper">
-            <img
-              src={avatarUrl || defaultAvatar}
-              alt="Profile"
-              className="profile-avatar-img"
-              onClick={() => {
-                if (fileInputRef.current) {
-                  fileInputRef.current.click();
-                }
-              }}
-              style={{ cursor: 'pointer' }}
-            />
+          {/* Row 3: Title */}
+          <div className="profile-detail-row">
+            <div className="profile-row-label-text">Title</div>
+            <div className="profile-row-value-text is-muted" id="role">
+              {role || 'Profile User'}
+            </div>
+            <div className="profile-row-arrow-icon">›</div>
+          </div>
+
+          {/* Row 4: Location */}
+          <div className="profile-detail-row">
+            <div className="profile-row-label-text">Location</div>
+            <div className="profile-row-value-text is-muted">
+              {location || 'Not set'}
+            </div>
+            <div className="profile-row-arrow-icon">›</div>
+          </div>
+        </section>
+
+        {/* Hidden File Input */}
+        <input
+          ref={fileInputRef}
+          id="file"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleFileInputChange}
+          style={{ display: 'none' }}
+        />
+      </main>
+
+      {/* Modal Cropper */}
+      <div
+        className={`profile-modal-backdrop ${isModalOpen ? 'is-open' : ''}`}
+        id="modal"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setIsModalOpen(false);
+          }
+        }}
+      >
+        <div className="profile-modal-card" role="dialog" aria-modal="true">
+          <div className="profile-modal-header">
+            <h3>Atur Crop Foto</h3>
             <button
               type="button"
-              className="profile-avatar-edit-badge"
-              onClick={() => {
-                if (fileInputRef.current) {
-                  fileInputRef.current.click();
-                }
-              }}
-              aria-label="Ubah foto profil"
-              title="Ubah foto"
+              className="profile-modal-close-btn"
+              id="close"
+              onClick={() => setIsModalOpen(false)}
             >
-              <Icon name="pencil" size={16} />
+              ×
             </button>
           </div>
 
-          <span
-            className="profile-photo-label"
-            onClick={() => {
-              if (fileInputRef.current) {
-                fileInputRef.current.click();
-              }
-            }}
-          >
-            PROFILE PHOTO
-          </span>
-
-          {avatarUrl && (
-            <div className="profile-photo-actions">
-              <button
-                type="button"
-                className="profile-remove-photo-btn"
-                onClick={handleRemovePhoto}
-              >
-                Remove Photo
-              </button>
-            </div>
-          )}
-
-          {/* Hidden File Input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleFileChange}
-            style={{ display: 'none' }}
-          />
-        </div>
-
-        {/* Profile Information List */}
-        <div className="profile-info-list">
-          {/* Row 1: NAME */}
-          <div
-            className={`profile-info-row ${activeEditingField === 'name' ? 'is-editing' : ''}`}
-            onClick={() => setActiveEditingField('name')}
-          >
-            <div className="profile-info-content">
-              <span className="profile-row-label">NAME</span>
-              {activeEditingField === 'name' ? (
-                <input
-                  type="text"
-                  className="profile-inline-input"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  onBlur={() => setActiveEditingField(null)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') setActiveEditingField(null);
-                  }}
-                  autoFocus
-                />
-              ) : (
-                <span className="profile-row-value">{name || 'Carrie Sanders'}</span>
-              )}
-            </div>
-            <div className="profile-row-chevron">
-              <Icon name="chevR" size={18} />
-            </div>
-          </div>
-
-          {/* Row 2: EMAIL */}
-          <div
-            className="profile-info-row"
-            onClick={() => onAddToast('Email dikelola secara otomatis oleh organisasi.')}
-          >
-            <div className="profile-info-content">
-              <span className="profile-row-label">EMAIL</span>
-              <span className="profile-row-value">{email}</span>
-            </div>
-            <div className="profile-row-chevron">
-              <Icon name="chevR" size={18} />
-            </div>
-          </div>
-
-          {/* Row 3: TITLE */}
-          <div
-            className={`profile-info-row ${activeEditingField === 'role' ? 'is-editing' : ''}`}
-            onClick={() => setActiveEditingField('role')}
-          >
-            <div className="profile-info-content">
-              <span className="profile-row-label">TITLE</span>
-              {activeEditingField === 'role' ? (
-                <input
-                  type="text"
-                  className="profile-inline-input"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  onBlur={() => setActiveEditingField(null)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') setActiveEditingField(null);
-                  }}
-                  autoFocus
-                />
-              ) : (
-                <span className="profile-row-value">{role || 'Principal Product Designer'}</span>
-              )}
-            </div>
-            <div className="profile-row-chevron">
-              <Icon name="chevR" size={18} />
-            </div>
-          </div>
-
-          {/* Row 4: LOCATION */}
-          <div
-            className={`profile-info-row ${activeEditingField === 'location' ? 'is-editing' : ''}`}
-            onClick={() => setActiveEditingField('location')}
-          >
-            <div className="profile-info-content">
-              <span className="profile-row-label">LOCATION</span>
-              {activeEditingField === 'location' ? (
-                <input
-                  type="text"
-                  className="profile-inline-input"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                  onBlur={() => setActiveEditingField(null)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') setActiveEditingField(null);
-                  }}
-                  autoFocus
-                />
-              ) : (
-                <span className={`profile-row-value ${!location ? 'is-placeholder' : ''}`}>
-                  {location || 'Not set'}
-                </span>
-              )}
-            </div>
-            <div className="profile-row-chevron">
-              <Icon name="chevR" size={18} />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Photo Cropper Modal */}
-      <Modal
-        isOpen={isPhotoModalOpen}
-        onClose={() => {
-          setIsPhotoModalOpen(false);
-          setRawImageSrc(null);
-        }}
-        title="Atur Crop Foto Profil"
-      >
-        {rawImageSrc ? (
-          <div style={{ textAlign: 'center' }}>
-            <p style={{ fontSize: '13.5px', color: 'var(--muted, #666)', marginBottom: '14px' }}>
-              Geser foto dan atur zoom untuk menyesuaikan pratinjau lingkaran:
+          <div className="profile-modal-body">
+            <p className="profile-crop-hint">
+              Geser foto di dalam lingkaran. Gunakan slider, tombol −/+, atau scroll mouse untuk zoom.
             </p>
 
-            {(() => {
-              const activeDims = imageDims || imageDimsRef.current || (imgRef.current?.naturalWidth ? {
-                width: imgRef.current.naturalWidth,
-                height: imgRef.current.naturalHeight,
-                baseScale: Math.max(CONTAINER_SIZE / imgRef.current.naturalWidth, CONTAINER_SIZE / imgRef.current.naturalHeight)
-              } : null);
-
-              const baseWidth = activeDims ? activeDims.width * activeDims.baseScale : CONTAINER_SIZE;
-              const baseHeight = activeDims ? activeDims.height * activeDims.baseScale : CONTAINER_SIZE;
-
-              return (
-                <div
-                  style={{
-                    width: `${CONTAINER_SIZE}px`,
-                    height: `${CONTAINER_SIZE}px`,
-                    margin: '0 auto 16px',
-                    borderRadius: '50%',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    background: '#111',
-                    cursor: isDragging ? 'grabbing' : 'grab',
-                    border: '3px solid #111111',
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                    touchAction: 'none',
-                    userSelect: 'none',
-                    WebkitUserSelect: 'none',
-                  }}
-                  onPointerDown={handlePointerDown}
-                  onPointerMove={handlePointerMove}
-                  onPointerUp={handlePointerUp}
-                  onPointerCancel={handlePointerCancel}
-                  onWheel={handleWheel}
-                >
+            <div className="profile-crop-stage">
+              <div
+                id="crop"
+                className={`profile-crop-container ${isDragging ? 'is-dragging' : ''}`}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={stopDrag}
+                onPointerCancel={stopDrag}
+                onWheel={handleWheel}
+              >
+                {rawImageSrc && (
                   <img
                     ref={imgRef}
+                    id="img"
+                    className="profile-crop-img"
                     src={rawImageSrc}
-                    alt="Crop preview"
+                    alt="Crop Preview"
                     draggable={false}
-                    onLoad={(e) => {
-                      const el = e.currentTarget;
-                      const width = el.naturalWidth || el.width;
-                      const height = el.naturalHeight || el.height;
-                      if (width > 0 && height > 0) {
-                        const scaleX = CONTAINER_SIZE / width;
-                        const scaleY = CONTAINER_SIZE / height;
-                        const baseScale = Math.max(scaleX, scaleY);
-                        const newDims = { width, height, baseScale };
-                        setImageDims(newDims);
-                        imageDimsRef.current = newDims;
-                      }
-                    }}
                     style={{
-                      position: 'absolute',
-                      left: '50%',
-                      top: '50%',
-                      width: `${baseWidth}px`,
-                      height: `${baseHeight}px`,
+                      width: `${imgNaturalDims.w * imgNaturalDims.base}px`,
+                      height: `${imgNaturalDims.h * imgNaturalDims.base}px`,
                       transform: `translate3d(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px), 0) scale(${zoom})`,
-                      transformOrigin: 'center center',
-                      maxWidth: 'none',
-                      maxHeight: 'none',
-                      pointerEvents: 'none',
-                      userSelect: 'none',
-                      WebkitUserSelect: 'none',
-                      transition: isDragging ? 'none' : 'transform 0.08s ease-out',
-                      willChange: 'transform',
                     }}
                   />
-                </div>
-              );
-            })()}
+                )}
+              </div>
+            </div>
 
-            {/* Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '18px' }}>
+            <div className="profile-zoom-bar">
               <button
                 type="button"
-                className="btn btn-outline btn-sm"
-                onClick={() => handleZoomChange(zoom - 0.1)}
-                title="Perkecil (-)"
-                aria-label="Perkecil zoom"
-                style={{ minWidth: '32px', fontWeight: 700 }}
+                className="profile-zoom-step-btn"
+                id="minus"
+                onClick={() => applyZoom(zoom - 0.1)}
               >
-                -
+                −
               </button>
               <input
+                id="slider"
                 type="range"
+                className="profile-zoom-slider"
                 min="1"
                 max="4"
                 step="0.01"
                 value={zoom}
-                onChange={(e) => handleZoomChange(parseFloat(e.target.value))}
-                style={{ width: '130px', accentColor: '#111111', cursor: 'pointer' }}
-                aria-label="Zoom slider"
+                onChange={(e) => applyZoom(parseFloat(e.target.value))}
               />
               <button
                 type="button"
-                className="btn btn-outline btn-sm"
-                onClick={() => handleZoomChange(zoom + 0.1)}
-                title="Perbesar (+)"
-                aria-label="Perbesar zoom"
-                style={{ minWidth: '32px', fontWeight: 700 }}
+                className="profile-zoom-step-btn"
+                id="plus"
+                onClick={() => applyZoom(zoom + 0.1)}
               >
                 +
               </button>
+              <div className="profile-zoom-value-badge" id="zval">
+                {Math.round(zoom * 100)}%
+              </div>
+            </div>
+
+            <div className="profile-modal-actions">
+              {avatarUrl && (
+                <button
+                  type="button"
+                  className="profile-action-btn is-danger"
+                  onClick={deleteProfilePhoto}
+                  style={{ marginRight: 'auto' }}
+                >
+                  Hapus Foto
+                </button>
+              )}
               <button
                 type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={handleResetCrop}
-                style={{ fontSize: '12px', marginLeft: '6px' }}
+                className="profile-action-btn"
+                id="choose"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                Pilih Foto
+              </button>
+              <button
+                type="button"
+                className="profile-action-btn"
+                id="reset"
+                onClick={() => {
+                  setZoom(1);
+                  zoomRef.current = 1;
+                  setPosition({ x: 0, y: 0 });
+                  positionRef.current = { x: 0, y: 0 };
+                }}
               >
                 Reset
               </button>
+              <button
+                type="button"
+                className="profile-action-btn is-dark"
+                id="process"
+                onClick={processServerCrop}
+                disabled={isProcessingCrop}
+              >
+                {isProcessingCrop ? 'Memproses...' : 'Proses Crop'}
+              </button>
             </div>
 
-            {/* Action Buttons */}
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => {
-                  setIsPhotoModalOpen(false);
-                  setRawImageSrc(null);
-                }}
-                disabled={isSubmittingPhoto}
-              >
-                Batal
-              </button>
-              <button
-                type="button"
-                className="btn btn-dark"
-                onClick={handleGenerateCrop}
-                disabled={isSubmittingPhoto}
-              >
-                {isSubmittingPhoto ? 'Menyimpan...' : 'Terapkan Crop'}
-              </button>
-            </div>
+            {statusMessage && (
+              <div id="status" className="profile-status-message">
+                {statusMessage}
+              </div>
+            )}
+
+            {serverCropResult && (
+              <div id="result" className="profile-server-result-box">
+                <strong>Hasil Crop Server</strong>
+                <img
+                  id="resultImg"
+                  className="profile-result-avatar-preview"
+                  src={`${serverCropResult.crop_url || serverCropResult.file_url}?v=${Date.now()}`}
+                  alt="Hasil Crop"
+                />
+                <div id="meta" className="profile-result-metadata">
+                  {`400 × 400 JPEG · zoom ${zoom.toFixed(2)} · x ${position.x.toFixed(2)} · y ${position.y.toFixed(2)}`}
+                </div>
+                <div className="profile-modal-actions" style={{ justifyContent: 'center', marginTop: '12px' }}>
+                  <button
+                    type="button"
+                    className="profile-action-btn is-dark"
+                    id="saveProfile"
+                    onClick={saveCroppedProfile}
+                    disabled={isSavingCrop}
+                  >
+                    {isSavingCrop ? 'Menyimpan...' : 'Simpan Profil'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        ) : null}
-      </Modal>
+        </div>
+      </div>
     </div>
   );
 };
