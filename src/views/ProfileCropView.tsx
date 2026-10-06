@@ -460,7 +460,7 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         onUpdateUser({
           name: userName,
           email: userEmail,
-          avatar_url: undefined,
+          avatar_url: null,
         });
       }
 
