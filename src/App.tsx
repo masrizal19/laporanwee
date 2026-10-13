@@ -229,7 +229,7 @@ export function App() {
       '/dashboard',
       '/proyek',
       '/laporan',
-      '/laporan/edit-laporan',
+      '/laporan/detail/edit-laporan',
       '/tugas',
       '/tim',
       '/kalender',
@@ -380,7 +380,7 @@ export function App() {
     '/dashboard': 'dashboard',
     '/proyek': 'projects',
     '/laporan': 'reports',
-    '/laporan/edit-laporan': 'report-detail',
+    '/laporan/detail/edit-laporan': 'report-detail',
     '/tugas': 'tasks',
     '/tim': 'team',
     '/kalender': 'calendar',
@@ -1689,7 +1689,7 @@ export function App() {
   const [reportInitialEdit, setReportInitialEdit] = useState<boolean>(false);
 
   useEffect(() => {
-    if (currentPath === '/laporan/edit-laporan') {
+    if (currentPath === '/laporan/detail/edit-laporan') {
       setReportInitialEdit(true);
     }
   }, [currentPath]);
@@ -1700,7 +1700,7 @@ export function App() {
     localStorage.setItem('laporanwee_selected_report_id', cleanId);
     setReportInitialEdit(true);
     setCurrentView('report-detail');
-    navigateToPath('/laporan/edit-laporan');
+    navigateToPath('/laporan/detail/edit-laporan');
   };
 
   const handleSelectReport = (id: string | number) => {
