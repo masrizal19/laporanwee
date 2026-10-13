@@ -1893,6 +1893,7 @@ export function App() {
           <TasksView
             tasks={tasks}
             projects={projects}
+            reports={reports}
             members={members}
             isAdmin={isAdmin}
             onAddTask={handleAddTask}
@@ -1900,6 +1901,8 @@ export function App() {
             onDeleteTask={handleDeleteTask}
             onResetTasks={handleResetTasks}
             onRefreshTasks={handleReconcileTasks}
+            onNavigate={handleNavigate}
+            onSelectReport={handleSelectReport}
             onAddToast={addToast}
           />
         )}

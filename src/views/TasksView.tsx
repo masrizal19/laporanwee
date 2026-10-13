@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember } from '../types';
+import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember, Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
@@ -9,6 +9,7 @@ import { computeTargetProgress, getAbsoluteAvatarUrl } from '../utils/api';
 interface TasksViewProps {
   tasks: Task[];
   projects: Project[];
+  reports?: Report[];
   members?: TeamMember[];
   isAdmin?: boolean;
   onAddTask: (task: Omit<Task, 'id'>) => void;
@@ -16,12 +17,15 @@ interface TasksViewProps {
   onDeleteTask: (taskId: string) => void;
   onResetTasks?: () => void;
   onRefreshTasks?: () => void;
+  onNavigate?: (view: ViewType) => void;
+  onSelectReport?: (id: string | number) => void;
   onAddToast: (text: string) => void;
 }
 
 export const TasksView: React.FC<TasksViewProps> = ({
   tasks,
   projects,
+  reports = [],
   members = [],
   isAdmin = false,
   onAddTask,
@@ -29,6 +33,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onDeleteTask,
   onResetTasks,
   onRefreshTasks,
+  onNavigate,
+  onSelectReport,
   onAddToast,
 }) => {
   const [filter, setFilter] = useState<'All' | 'High' | 'Done'>('All');
@@ -434,6 +440,43 @@ export const TasksView: React.FC<TasksViewProps> = ({
     }
   };
 
+  // Handler klik kartu tugas: Navigasi langsung ke tampilan Detail/Edit Laporan
+  const handleTaskCardClick = (t: Task) => {
+    // 1. Ambil ID laporan terkait dari data task (task.report_id, task.daily_report_id, atau id task jika dibuat dari laporan)
+    let targetReportId =
+      t.report_id ||
+      t.daily_report_id ||
+      (t.id.startsWith('report-') ? t.id.replace('report-', '') : undefined);
+
+    // 2. Jika belum terisi, cari di daftar laporan berdasarkan task_id atau kesamaan judul
+    if (!targetReportId && reports && reports.length > 0) {
+      const matched = reports.find(
+        (r) =>
+          (r.task_id && String(r.task_id).trim() === String(t.id).trim()) ||
+          (r.task && t.title && r.task.trim().toLowerCase() === t.title.trim().toLowerCase())
+      );
+      if (matched) {
+        targetReportId = String(matched.id).trim();
+      }
+    }
+
+    // 3. Fallback jika tidak ditemukan: gunakan id task
+    if (!targetReportId) {
+      targetReportId = String(t.id).trim();
+    }
+
+    // 4. Pilih laporan dan arahkan langsung ke halaman detail laporan
+    if (onSelectReport) {
+      onSelectReport(targetReportId);
+    } else {
+      localStorage.setItem('laporanwee_selected_report_id', targetReportId);
+    }
+
+    if (onNavigate) {
+      onNavigate('report-detail');
+    }
+  };
+
   const renderAssigneeAvatar = (assignee?: string) => {
     if (!assignee) {
       return (
@@ -693,7 +736,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   onTouchStart={(e) => handleTouchStart(e, t.id)}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
-                  onClick={() => setEditingTask(t)}
+                  onClick={() => handleTaskCardClick(t)}
                 >
                   <div className="kcard-top">
                     <span className="kcard-proj">
