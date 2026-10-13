@@ -1,38 +1,27 @@
-# Implementation Plan - PDF & JPG Export with Portrait/Landscape A4 Template Preview
+# Implementation Plan - Main Domain Report Export & Edit Views
 
-## User Review & Critical Decisions
+## User Requirements & Architecture
+1. **Export/Preview Route (`/analitik/exporlaporan`)**:
+   - Component: `src/views/ExportLaporanView.tsx`
+   - Fullscreen dark UI with seamless iframe embedding `https://api-laporanwe.mkverse.my.id/api/analytics/export/index.php?month=${month}&year=${year}`.
+   - Query parameters `month` and `year` parsed from URL search params (defaulting to current month/year if omitted).
 
-> [!IMPORTANT]
-> - **Strictly PDF and JPG Options**: The export dropdown in AnalyticsView will feature two options:
-     1. Export PDF (Cetak / Save PDF with orientation toggle)
-     2. Export JPG (Download Image)
-- **Portrait & Landscape A4 Support**: The preview modal toolbar will include an orientation toggle (`Portrait` vs `Landscape`), allowing users to switch the A4 sheet layout dynamically before printing or exporting.
-- **Official HTML A4 Template**: The preview modal renders the exact high-fidelity Wee Laporan template structure provided by the user.
-- **Hardware-Accelerated CSS & Motion**: Smooth dropdown animation, backdrop blur, and GPU-accelerated preview container (`will-change: transform, opacity`).
+2. **Admin Edit Design Route (`/analitik/editlaporan`)**:
+   - Component: `src/views/EditLaporanView.tsx`
+   - Admin-only protection: Checks authentication and admin role (`user.role === 'admin'` or `isAdmin`).
+   - If unauthorized, displays an access denied message with a button back to `/analitik`.
+   - If authorized, embeds backend editor iframe with active token: `https://api-laporanwe.mkverse.my.id/api/analytics/export/edit-export/index.php?month=${month}&year=${year}&token=${token}`.
 
----
+3. **App Router (`src/App.tsx`)**:
+   - Register route handlers for `currentView === 'export-laporan'` (matching `/analitik/exporlaporan`) and `currentView === 'edit-laporan'` (matching `/analitik/editlaporan`), as well as supporting URL hash / history pathname parsing so direct URL access works seamlessly.
 
-## 1. Overview & Core Concept
+4. **AnalyticsView Navigation**:
+   - Update "Cetak / Export PDF" button to open `window.open('/analitik/exporlaporan', '_blank')`.
+   - Update "🎨 Edit Desain Laporan" (admin only) button to open `window.open('/analitik/editlaporan', '_blank')`.
 
-- **What It Does**: Streamlines the report export options to specifically PDF and JPG, adds an orientation switcher (Portrait / Landscape), and displays the official A4 document template in the preview modal.
-- **Key Value**: Provides precise control over document export format and orientation while preserving all existing analytics cards and charts.
-
----
-
-## 2. Technical Design & Changes in `AnalyticsView.tsx`
-
-- **Export Dropdown**:
-  - Options:
-    - `"Cetak / Export PDF"` (opens modal in print preview mode)
-    - `"Export Gambar (.jpg)"` (triggers JPG export URL or canvas capture)
-- **Preview Modal Updates**:
-  - Orientation Toggle State: `orientation: 'portrait' | 'landscape'` (default `'portrait'`).
-  - Toolbar includes Portrait/Landscape toggle pill/buttons.
-  - A4 Preview Sheet applies `@page` / CSS dimensions dynamically (`width: 210mm, height: 297mm` for portrait vs `width: 297mm, height: 210mm` for landscape).
-  - Embeds the user's provided HTML template structure precisely.
-
----
-
-## 3. Verification Plan
-
-- Compile with `compile_applet` and test PDF/JPG export options and orientation switching.
+## Step-by-Step Implementation Steps
+1. Create `src/views/ExportLaporanView.tsx`.
+2. Create `src/views/EditLaporanView.tsx`.
+3. Update `src/App.tsx` to handle route matching for `/analitik/exporlaporan` and `/analitik/editlaporan`.
+4. Update `src/views/AnalyticsView.tsx` dropdown actions.
+5. Compile and lint test.

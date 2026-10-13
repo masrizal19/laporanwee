@@ -86,7 +86,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   );
 
   const handleExportPdf = () => {
-    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export/index.php?month=${selectedMonth}&year=${selectedYear}`;
+    const url = `/analitik/exporlaporan?month=${selectedMonth}&year=${selectedYear}`;
     window.open(url, '_blank');
     setIsExportOpen(false);
     onAddToast(`Membuka preview cetak laporan bulan ${selectedMonth}/${selectedYear}...`);
@@ -101,8 +101,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   };
 
   const handleEditDesign = () => {
-    const token = getStoredToken() || localStorage.getItem('laporanwee_token') || localStorage.getItem('auth_token') || '';
-    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export/edit-export/index.php?month=${selectedMonth}&year=${selectedYear}&token=${token}`;
+    const url = `/analitik/editlaporan?month=${selectedMonth}&year=${selectedYear}`;
     window.open(url, '_blank');
     setIsExportOpen(false);
     onAddToast('Membuka editor desain rekap laporan...');
