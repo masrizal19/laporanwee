@@ -173,8 +173,6 @@ export interface TaskDocument {
 
 export interface Task {
   id: string;
-  project_id?: number | string;
-  status?: string;
   report_id?: string;
   daily_report_id?: string;
   proj: string;

@@ -217,11 +217,7 @@ export const buildApiUrl = (endpoint: string): string => {
 };
 
 export const getStoredToken = (): string | null => {
-  const token =
-    localStorage.getItem('laporanwee_token') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('auth_token') ||
-    localStorage.getItem('access_token');
+  const token = localStorage.getItem('laporanwee_token');
   if (!token || token === 'undefined' || token === 'null' || token === 'session-active-token') {
     return null;
   }
@@ -1819,8 +1815,6 @@ export const taskService = {
 
         return {
           id: String(item.id),
-          project_id: item.project_id !== null && item.project_id !== undefined ? Number(item.project_id) : undefined,
-          status: item.status || undefined,
           report_id: extractedReportId,
           daily_report_id: extractedReportId,
           proj: projectVal,
@@ -1892,75 +1886,36 @@ export const taskService = {
   },
 
   updateTask: async (taskData: Partial<Task> & { id: string | number }): Promise<boolean> => {
-    // 1. Ensure id is a strictly positive integer (Rule 1 & 2)
-    let parsedId: number | null = null;
-    if (typeof taskData.id === 'number' && !isNaN(taskData.id)) {
-      parsedId = Math.floor(taskData.id);
-    } else if (typeof taskData.id === 'string') {
-      const match = taskData.id.match(/\d+/);
-      if (match) {
-        parsedId = parseInt(match[0], 10);
-      }
-    }
-
-    if (!parsedId || isNaN(parsedId) || parsedId <= 0) {
-      throw new Error(`ID tugas tidak valid: "${taskData.id}". Harus berupa angka integer.`);
-    }
-
-    // 2. Resolve project_id as integer
-    let parsedProjectId: number = 1;
-    const rawProjId = taskData.project_id ?? (taskData as any).projectId;
-    if (rawProjId !== undefined && rawProjId !== null && !isNaN(Number(rawProjId)) && Number(rawProjId) > 0) {
-      parsedProjectId = Math.floor(Number(rawProjId));
-    }
-
-    // 3. Status mapping (canonical backend status: 'todo' | 'in_progress' | 'in_review' | 'completed')
-    const rawStatus = (taskData as any).status || (taskData.col ? mapFrontendTaskStatusToBackend(taskData.col) : 'todo');
-    const backendStatus = mapFrontendTaskStatusToBackend(rawStatus as any) || rawStatus;
-
-    // 4. Priority mapping (lowercase string: 'high' | 'medium' | 'low')
-    const priorityVal = (taskData.priority || 'Medium').toLowerCase();
-
-    // 5. Progress (number between 0 and 100)
-    const progressVal = typeof taskData.progress === 'number' ? Math.min(100, Math.max(0, taskData.progress)) : 0;
-
-    // 6. Description (string)
-    const repId = taskData.report_id || (taskData as any).daily_report_id;
-    let desc = typeof taskData.description === 'string' ? taskData.description.trim() : '';
-    if (repId && !desc.includes(`[daily_report_id:${repId}]`)) {
-      desc = desc ? `${desc} [daily_report_id:${repId}]` : `[daily_report_id:${repId}]`;
-    }
-
-    // 7. Title (string)
-    const titleVal = (taskData.title || '').trim();
-    if (!titleVal) {
-      throw new Error('Judul tugas wajib diisi.');
-    }
-
-    // Construct the exact required JSON payload for POST /api/tasks/update.php
-    const payload = {
-      id: parsedId,
-      title: titleVal,
-      project_id: parsedProjectId,
-      status: backendStatus,
-      priority: priorityVal,
-      progress: progressVal,
-      description: desc,
+    const payload: Record<string, any> = {
+      id: Number(taskData.id) || taskData.id,
     };
-
-    console.log('[taskService.updateTask] Sending payload to /tasks/update.php:', payload);
-
-    try {
-      const res = await api.post('/tasks/update.php', payload);
-      console.log('[taskService.updateTask] Response from /tasks/update.php:', res);
-      if (res && res.success !== false) {
-        return true;
+    const repId = taskData.report_id || (taskData as any).daily_report_id;
+    if (taskData.title !== undefined) payload.title = taskData.title;
+    if (taskData.description !== undefined) {
+      let desc = taskData.description.trim();
+      if (repId && !desc.includes(`[daily_report_id:${repId}]`)) {
+        desc = `${desc} [daily_report_id:${repId}]`.trim();
       }
-      throw new Error(res?.message || 'Gagal menyimpan perubahan tugas di server backend.');
-    } catch (err: any) {
-      console.error('[taskService.updateTask] Failed to update task:', err);
-      throw err;
+      payload.description = desc;
     }
+    if (taskData.col !== undefined) payload.status = mapFrontendTaskStatusToBackend(taskData.col);
+    if (taskData.priority !== undefined) payload.priority = taskData.priority.toLowerCase();
+    if (taskData.progress !== undefined) payload.progress = taskData.progress;
+    if (taskData.proj !== undefined) {
+      payload.project_name = taskData.proj;
+      payload.category = taskData.category || taskData.proj;
+    }
+    if (taskData.category !== undefined) payload.category = taskData.category;
+    if (taskData.assignee !== undefined) payload.assignee_name = taskData.assignee;
+    if (taskData.assignee_email !== undefined) payload.assignee_email = taskData.assignee_email;
+    if (taskData.due !== undefined) payload.deadline = taskData.due;
+    if (repId !== undefined) {
+      payload.report_id = repId;
+      payload.daily_report_id = repId;
+    }
+
+    const res = await api.post('/tasks/update.php', payload);
+    return Boolean(res && res.success !== false);
   },
 
   updateTaskStatus: async (params: {

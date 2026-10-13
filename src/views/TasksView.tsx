@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember, Report, ViewType } from '../types';
+import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
@@ -9,7 +9,6 @@ import { computeTargetProgress, getAbsoluteAvatarUrl } from '../utils/api';
 interface TasksViewProps {
   tasks: Task[];
   projects: Project[];
-  reports?: Report[];
   members?: TeamMember[];
   isAdmin?: boolean;
   onAddTask: (task: Omit<Task, 'id'>) => void;
@@ -17,15 +16,12 @@ interface TasksViewProps {
   onDeleteTask: (taskId: string) => void;
   onResetTasks?: () => void;
   onRefreshTasks?: () => void;
-  onNavigate?: (view: ViewType) => void;
-  onSelectReport?: (id: string | number) => void;
   onAddToast: (text: string) => void;
 }
 
 export const TasksView: React.FC<TasksViewProps> = ({
   tasks,
   projects,
-  reports = [],
   members = [],
   isAdmin = false,
   onAddTask,
@@ -33,8 +29,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onDeleteTask,
   onResetTasks,
   onRefreshTasks,
-  onNavigate,
-  onSelectReport,
   onAddToast,
 }) => {
   const [filter, setFilter] = useState<'All' | 'High' | 'Done'>('All');
@@ -55,7 +49,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Modal State for Editing Task
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Task Documentation State
   const [taskDocs, setTaskDocs] = useState<TaskDocument[]>([]);
@@ -379,101 +372,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTask || isSavingEdit) return;
+    if (!editingTask) return;
 
-    if (!editingTask.title.trim()) {
-      onAddToast('Judul tugas wajib diisi.');
-      return;
-    }
-
-    // 1. Resolve strictly integer ID
-    const rawId = editingTask.id;
-    let numericId: number | null = null;
-    if (typeof rawId === 'number' && !isNaN(rawId)) {
-      numericId = Math.floor(rawId);
-    } else if (typeof rawId === 'string') {
-      const match = rawId.match(/\d+/);
-      if (match) {
-        numericId = parseInt(match[0], 10);
-      }
-    }
-
-    if (!numericId || isNaN(numericId) || numericId <= 0) {
-      console.error('[TasksView] Gagal membaca ID tugas yang valid:', rawId);
-      onAddToast('Gagal menyimpan: ID tugas tidak valid atau bukan angka.');
-      return;
-    }
-
-    // 2. Resolve strictly integer project_id
-    let resolvedProjectId: number = 1;
-    if (editingTask.project_id && !isNaN(Number(editingTask.project_id)) && Number(editingTask.project_id) > 0) {
-      resolvedProjectId = Math.floor(Number(editingTask.project_id));
-    } else {
-      const matched = projects.find(
-        (p) => String(p.id) === String(editingTask.proj) || p.name === editingTask.proj
-      );
-      if (matched && !isNaN(Number(matched.id)) && Number(matched.id) > 0) {
-        resolvedProjectId = Math.floor(Number(matched.id));
-      } else if (projects.length > 0 && !isNaN(Number(projects[0].id)) && Number(projects[0].id) > 0) {
-        resolvedProjectId = Math.floor(Number(projects[0].id));
-      }
-    }
-
-    const taskToSave: Task = {
-      ...editingTask,
-      id: String(numericId),
-      project_id: resolvedProjectId,
-    };
-
-    setIsSavingEdit(true);
-    try {
-      const ok = await onUpdateTask(taskToSave);
-      if (ok !== false) {
-        onAddToast(`Perubahan tugas "${taskToSave.title}" berhasil disimpan!`);
-        setEditingTask(null);
-      }
-    } catch (err: any) {
-      console.error('[TasksView] Gagal menyimpan perubahan tugas:', err);
-      onAddToast(err?.message || 'Gagal menyimpan perubahan tugas ke server.');
-    } finally {
-      setIsSavingEdit(false);
-    }
-  };
-
-  // Handler klik kartu tugas: Navigasi langsung ke tampilan Detail/Edit Laporan
-  const handleTaskCardClick = (t: Task) => {
-    // 1. Ambil ID laporan terkait dari data task (task.report_id, task.daily_report_id, atau id task jika dibuat dari laporan)
-    let targetReportId =
-      t.report_id ||
-      t.daily_report_id ||
-      (t.id.startsWith('report-') ? t.id.replace('report-', '') : undefined);
-
-    // 2. Jika belum terisi, cari di daftar laporan berdasarkan task_id atau kesamaan judul
-    if (!targetReportId && reports && reports.length > 0) {
-      const matched = reports.find(
-        (r) =>
-          (r.task_id && String(r.task_id).trim() === String(t.id).trim()) ||
-          (r.task && t.title && r.task.trim().toLowerCase() === t.title.trim().toLowerCase())
-      );
-      if (matched) {
-        targetReportId = String(matched.id).trim();
-      }
-    }
-
-    // 3. Fallback jika tidak ditemukan: gunakan id task
-    if (!targetReportId) {
-      targetReportId = String(t.id).trim();
-    }
-
-    // 4. Pilih laporan dan arahkan langsung ke halaman detail laporan
-    if (onSelectReport) {
-      onSelectReport(targetReportId);
-    } else {
-      localStorage.setItem('laporanwee_selected_report_id', targetReportId);
-    }
-
-    if (onNavigate) {
-      onNavigate('report-detail');
+    const ok = await onUpdateTask(editingTask);
+    if (ok !== false) {
+      onAddToast(`Tugas "${editingTask.title}" diperbarui!`);
+      setEditingTask(null);
     }
   };
 
@@ -736,7 +640,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   onTouchStart={(e) => handleTouchStart(e, t.id)}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
-                  onClick={() => handleTaskCardClick(t)}
+                  onClick={() => setEditingTask(t)}
                 >
                   <div className="kcard-top">
                     <span className="kcard-proj">
@@ -927,29 +831,19 @@ export const TasksView: React.FC<TasksViewProps> = ({
               <select
                 id="edit-task-proj"
                 className="input"
-                value={
-                  editingTask.project_id
-                    ? String(editingTask.project_id)
-                    : (projects.find((p) => p.name === editingTask.proj)?.id || editingTask.proj)
+                value={editingTask.proj}
+                onChange={(e) =>
+                  setEditingTask({ ...editingTask, proj: e.target.value })
                 }
-                onChange={(e) => {
-                  const val = e.target.value;
-                  const matched = projects.find((p) => String(p.id) === val || p.name === val);
-                  setEditingTask({
-                    ...editingTask,
-                    proj: matched ? matched.name : val,
-                    project_id: matched ? Number(matched.id) : (Number(val) || undefined),
-                  });
-                }}
               >
                 {projects.length > 0 ? (
                   projects.map((p) => (
-                    <option key={p.id} value={p.id}>
+                    <option key={p.id} value={p.name}>
                       {p.name}
                     </option>
                   ))
                 ) : (
-                  <option value={editingTask.project_id || 1}>{editingTask.proj}</option>
+                  <option value={editingTask.proj}>{editingTask.proj}</option>
                 )}
               </select>
             </div>
@@ -1015,23 +909,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 />
                 <span className="slider-val">{editingTask.progress}%</span>
               </div>
-            </div>
-
-            <div className="field">
-              <label htmlFor="edit-task-desc">Deskripsi Tugas</label>
-              <textarea
-                id="edit-task-desc"
-                className="input"
-                rows={3}
-                value={editingTask.description || ''}
-                onChange={(e) =>
-                  setEditingTask({
-                    ...editingTask,
-                    description: e.target.value,
-                  })
-                }
-                placeholder="Deskripsi atau rincian pekerjaan..."
-              />
             </div>
 
             {/* SECTION DOKUMENTASI PEKERJAAN */}
@@ -1229,12 +1106,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 >
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="btn btn-dark"
-                  disabled={isSavingEdit}
-                >
-                  {isSavingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                <button type="submit" className="btn btn-dark">
+                  Simpan Perubahan
                 </button>
               </div>
             </div>

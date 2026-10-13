@@ -1097,43 +1097,25 @@ export function App() {
         );
       }
 
-      // 4. Send task update to backend MySQL API /tasks/update.php
-      const updateOk = await taskService.updateTask(taskWithSyncedProgress);
+      // 4. Send atomic update to backend API
+      const result = await taskService.updateTaskStatus({
+        taskId: taskWithSyncedProgress.id,
+        col: taskWithSyncedProgress.col,
+        progress: syncedProgress,
+        reportId: linkedReportId,
+      });
 
-      if (!updateOk) {
-        throw new Error('Gagal memperbarui data tugas di server backend.');
-      }
-
-      // Sync linked daily report if applicable
-      if (linkedReportId) {
-        try {
-          const matchedReport = reports.find((r) => String(r.id).trim() === String(linkedReportId).trim());
-          if (matchedReport) {
-            await dailyReportService.updateDailyReport({
-              id: linkedReportId,
-              title: taskWithSyncedProgress.title || matchedReport.task,
-              description: taskWithSyncedProgress.description || matchedReport.desc || '',
-              work_category: taskWithSyncedProgress.category || matchedReport.category || 'Desain & UI/UX',
-              project_name: taskWithSyncedProgress.proj || matchedReport.project || 'Proyek Wee Studio',
-              progress: syncedProgress,
-              status: mapFrontendStatusToBackend(taskColToReportStatus(taskWithSyncedProgress.col)),
-              report_date: matchedReport.report_date || (matchedReport.date?.match(/^\d{4}-\d{2}-\d{2}$/) ? matchedReport.date : new Date().toISOString().slice(0, 10)),
-            });
-          }
-        } catch (repErr) {
-          console.warn('[handleUpdateTask] Warning updating linked report:', repErr);
-        }
+      if (!result.success) {
+        throw new Error(result.message || 'Gagal memperbarui status tugas di server backend.');
       }
 
       // 5. On success: refresh lists to ensure total consistency from MySQL database
       await refreshTasksFromApi();
-      if (linkedReportId) {
-        await refreshReportsFromApi(true);
-      }
+      await refreshReportsFromApi(true);
       await refreshAnalyticsFromApi();
       return true;
     } catch (e: any) {
-      console.error('API update task error:', e);
+      console.error('API update task status error:', e);
       // 6. On failure: ROLLBACK UI to previous state!
       setTasks(previousTasks);
       setReports(previousReports);
@@ -1893,7 +1875,6 @@ export function App() {
           <TasksView
             tasks={tasks}
             projects={projects}
-            reports={reports}
             members={members}
             isAdmin={isAdmin}
             onAddTask={handleAddTask}
@@ -1901,8 +1882,6 @@ export function App() {
             onDeleteTask={handleDeleteTask}
             onResetTasks={handleResetTasks}
             onRefreshTasks={handleReconcileTasks}
-            onNavigate={handleNavigate}
-            onSelectReport={handleSelectReport}
             onAddToast={addToast}
           />
         )}
