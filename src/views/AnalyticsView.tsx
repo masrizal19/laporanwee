@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AnalyticsSummary, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { analyticsService } from '../utils/api';
@@ -34,6 +34,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     }
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState<number>(10); // Oktober default
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [isExportOpen, setIsExportOpen] = useState(false);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (propAnalytics) {
@@ -58,6 +62,28 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     loadAnalytics();
   }, []);
 
+  // Close export dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
+        setIsExportOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleExport = (format: 'excel' | 'word' | 'jpg') => {
+    const token =
+      localStorage.getItem('laporanwee_token') ||
+      localStorage.getItem('auth_token') ||
+      '';
+    const downloadUrl = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=${format}&month=${selectedMonth}&year=${selectedYear}&token=${token}`;
+    window.open(downloadUrl, '_blank');
+    setIsExportOpen(false);
+    onAddToast(`Memulai unduhan laporan format ${format.toUpperCase()} (Bulan ${selectedMonth}/${selectedYear})...`);
+  };
+
   const dailyList =
     data.daily_activity && data.daily_activity.length > 0
       ? data.daily_activity
@@ -75,6 +101,21 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     1
   );
 
+  const months = [
+    { value: 1, label: 'Januari' },
+    { value: 2, label: 'Februari' },
+    { value: 3, label: 'Maret' },
+    { value: 4, label: 'April' },
+    { value: 5, label: 'Mei' },
+    { value: 6, label: 'Juni' },
+    { value: 7, label: 'Juli' },
+    { value: 8, label: 'Agustus' },
+    { value: 9, label: 'September' },
+    { value: 10, label: 'Oktober' },
+    { value: 11, label: 'November' },
+    { value: 12, label: 'Desember' },
+  ];
+
   return (
     <div className="view">
       <div className="page-head">
@@ -84,7 +125,33 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             Evaluasi kecepatan sprint, konsistensi pelaporan harian, dan distribusi beban kerja tim.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Month Selector Filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <select
+              className="input"
+              style={{ padding: '6px 12px', fontSize: '13px', borderRadius: '8px', background: '#fff', border: '1px solid var(--line-soft)' }}
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            >
+              {months.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className="input"
+              style={{ padding: '6px 12px', fontSize: '13px', borderRadius: '8px', background: '#fff', border: '1px solid var(--line-soft)' }}
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+            >
+              <option value={2026}>2026</option>
+              <option value={2025}>2025</option>
+              <option value={2024}>2024</option>
+            </select>
+          </div>
+
           <button
             type="button"
             className="btn btn-outline"
@@ -95,14 +162,115 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <Icon name="refresh" className={isLoading ? 'spin' : ''} style={{ width: 16, height: 16 }} />
             <span>{isLoading ? 'Memuat...' : 'Segarkan Data'}</span>
           </button>
-          <button
-            type="button"
-            className="btn btn-outline"
-            onClick={() => onAddToast('Mengunduh laporan analitik bulanan (PDF)...')}
-          >
-            <Icon name="doc" />
-            <span>Ekspor Laporan (PDF)</span>
-          </button>
+
+          {/* Export Dropdown */}
+          <div ref={exportDropdownRef} style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="btn btn-dark"
+              onClick={() => setIsExportOpen(!isExportOpen)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Icon name="doc" style={{ width: 16, height: 16 }} />
+              <span>Ekspor Laporan</span>
+              <Icon name="chevD" style={{ width: 12, height: 12 }} />
+            </button>
+
+            {isExportOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 'calc(100% + 6px)',
+                  background: '#fff',
+                  border: '1px solid var(--line-soft)',
+                  borderRadius: '12px',
+                  boxShadow: '0 12px 32px rgba(20, 19, 26, 0.15)',
+                  zIndex: 50,
+                  minWidth: '200px',
+                  overflow: 'hidden',
+                  animation: 'fadeInUp 0.15s ease',
+                  willChange: 'transform, opacity',
+                }}
+              >
+                <div style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line-soft)' }}>
+                  PILIH FORMAT EKSPOR
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleExport('excel')}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--ink)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(74,85,255,0.06)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                >
+                  <Icon name="doc" style={{ width: 14, height: 14, color: '#16a34a' }} />
+                  <span>Ekspor Excel (.xls)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExport('word')}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--ink)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(74,85,255,0.06)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                >
+                  <Icon name="doc" style={{ width: 14, height: 14, color: '#2563eb' }} />
+                  <span>Ekspor Word (.doc)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExport('jpg')}
+                  style={{
+                    width: '100%',
+                    padding: '10px 14px',
+                    textAlign: 'left',
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    color: 'var(--ink)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(74,85,255,0.06)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                >
+                  <Icon name="image" style={{ width: 14, height: 14, color: '#d97706' }} />
+                  <span>Ekspor Gambar (.jpg)</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
