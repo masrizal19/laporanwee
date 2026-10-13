@@ -1684,10 +1684,22 @@ export function App() {
     }
   };
 
+  const [reportInitialEdit, setReportInitialEdit] = useState<boolean>(false);
+
+  const handleNavigateToReportEdit = (reportId: string) => {
+    const cleanId = String(reportId).trim();
+    setSelectedReportId(cleanId);
+    localStorage.setItem('laporanwee_selected_report_id', cleanId);
+    setReportInitialEdit(true);
+    setCurrentView('report-detail');
+    navigateToPath('/laporan');
+  };
+
   const handleSelectReport = (id: string | number) => {
     const cleanId = String(id).trim();
     setSelectedReportId(cleanId);
     localStorage.setItem('laporanwee_selected_report_id', cleanId);
+    setReportInitialEdit(false);
   };
 
   const currentProject =
@@ -1852,6 +1864,7 @@ export function App() {
             projects={projects}
             userName={user.name}
             avatarUrl={(user as any)?.avatar_url}
+            initialIsEditing={reportInitialEdit}
             onNavigate={handleNavigate}
             onUpdateStatus={handleUpdateReportStatus}
             onReportUpdated={handleReportUpdated}
@@ -1876,12 +1889,14 @@ export function App() {
             tasks={tasks}
             projects={projects}
             members={members}
+            reports={reports}
             isAdmin={isAdmin}
             onAddTask={handleAddTask}
             onUpdateTask={handleUpdateTask}
             onDeleteTask={handleDeleteTask}
             onResetTasks={handleResetTasks}
             onRefreshTasks={handleReconcileTasks}
+            onNavigateToReportEdit={handleNavigateToReportEdit}
             onAddToast={addToast}
           />
         )}

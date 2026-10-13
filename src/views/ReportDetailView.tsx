@@ -13,6 +13,7 @@ interface ReportDetailViewProps {
   projects?: Project[];
   userName?: string;
   avatarUrl?: string | null;
+  initialIsEditing?: boolean;
   onNavigate: (view: ViewType) => void;
   onUpdateStatus: (reportId: string, newStatus: Report['status']) => void;
   onReportUpdated?: (updatedReport: Report) => void;
@@ -34,6 +35,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   projects,
   userName,
   avatarUrl,
+  initialIsEditing = false,
   onNavigate,
   onUpdateStatus,
   onReportUpdated,
@@ -46,7 +48,13 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(!initialData && Boolean(effectiveReportId));
   const [errorStatus, setErrorStatus] = useState<number | string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [isEditing, setIsEditing] = useState<boolean>(initialIsEditing);
+
+  useEffect(() => {
+    if (initialIsEditing) {
+      setIsEditing(true);
+    }
+  }, [initialIsEditing]);
 
   // Sync if initial prop or cache changes
   useEffect(() => {

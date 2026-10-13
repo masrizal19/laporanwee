@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember } from '../types';
+import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember, Report } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
@@ -10,12 +10,14 @@ interface TasksViewProps {
   tasks: Task[];
   projects: Project[];
   members?: TeamMember[];
+  reports?: Report[];
   isAdmin?: boolean;
   onAddTask: (task: Omit<Task, 'id'>) => void;
   onUpdateTask: (task: Task) => Promise<boolean> | boolean | void;
   onDeleteTask: (taskId: string) => void;
   onResetTasks?: () => void;
   onRefreshTasks?: () => void;
+  onNavigateToReportEdit?: (reportId: string) => void;
   onAddToast: (text: string) => void;
 }
 
@@ -23,12 +25,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
   tasks,
   projects,
   members = [],
+  reports = [],
   isAdmin = false,
   onAddTask,
   onUpdateTask,
   onDeleteTask,
   onResetTasks,
   onRefreshTasks,
+  onNavigateToReportEdit,
   onAddToast,
 }) => {
   const [filter, setFilter] = useState<'All' | 'High' | 'Done'>('All');
@@ -64,6 +68,25 @@ export const TasksView: React.FC<TasksViewProps> = ({
   // Delete Confirmation State
   const [docToDelete, setDocToDelete] = useState<TaskDocument | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+
+  const findReportIdForTask = (task: Task): string | undefined => {
+    if (task.report_id) return String(task.report_id).trim();
+    if ((task as any).daily_report_id) return String((task as any).daily_report_id).trim();
+    if (task.id.startsWith('report-')) return task.id.replace('report-', '');
+    if (reports && reports.length > 0) {
+      const matched = reports.find(
+        (r) =>
+          r.task.trim().toLowerCase() === task.title.trim().toLowerCase() &&
+          ((r.user_email && task.assignee_email && r.user_email.toLowerCase() === task.assignee_email.toLowerCase()) ||
+           (r.person && task.assignee && r.person.toLowerCase() === task.assignee.toLowerCase()))
+      );
+      if (matched) return String(matched.id).trim();
+
+      const matchedTitle = reports.find((r) => r.task.trim().toLowerCase() === task.title.trim().toLowerCase());
+      if (matchedTitle) return String(matchedTitle.id).trim();
+    }
+    return undefined;
+  };
 
   // Load documents when editing task opens
   useEffect(() => {
@@ -640,7 +663,14 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   onTouchStart={(e) => handleTouchStart(e, t.id)}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
-                  onClick={() => setEditingTask(t)}
+                  onClick={() => {
+                    const repId = findReportIdForTask(t);
+                    if (repId && onNavigateToReportEdit) {
+                      onNavigateToReportEdit(repId);
+                    } else {
+                      setEditingTask(t);
+                    }
+                  }}
                 >
                   <div className="kcard-top">
                     <span className="kcard-proj">
