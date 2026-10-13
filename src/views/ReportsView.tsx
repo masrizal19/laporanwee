@@ -3,6 +3,7 @@ import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { normalizeFileUrl } from '../utils/api';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
+import { cleanReportText } from '../utils/formatters';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -299,7 +300,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               >
                 <ReportCoverThumbnail report={r} />
                 <div className="rmid" style={{ flex: 1 }}>
-                  <b>{r.task}</b>
+                  <b>{cleanReportText(r.task)}</b>
                   <span>
                     {r.person} &bull; {r.project} &bull; {r.date} ({r.progress}%)
                   </span>

@@ -5,6 +5,7 @@ import { ImageLightbox } from '../components/ImageLightbox';
 import { projectService } from '../utils/projectService';
 import { API_BASE_URL, dailyReportService, normalizeFileUrl, getAbsoluteAvatarUrl } from '../utils/api';
 import { DailyReportForm } from '../components/DailyReportForm';
+import { cleanReportText } from '../utils/formatters';
 
 interface ReportDetailViewProps {
   report?: Report;
@@ -570,10 +571,10 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
 
           <div style={{ margin: '14px 0 20px' }}>
             <h2 style={{ fontSize: '24px', fontWeight: 800, margin: '0 0 10px' }}>
-              {currentData.task}
+              {cleanReportText(currentData.task)}
             </h2>
             <p style={{ fontSize: '15px', lineHeight: 1.6, color: 'var(--ink)', margin: 0 }}>
-              {currentData.desc}
+              {cleanReportText(currentData.desc)}
             </p>
           </div>
 
@@ -608,7 +609,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                 <span>Kendala &amp; Hambatan</span>
               </div>
               <div className="rd-desc">
-                {currentData.challenges || 'Tidak ada kendala berarti.'}
+                {cleanReportText(currentData.challenges) || 'Tidak ada kendala berarti.'}
               </div>
             </div>
 
@@ -620,7 +621,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
                 <span>Rencana Kerja Selanjutnya</span>
               </div>
               <div className="rd-desc">
-                {currentData.next || 'Melanjutkan deliverable berikutnya.'}
+                {cleanReportText(currentData.next) || 'Melanjutkan deliverable berikutnya.'}
               </div>
             </div>
           </div>
