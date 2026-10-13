@@ -31,8 +31,6 @@ import { ProfileCropView } from './views/ProfileCropView';
 import { UserProfileView } from './views/UserProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AdminUISettingsView } from './views/AdminUISettingsView';
-import { ExportLaporanView } from './views/ExportLaporanView';
-import { EditLaporanView } from './views/EditLaporanView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -236,8 +234,6 @@ export function App() {
       '/tim',
       '/kalender',
       '/analitik',
-      '/analitik/exporlaporan',
-      '/analitik/editlaporan',
       '/admin/ui-settings',
       '/ui-settings',
       '/profil',
@@ -389,8 +385,6 @@ export function App() {
     '/tim': 'team',
     '/kalender': 'calendar',
     '/analitik': 'analytics',
-    '/analitik/exporlaporan': 'export-laporan',
-    '/analitik/editlaporan': 'edit-laporan',
     '/admin/ui-settings': 'ui-settings',
     '/ui-settings': 'ui-settings',
     '/profil': 'profile',
@@ -413,8 +407,6 @@ export function App() {
     'profile-crop': '/profil/crop',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
-    'export-laporan': '/analitik/exporlaporan',
-    'edit-laporan': '/analitik/editlaporan',
     'ui-settings': '/admin/ui-settings',
   };
 
@@ -2017,20 +2009,6 @@ export function App() {
             onRefresh={refreshAnalyticsFromApi}
             currentUser={user}
             isAdmin={isAdmin}
-          />
-        )}
-
-        {currentView === 'export-laporan' && (
-          <ExportLaporanView
-            onNavigate={handleNavigate}
-            onAddToast={addToast}
-          />
-        )}
-
-        {currentView === 'edit-laporan' && (
-          <EditLaporanView
-            onNavigate={handleNavigate}
-            onAddToast={addToast}
           />
         )}
 

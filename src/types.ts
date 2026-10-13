@@ -12,9 +12,7 @@ export type ViewType =
   | 'profile-crop'
   | 'user-profile'
   | 'analytics'
-  | 'ui-settings'
-  | 'export-laporan'
-  | 'edit-laporan';
+  | 'ui-settings';
 
 export interface UISettings {
   id?: number;
