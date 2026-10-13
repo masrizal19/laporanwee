@@ -218,7 +218,7 @@ export const buildApiUrl = (endpoint: string): string => {
 
 export const getStoredToken = (): string | null => {
   const token = localStorage.getItem('laporanwee_token');
-  if (!token || token === 'undefined' || token === 'null' || token === 'session-active-token') {
+  if (!token || token === 'undefined' || token === 'null') {
     return null;
   }
   return token.trim();
@@ -276,6 +276,19 @@ export const getHeaders = () => {
     }
   } catch (_) {}
 
+  return headers;
+};
+
+// Helper for task endpoints requiring strictly Authorization: Bearer <token> without X-Admin-Email
+export const getTaskHeaders = (): Record<string, string> => {
+  const token = getStoredToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   return headers;
 };
 
@@ -350,24 +363,24 @@ export const formatApiErrorMessage = (err: any): string => {
 };
 
 export const api = {
-  get: async (endpoint: string, options?: { signal?: AbortSignal }) => {
+  get: async (endpoint: string, options?: { signal?: AbortSignal; headers?: Record<string, string> }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'GET', url });
     const response = await fetch(url, {
       method: 'GET',
-      headers: getHeaders(),
+      headers: options?.headers || getHeaders(),
       cache: 'no-store',
       signal: options?.signal,
     });
     return handleResponse(response, url, 'GET');
   },
 
-  post: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
+  post: async (endpoint: string, body: any, options?: { signal?: AbortSignal; headers?: Record<string, string> }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'POST', url });
     const response = await fetch(url, {
       method: 'POST',
-      headers: getHeaders(),
+      headers: options?.headers || getHeaders(),
       body: JSON.stringify(body),
       signal: options?.signal,
     });
@@ -1768,26 +1781,35 @@ export const mapBackendTaskStatusToFrontend = (status?: string): TaskStatus => {
   return normalizeCanonicalStatus(status);
 };
 
-export const mapFrontendTaskStatusToBackend = (col?: TaskStatus): string => {
-  const c = normalizeCanonicalStatus(col);
+export const mapFrontendTaskStatusToBackend = (col?: TaskStatus | string): 'todo' | 'in_progress' | 'review' | 'completed' => {
+  const c = normalizeCanonicalStatus(col as any);
   if (c === 'done') return 'completed';
   if (c === 'inprogress') return 'in_progress';
-  if (c === 'review') return 'in_review';
+  if (c === 'review') return 'review';
   return 'todo';
 };
 
 export const mapBackendTaskPriorityToFrontend = (priority?: string): PriorityLevel => {
   if (!priority) return 'Medium';
   const p = priority.toLowerCase();
-  if (p === 'high' || p === 'tinggi') return 'High';
+  if (p === 'high' || p === 'tinggi' || p === 'urgent') return 'High';
   if (p === 'low' || p === 'rendah') return 'Low';
   return 'Medium';
+};
+
+export const mapFrontendTaskPriorityToBackend = (priority?: string): 'low' | 'medium' | 'high' | 'urgent' => {
+  if (!priority) return 'medium';
+  const p = priority.toLowerCase().trim();
+  if (p === 'urgent' || p === 'mendesak') return 'urgent';
+  if (p === 'high' || p === 'tinggi') return 'high';
+  if (p === 'low' || p === 'rendah') return 'low';
+  return 'medium';
 };
 
 export const taskService = {
   fetchTasks: async (): Promise<Task[]> => {
     try {
-      const res = await api.get('/tasks/list.php');
+      const res = await api.get('/tasks/list.php', { headers: getTaskHeaders() });
       if (!res || !Array.isArray(res.data)) {
         return [];
       }
@@ -1812,11 +1834,13 @@ export const taskService = {
         }
 
         const projectVal = item.project_name || item.project || item.category || 'Creative Sprint';
+        const rawDeadline = (item.deadline && item.deadline !== '0000-00-00') ? item.deadline : (item.due || 'Besok');
 
         return {
           id: String(item.id),
           report_id: extractedReportId,
           daily_report_id: extractedReportId,
+          project_id: item.project_id !== undefined && item.project_id !== null ? Number(item.project_id) : undefined,
           proj: projectVal,
           title: item.title || 'Tugas Baru',
           description: cleanDescription,
@@ -1824,7 +1848,8 @@ export const taskService = {
           priority: mapBackendTaskPriorityToFrontend(item.priority),
           assignee: item.assignee_name || item.assignee || item.assignee_email || '',
           assignee_email: item.assignee_email || item.user_email || '',
-          due: (item.deadline && item.deadline !== '0000-00-00') ? item.deadline : (item.due || 'Besok'),
+          due: rawDeadline,
+          deadline: rawDeadline,
           progress: Number(item.progress) || 0,
           col: mapBackendTaskStatusToFrontend(item.status),
           documents: Array.isArray(item.documents) ? item.documents : [],
@@ -1845,6 +1870,23 @@ export const taskService = {
       backendDesc = `${backendDesc} [daily_report_id:${repId}]`.trim();
     }
 
+    let projectIdVal = (taskData as any).project_id;
+    if (projectIdVal !== undefined && projectIdVal !== null && projectIdVal !== '') {
+      projectIdVal = Number(projectIdVal);
+    }
+    if (!projectIdVal || isNaN(projectIdVal)) {
+      projectIdVal = 1;
+    }
+
+    let deadlineVal = (taskData as any).deadline || taskData.due || '';
+    if (!deadlineVal || !/^\d{4}-\d{2}-\d{2}$/.test(deadlineVal)) {
+      const today = new Date();
+      if (deadlineVal === 'Besok') {
+        today.setDate(today.getDate() + 1);
+      }
+      deadlineVal = today.toISOString().split('T')[0];
+    }
+
     const payload: Record<string, any> = {
       title: taskData.title || '',
       description: backendDesc,
@@ -1852,10 +1894,11 @@ export const taskService = {
       priority: (taskData.priority || 'Medium').toLowerCase(),
       progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
       category: taskData.category || 'Desain & UI/UX',
+      project_id: projectIdVal,
       project_name: taskData.proj || 'Creative Sprint',
       assignee_name: taskData.assignee || '',
       assignee_email: taskData.assignee_email || '',
-      deadline: taskData.due || 'Hari ini',
+      deadline: deadlineVal,
     };
 
     if (repId) {
@@ -1863,13 +1906,14 @@ export const taskService = {
       payload.daily_report_id = String(repId);
     }
 
-    const res = await api.post('/tasks/create.php', payload);
+    const res = await api.post('/tasks/create.php', payload, { headers: getTaskHeaders() });
     const createdId = res?.data?.id ? String(res.data.id) : (res?.id ? String(res.id) : `t_${Date.now()}`);
 
     return {
       id: createdId,
       report_id: repId ? String(repId) : undefined,
       daily_report_id: repId ? String(repId) : undefined,
+      project_id: projectIdVal,
       proj: taskData.proj || 'Creative Sprint',
       title: taskData.title || '',
       description: cleanDesc,
@@ -1877,7 +1921,8 @@ export const taskService = {
       priority: taskData.priority || 'Medium',
       assignee: taskData.assignee || '',
       assignee_email: taskData.assignee_email || '',
-      due: taskData.due || 'Hari ini',
+      due: deadlineVal,
+      deadline: deadlineVal,
       progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
       col: taskData.col || 'todo',
       documents: taskData.documents || [],
@@ -1885,37 +1930,78 @@ export const taskService = {
     };
   },
 
-  updateTask: async (taskData: Partial<Task> & { id: string | number }): Promise<boolean> => {
-    const payload: Record<string, any> = {
-      id: Number(taskData.id) || taskData.id,
-    };
-    const repId = taskData.report_id || (taskData as any).daily_report_id;
-    if (taskData.title !== undefined) payload.title = taskData.title;
-    if (taskData.description !== undefined) {
-      let desc = taskData.description.trim();
-      if (repId && !desc.includes(`[daily_report_id:${repId}]`)) {
-        desc = `${desc} [daily_report_id:${repId}]`.trim();
-      }
-      payload.description = desc;
+  updateTask: async (taskData: Partial<Task> & { id: string | number }): Promise<{ success: boolean; data?: any; message?: string }> => {
+    const rawId = taskData.id;
+    const cleanId = String(rawId).startsWith('report-')
+      ? Number(String(rawId).replace('report-', ''))
+      : Number(rawId);
+    const idVal = !isNaN(cleanId) && cleanId > 0 ? cleanId : (Number(rawId) || 0);
+
+    const titleVal = (taskData.title || '').trim();
+    const descVal = (taskData.description !== undefined ? taskData.description : '').trim();
+
+    const backendStatus = mapFrontendTaskStatusToBackend(taskData.col || (taskData as any).status);
+    const backendPriority = mapFrontendTaskPriorityToBackend(taskData.priority);
+
+    const progressVal = typeof taskData.progress === 'number'
+      ? Math.max(0, Math.min(100, Math.round(taskData.progress)))
+      : (Number(taskData.progress) || 0);
+
+    let projectIdVal = (taskData as any).project_id;
+    if (projectIdVal !== undefined && projectIdVal !== null && projectIdVal !== '') {
+      projectIdVal = Number(projectIdVal);
     }
-    if (taskData.col !== undefined) payload.status = mapFrontendTaskStatusToBackend(taskData.col);
-    if (taskData.priority !== undefined) payload.priority = taskData.priority.toLowerCase();
-    if (taskData.progress !== undefined) payload.progress = taskData.progress;
-    if (taskData.proj !== undefined) {
-      payload.project_name = taskData.proj;
-      payload.category = taskData.category || taskData.proj;
-    }
-    if (taskData.category !== undefined) payload.category = taskData.category;
-    if (taskData.assignee !== undefined) payload.assignee_name = taskData.assignee;
-    if (taskData.assignee_email !== undefined) payload.assignee_email = taskData.assignee_email;
-    if (taskData.due !== undefined) payload.deadline = taskData.due;
-    if (repId !== undefined) {
-      payload.report_id = repId;
-      payload.daily_report_id = repId;
+    if (!projectIdVal || isNaN(projectIdVal) || projectIdVal <= 0) {
+      projectIdVal = 1;
     }
 
-    const res = await api.post('/tasks/update.php', payload);
-    return Boolean(res && res.success !== false);
+    let deadlineVal = (taskData as any).deadline || taskData.due || '';
+    if (typeof deadlineVal === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(deadlineVal.trim())) {
+      deadlineVal = deadlineVal.trim();
+    } else {
+      const today = new Date();
+      if (String(deadlineVal).toLowerCase() === 'besok') {
+        today.setDate(today.getDate() + 1);
+      }
+      deadlineVal = today.toISOString().split('T')[0];
+    }
+
+    const payload: {
+      id: number;
+      title: string;
+      description: string;
+      status: 'todo' | 'in_progress' | 'review' | 'completed';
+      priority: 'low' | 'medium' | 'high' | 'urgent';
+      progress: number;
+      project_id: number;
+      deadline: string;
+    } = {
+      id: typeof idVal === 'number' ? idVal : (Number(idVal) || 0),
+      title: titleVal,
+      description: descVal,
+      status: backendStatus,
+      priority: backendPriority,
+      progress: progressVal,
+      project_id: projectIdVal,
+      deadline: deadlineVal,
+    };
+
+    try {
+      const res = await api.post('/tasks/update.php', payload, {
+        headers: getTaskHeaders(),
+      });
+      return {
+        success: Boolean(res && res.success !== false),
+        data: res?.data,
+        message: res?.message || 'Tugas berhasil diperbarui.',
+      };
+    } catch (err: any) {
+      console.error('[taskService.updateTask] Error updating task:', err);
+      return {
+        success: false,
+        message: err?.message || 'Gagal memperbarui detail tugas di server.',
+      };
+    }
   },
 
   updateTaskStatus: async (params: {
@@ -1924,70 +2010,74 @@ export const taskService = {
     progress?: number;
     reportId?: string | number;
   }): Promise<{ success: boolean; data?: any; message?: string }> => {
+    const rawId = params.taskId;
+    const cleanId = String(rawId).startsWith('report-')
+      ? Number(String(rawId).replace('report-', ''))
+      : Number(rawId);
+    const idVal = !isNaN(cleanId) && cleanId > 0 ? cleanId : (Number(rawId) || 0);
+
     const backendStatus = mapFrontendTaskStatusToBackend(params.col);
-    const payload: Record<string, any> = {
-      task_id: params.taskId,
+    const payload: {
+      id: number;
+      status: 'todo' | 'in_progress' | 'review' | 'completed';
+    } = {
+      id: typeof idVal === 'number' ? idVal : (Number(idVal) || 0),
       status: backendStatus,
     };
-    if (params.progress !== undefined) {
-      payload.progress = params.progress;
-    }
-    if (params.reportId !== undefined) {
-      payload.daily_report_id = params.reportId;
-      payload.report_id = params.reportId;
-    }
 
-    // 1. Try dedicated endpoint /tasks/update-status.php
+    let updateStatusSuccess = false;
+    let resultMessage = '';
+    let resultData = null;
+
+    // 1. Send dedicated endpoint POST /tasks/update-status.php
     try {
-      const res = await api.post('/tasks/update-status.php', payload);
-      if (res && res.success) {
-        return { success: true, data: res.data, message: res.message };
+      const res = await api.post('/tasks/update-status.php', payload, {
+        headers: getTaskHeaders(),
+      });
+      if (res && res.success !== false) {
+        updateStatusSuccess = true;
+        resultData = res.data;
+        resultMessage = res.message || 'Status tugas berhasil diperbarui.';
       }
     } catch (err: any) {
-      console.warn('/tasks/update-status.php not reachable or failed, using multi-endpoint sync fallback:', err?.message);
+      console.warn('/tasks/update-status.php notice:', err?.message);
+      // Fallback: update via /tasks/update.php
+      try {
+        const fallbackRes = await api.post(
+          '/tasks/update.php',
+          payload,
+          { headers: getTaskHeaders() }
+        );
+        if (fallbackRes && fallbackRes.success !== false) {
+          updateStatusSuccess = true;
+          resultData = fallbackRes.data;
+          resultMessage = fallbackRes.message || 'Status tugas berhasil diperbarui.';
+        }
+      } catch (fallbackErr: any) {
+        return {
+          success: false,
+          message: err?.message || fallbackErr?.message || 'Gagal memperbarui status tugas di server.',
+        };
+      }
     }
 
-    // 2. Fallback: update both /tasks/update.php and /daily-reports/update.php
-    let taskOk = true;
-    let reportOk = true;
-
-    const isSynthetic = String(params.taskId).startsWith('report-');
-    if (!isSynthetic) {
-      const taskRes = await api.post('/tasks/update.php', {
-        id: params.taskId,
-        status: backendStatus,
-        ...(params.progress !== undefined ? { progress: params.progress } : {}),
-        ...(params.reportId !== undefined ? { report_id: params.reportId } : {}),
-      }).catch((e) => {
-        console.warn('Update task error in fallback:', e);
-        return null;
-      });
-      taskOk = Boolean(taskRes && taskRes.success !== false);
-    }
-
-    const realReportId = params.reportId || (isSynthetic ? String(params.taskId).replace('report-', '') : undefined);
+    // 2. Synchronize linked daily report if present
+    const realReportId = params.reportId || (String(rawId).startsWith('report-') ? String(rawId).replace('report-', '') : undefined);
     if (realReportId) {
       const reportStatusBackend = taskColToBackendReportStatus(params.col);
-      const reportRes = await api.post('/daily-reports/update.php', {
+      await api.post('/daily-reports/update.php', {
         id: realReportId,
         status: reportStatusBackend,
         ...(params.progress !== undefined ? { progress: params.progress } : {}),
       }).catch((e) => {
-        console.warn('Update daily report error in fallback:', e);
-        return null;
+        console.warn('Update daily report sync notice:', e);
       });
-      reportOk = Boolean(reportRes && reportRes.success !== false);
     }
 
-    const overallSuccess = isSynthetic ? reportOk : (taskOk && reportOk);
     return {
-      success: overallSuccess,
-      data: {
-        task_id: params.taskId,
-        status: backendStatus,
-        progress: params.progress,
-        daily_report_id: realReportId,
-      },
+      success: updateStatusSuccess,
+      data: resultData,
+      message: resultMessage,
     };
   },
 

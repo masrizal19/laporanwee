@@ -4,6 +4,7 @@ import {
   ViewType,
   Project,
   Task,
+  TaskStatus,
   Report,
   Activity,
   CalendarEvent,
@@ -1097,16 +1098,11 @@ export function App() {
         );
       }
 
-      // 4. Send atomic update to backend API
-      const result = await taskService.updateTaskStatus({
-        taskId: taskWithSyncedProgress.id,
-        col: taskWithSyncedProgress.col,
-        progress: syncedProgress,
-        reportId: linkedReportId,
-      });
+      // 4. Send atomic update to backend API /tasks/update.php
+      const result = await taskService.updateTask(taskWithSyncedProgress);
 
       if (!result.success) {
-        throw new Error(result.message || 'Gagal memperbarui status tugas di server backend.');
+        throw new Error(result.message || 'Gagal memperbarui detail tugas di server backend.');
       }
 
       // 5. On success: refresh lists to ensure total consistency from MySQL database
@@ -1115,8 +1111,73 @@ export function App() {
       await refreshAnalyticsFromApi();
       return true;
     } catch (e: any) {
-      console.error('API update task status error:', e);
+      console.error('API update task detail error:', e);
       // 6. On failure: ROLLBACK UI to previous state!
+      setTasks(previousTasks);
+      setReports(previousReports);
+      addToast(e?.message || 'Gagal memperbarui detail tugas di database. Perubahan dibatalkan.');
+      return false;
+    }
+  };
+
+  const handleUpdateTaskStatus = async (
+    taskId: string,
+    col: TaskStatus,
+    progress?: number
+  ): Promise<boolean> => {
+    const previousTasks = [...tasks];
+    const previousReports = [...reports];
+
+    try {
+      const task = tasks.find((t) => t.id === taskId);
+      const targetProgress =
+        progress !== undefined
+          ? progress
+          : computeTargetProgress(task?.progress || 0, col);
+
+      // Optimistic UI update for tasks
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, col, progress: targetProgress } : t))
+      );
+
+      const linkedReportId =
+        task?.report_id ||
+        (taskId.startsWith('report-') ? taskId.replace('report-', '') : undefined);
+
+      if (linkedReportId) {
+        const frontendStatus = taskColToReportStatus(col);
+        setReports((prev) =>
+          prev.map((r) => {
+            if (String(r.id).trim() === String(linkedReportId).trim()) {
+              return {
+                ...r,
+                status: frontendStatus,
+                progress: targetProgress,
+              };
+            }
+            return r;
+          })
+        );
+      }
+
+      // Send status update to /tasks/update-status.php
+      const result = await taskService.updateTaskStatus({
+        taskId,
+        col,
+        progress: targetProgress,
+        reportId: linkedReportId,
+      });
+
+      if (!result.success) {
+        throw new Error(result.message || 'Gagal memperbarui status tugas di server backend.');
+      }
+
+      await refreshTasksFromApi();
+      await refreshReportsFromApi(true);
+      await refreshAnalyticsFromApi();
+      return true;
+    } catch (e: any) {
+      console.error('API update task status error:', e);
       setTasks(previousTasks);
       setReports(previousReports);
       addToast(e?.message || 'Gagal memperbarui status tugas di database. Perubahan dibatalkan.');
@@ -1879,6 +1940,7 @@ export function App() {
             isAdmin={isAdmin}
             onAddTask={handleAddTask}
             onUpdateTask={handleUpdateTask}
+            onUpdateTaskStatus={handleUpdateTaskStatus}
             onDeleteTask={handleDeleteTask}
             onResetTasks={handleResetTasks}
             onRefreshTasks={handleReconcileTasks}
