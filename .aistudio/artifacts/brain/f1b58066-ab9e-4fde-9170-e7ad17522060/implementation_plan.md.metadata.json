@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for adding the Print Preview & Document Recap Modal in AnalyticsView with static HTML template rendering and action toolbar.",
-  "updatedAt": "2026-10-13T05:20:49.118619141Z",
+  "summary": "Implementation plan for updating AnalyticsView export dropdown to strictly offer PDF and JPG options with Portrait/Landscape A4 template preview and export capabilities.",
+  "updatedAt": "2026-10-13T05:43:57.162019163Z",
   "requestFeedback": true,
   "userFacing": true
 }

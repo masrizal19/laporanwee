@@ -1,47 +1,38 @@
-# Implementation Plan - Print Preview & Document Recap Modal in AnalyticsView
+# Implementation Plan - PDF & JPG Export with Portrait/Landscape A4 Template Preview
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Print Preview Modal ("PREVIEW CETAK & DOKUMEN REKAP")**: When the user clicks "Ekspor Laporan (PDF)" in the Analytics menu, a modal opens displaying an A4 portrait preview sheet with a top action toolbar.
-> - **Modal Toolbar (Header)**:
->   - Left: Green dot + bold text: `"PREVIEW CETAK & DOKUMEN REKAP"` + Pill badge (`"A4 • PORTRAIT • [Jumlah] Laporan"`).
->   - Right: Month selector (Jan-Des), Year selector (2025-2027), and action buttons:
-     - 🖨️ Cetak / Save PDF (triggers print)
-     - 🖼️ Export JPEG (downloads JPG or triggers backend export)
-     - 📊 Excel (downloads .xls)
-     - 📄 Word (downloads .doc)
-     - ✕ (close modal)
-- **Modal Body**: Dark/neutral background with smooth scroll, centering a high-fidelity A4 white paper sheet rendering the official Wee Laporan HTML template (blue header, brand dots, period info, 4-week tables, item rows with evidence shots, social media recap, and sign-off).
-- **Zero Disruption to Existing Metrics**: All statistics cards, efficiency charts, and weekly summaries on the main Analytics page remain intact.
+> - **Strictly PDF and JPG Options**: The export dropdown in AnalyticsView will feature two options:
+     1. Export PDF (Cetak / Save PDF with orientation toggle)
+     2. Export JPG (Download Image)
+- **Portrait & Landscape A4 Support**: The preview modal toolbar will include an orientation toggle (`Portrait` vs `Landscape`), allowing users to switch the A4 sheet layout dynamically before printing or exporting.
+- **Official HTML A4 Template**: The preview modal renders the exact high-fidelity Wee Laporan template structure provided by the user.
+- **Hardware-Accelerated CSS & Motion**: Smooth dropdown animation, backdrop blur, and GPU-accelerated preview container (`will-change: transform, opacity`).
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Provides a polished, professional print preview dialog matching the user's reference design when exporting reports from the Analytics menu.
-- **Key Value**: Allows users to preview the exact document layout before printing or exporting to PDF, Excel, Word, or JPEG.
+- **What It Does**: Streamlines the report export options to specifically PDF and JPG, adds an orientation switcher (Portrait / Landscape), and displays the official A4 document template in the preview modal.
+- **Key Value**: Provides precise control over document export format and orientation while preserving all existing analytics cards and charts.
 
 ---
 
-## 2. Technical Design & Components
+## 2. Technical Design & Changes in `AnalyticsView.tsx`
 
-- **State in `AnalyticsView.tsx`**:
-  - `isPreviewModalOpen: boolean`
-  - `selectedMonth: number` (default 10)
-  - `selectedYear: number` (default 2026)
-- **Modal Structure**:
-  - Backdrop with blur (`bg-black/60 backdrop-blur-sm`, `will-change: opacity`).
-  - Container box (`max-w-4xl w-full bg-slate-900 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]`).
-  - Top Toolbar matching the reference screenshot.
-  - Scrollable preview area (`bg-slate-800 p-6 flex justify-center overflow-y-auto`).
-  - A4 Paper Sheet rendering the provided HTML template with dynamic month/year binding.
-- **Action Handlers**:
-  - Print / Save PDF: `window.print()` or printing the preview container.
-  - Excel / Word / JPEG: Triggers backend `export.php` download URL.
+- **Export Dropdown**:
+  - Options:
+    - `"Cetak / Export PDF"` (opens modal in print preview mode)
+    - `"Export Gambar (.jpg)"` (triggers JPG export URL or canvas capture)
+- **Preview Modal Updates**:
+  - Orientation Toggle State: `orientation: 'portrait' | 'landscape'` (default `'portrait'`).
+  - Toolbar includes Portrait/Landscape toggle pill/buttons.
+  - A4 Preview Sheet applies `@page` / CSS dimensions dynamically (`width: 210mm, height: 297mm` for portrait vs `width: 297mm, height: 210mm` for landscape).
+  - Embeds the user's provided HTML template structure precisely.
 
 ---
 
 ## 3. Verification Plan
 
-- Compile with `compile_applet` and test modal opening, toolbar actions, and print preview rendering.
+- Compile with `compile_applet` and test PDF/JPG export options and orientation switching.
