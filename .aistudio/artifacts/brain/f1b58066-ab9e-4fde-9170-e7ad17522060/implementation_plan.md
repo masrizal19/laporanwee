@@ -1,64 +1,35 @@
-# Implementation Plan - Task Card Navigation to Daily Report Edit
+# Implementation Plan - Structured Edit Report URL (/laporan/edit-laporan)
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Direct Report Edit Navigation**: When a user clicks on any task card (papan tugas) in the Kanban board (`TasksView`), it will now navigate directly to the Daily Report detail page (`/laporan`) for the corresponding report, automatically opening it in Edit mode.
-> - **Preservation of Existing State & Data**: No data structures, database schemas, or general navigation flows are altered. All existing functionality and hardware-accelerated CSS / smooth motion are fully maintained.
+> - **Dedicated Structured URL**: Add `/laporan/edit-laporan` to SPA routing and navigation mapping.
+> - **Direct Edit Form Open**: Navigating to `/laporan/edit-laporan` directly opens the report editing form (or handles selected report editing with hardware-accelerated fluid motion).
 
-- **Confirmed Decision**: Clicking a Kanban task card transitions the view to `/laporan` (`report-detail` view) with `isEditing = true` for the matched daily report.
-- **Fallback Handling**: If a task does not have an explicit `report_id` or `daily_report_id`, we match by title/assignee or select the latest matching report, ensuring zero dead clicks.
+- **Confirmed Decision**: Route `/laporan/edit-laporan` maps to report editing. When a user clicks a task card or selects edit report, the URL updates to `/laporan/edit-laporan` and directly renders the report edit view.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Enhances the Kanban board workflow so that clicking any task card directly brings the user to the corresponding report edit interface on the Daily Report page (`/laporan`), enabling seamless cross-navigation between task management and daily reporting.
-- **Target Audience / Persona**: Creative team members and managers reviewing and updating task deliverables and reports.
-- **Key Value**: Eliminates friction in the daily workflow by connecting task cards directly to their corresponding report editing form.
+- **What It Does**: Establishes a clean, structured URL path (`/laporan/edit-laporan`) for editing daily reports, aligning with the user's domain requirement.
+- **Key Value**: Professional URL structure and direct routing to the report editing interface with maximum fluid motion and hardware acceleration.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. User navigates to Tasks / Kanban (`/tugas`).
-  2. User clicks on any task card (e.g., "Mencari Sound Untuk Opening Futsal").
-  3. The app smoothly transitions to the Daily Report page (`/laporan`), loading the specific report and opening the `DailyReportForm` in `mode="edit"`.
-- **Interactive Feedback & Motion**:
-  - Smooth hardware-accelerated transitions (`transform`, `opacity`, CSS transitions with `will-change`) and toast notifications confirming navigation/edit state.
+  1. Clicking a task card on Kanban or Edit Report updates URL to `/laporan/edit-laporan`.
+  2. The application renders the report editor view smoothly.
+- **Motion & Fluidity**: CSS hardware-accelerated transitions (`transform`, `opacity`, `will-change`) for seamless page transitions.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Technical Architecture & Routing
 
-- **Decision 1**: Mapping Task to Daily Report.
-  - *Chosen Approach*: Match task by `report_id` / `daily_report_id` first, fallback to matching title and assignee against available reports.
-  - *Why*: Ensures 100% robust linking between Kanban tasks and daily reports even across different creation pathways.
-- **Decision 2**: Opening Report in Edit Mode directly.
-  - *Chosen Approach*: Pass `initialIsEditing = true` or set initial edit state when navigating from a task click.
-  - *Why*: Directly satisfies the user requirement ("langsung ke bagian edit laporan, di page laporan harian").
-
----
-
-## 4. Technical Architecture & Data Strategy
-
-```
-┌─────────────────────────┐          Task Card Click          ┌─────────────────────────┐
-│     TasksView (Kanban)  │ ──────────────────────────────> │    App.tsx Router       │
-└─────────────────────────┘                                   └───────────┬─────────────┘
-                                                                          │
-                                                           Find & Set Selected Report ID
-                                                           Set Initial Edit Mode = true
-                                                                          │
-                                                                          v
-                                                              ┌─────────────────────────┐
-                                                              │   ReportDetailView      │
-                                                              │   (with isEditing=true) │
-                                                              └─────────────────────────┘
-```
-
-- **State Updates**:
-  - Add `onSelectReportForEdit?: (reportId: string) => void` prop to `TasksView`.
-  - In `App.tsx`, implement the handler to find the matching report, set `selectedReportId`, set `reportInitialEdit = true`, and switch `currentView` to `'report-detail'`.
-  - In `ReportDetailView`, support `initialIsEditing` prop so `isEditing` defaults to `true` when navigated from a task card.
+- Update `App.tsx`:
+  - Add `/laporan/edit-laporan` to `validPaths`.
+  - Add mapping in `pathToViewMap` / `viewToPathMap`.
+  - Update `handleNavigateToReportEdit` to pushState `/laporan/edit-laporan`.
+- Ensure robust handling of selected report state and direct rendering of `DailyReportForm` or `ReportDetailView` in edit mode.

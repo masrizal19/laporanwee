@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for updating Kanban task card click navigation to directly open the corresponding daily report in edit mode.",
-  "updatedAt": "2026-10-13T03:26:23.995360797Z",
+  "summary": "Implementation plan for creating a dedicated structured URL /laporan/edit-laporan for editing reports.",
+  "updatedAt": "2026-10-13T03:34:49.864427108Z",
   "requestFeedback": true,
   "userFacing": true
 }
