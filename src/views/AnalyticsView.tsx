@@ -36,8 +36,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<number>(10); // Oktober default
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [isExportOpen, setIsExportOpen] = useState(false);
-  const exportDropdownRef = useRef<HTMLDivElement>(null);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
+  const previewPrintRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (propAnalytics) {
@@ -62,17 +62,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     loadAnalytics();
   }, []);
 
-  // Close export dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
-        setIsExportOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   const handleExport = (format: 'excel' | 'word' | 'jpg') => {
     const token =
       localStorage.getItem('laporanwee_token') ||
@@ -80,8 +69,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       '';
     const downloadUrl = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=${format}&month=${selectedMonth}&year=${selectedYear}&token=${token}`;
     window.open(downloadUrl, '_blank');
-    setIsExportOpen(false);
     onAddToast(`Memulai unduhan laporan format ${format.toUpperCase()} (Bulan ${selectedMonth}/${selectedYear})...`);
+  };
+
+  const handlePrint = () => {
+    window.print();
+    onAddToast('Membuka dialog cetak dokumen rekap...');
   };
 
   const dailyList =
@@ -116,6 +109,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     { value: 12, label: 'Desember' },
   ];
 
+  const monthName = months.find((m) => m.value === selectedMonth)?.label || 'Oktober';
+  const totalReportsCount = data.reports.total || 26;
+
   return (
     <div className="view">
       <div className="page-head">
@@ -126,32 +122,6 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* Month Selector Filter */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <select
-              className="input"
-              style={{ padding: '6px 12px', fontSize: '13px', borderRadius: '8px', background: '#fff', border: '1px solid var(--line-soft)' }}
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-            >
-              {months.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className="input"
-              style={{ padding: '6px 12px', fontSize: '13px', borderRadius: '8px', background: '#fff', border: '1px solid var(--line-soft)' }}
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-            >
-              <option value={2026}>2026</option>
-              <option value={2025}>2025</option>
-              <option value={2024}>2024</option>
-            </select>
-          </div>
-
           <button
             type="button"
             className="btn btn-outline"
@@ -163,114 +133,15 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <span>{isLoading ? 'Memuat...' : 'Segarkan Data'}</span>
           </button>
 
-          {/* Export Dropdown */}
-          <div ref={exportDropdownRef} style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="btn btn-dark"
-              onClick={() => setIsExportOpen(!isExportOpen)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Icon name="doc" style={{ width: 16, height: 16 }} />
-              <span>Ekspor Laporan</span>
-              <Icon name="chevD" style={{ width: 12, height: 12 }} />
-            </button>
-
-            {isExportOpen && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 'calc(100% + 6px)',
-                  background: '#fff',
-                  border: '1px solid var(--line-soft)',
-                  borderRadius: '12px',
-                  boxShadow: '0 12px 32px rgba(20, 19, 26, 0.15)',
-                  zIndex: 50,
-                  minWidth: '200px',
-                  overflow: 'hidden',
-                  animation: 'fadeInUp 0.15s ease',
-                  willChange: 'transform, opacity',
-                }}
-              >
-                <div style={{ padding: '8px 12px', fontSize: '11px', fontWeight: 700, color: 'var(--muted)', borderBottom: '1px solid var(--line-soft)' }}>
-                  PILIH FORMAT EKSPOR
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleExport('excel')}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    textAlign: 'left',
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--ink)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(74,85,255,0.06)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon name="doc" style={{ width: 14, height: 14, color: '#16a34a' }} />
-                  <span>Ekspor Excel (.xls)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExport('word')}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    textAlign: 'left',
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--ink)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(74,85,255,0.06)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon name="doc" style={{ width: 14, height: 14, color: '#2563eb' }} />
-                  <span>Ekspor Word (.doc)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleExport('jpg')}
-                  style={{
-                    width: '100%',
-                    padding: '10px 14px',
-                    textAlign: 'left',
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    color: 'var(--ink)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(74,85,255,0.06)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                >
-                  <Icon name="image" style={{ width: 14, height: 14, color: '#d97706' }} />
-                  <span>Ekspor Gambar (.jpg)</span>
-                </button>
-              </div>
-            )}
-          </div>
+          <button
+            type="button"
+            className="btn btn-dark"
+            onClick={() => setIsPreviewModalOpen(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
+          >
+            <Icon name="doc" style={{ width: 16, height: 16 }} />
+            <span>Ekspor Laporan (PDF)</span>
+          </button>
         </div>
       </div>
 
@@ -485,6 +356,338 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* ================= PREVIEW CETAK & DOKUMEN REKAP MODAL ================= */}
+      {isPreviewModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(12, 11, 16, 0.75)',
+            backdropFilter: 'blur(6px)',
+            zIndex: 100,
+            display: 'flex',
+            flexDirection: 'column',
+            animation: 'fadeIn 0.2s ease',
+            willChange: 'opacity',
+          }}
+          onClick={() => setIsPreviewModalOpen(false)}
+        >
+          <div
+            style={{
+              width: '100%',
+              background: '#0c0b10',
+              color: '#fff',
+              padding: '12px 24px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+              flexWrap: 'wrap',
+              gap: '12px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Left Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: 700 }}>
+                <span style={{ width: 9, height: 9, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                <span>PREVIEW CETAK &amp; DOKUMEN REKAP</span>
+              </div>
+              <div style={{ background: 'rgba(255, 255, 255, 0.12)', padding: '4px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 600, color: '#e2e8f0' }}>
+                A4 &bull; PORTRAIT &bull; {totalReportsCount} Laporan
+              </div>
+            </div>
+
+            {/* Right Action Toolbar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              {/* Period Selectors */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(255,255,255,0.08)', padding: '4px 8px', borderRadius: '8px' }}>
+                <select
+                  style={{ background: 'transparent', color: '#fff', border: 'none', fontSize: '12.5px', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(Number(e.target.value))}
+                >
+                  {months.map((m) => (
+                    <option key={m.value} value={m.value} style={{ color: '#14131a' }}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  style={{ background: 'transparent', color: '#fff', border: 'none', fontSize: '12.5px', fontWeight: 600, outline: 'none', cursor: 'pointer' }}
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(Number(e.target.value))}
+                >
+                  <option value={2026} style={{ color: '#14131a' }}>2026</option>
+                  <option value={2025} style={{ color: '#14131a' }}>2025</option>
+                  <option value={2027} style={{ color: '#14131a' }}>2027</option>
+                </select>
+              </div>
+
+              {/* Print / Save PDF */}
+              <button
+                type="button"
+                onClick={handlePrint}
+                style={{
+                  background: '#3b82f6',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                  transition: 'opacity 0.15s ease',
+                }}
+              >
+                <span>🖨️ Cetak / Save PDF</span>
+              </button>
+
+              {/* Export JPEG */}
+              <button
+                type="button"
+                onClick={() => handleExport('jpg')}
+                style={{
+                  background: '#9333ea',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>🖼️ Export JPEG</span>
+              </button>
+
+              {/* Excel */}
+              <button
+                type="button"
+                onClick={() => handleExport('excel')}
+                style={{
+                  background: '#16a34a',
+                  color: '#fff',
+                  border: 'none',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>📊 Excel</span>
+              </button>
+
+              {/* Word */}
+              <button
+                type="button"
+                onClick={() => handleExport('word')}
+                style={{
+                  background: '#fff',
+                  color: '#14131a',
+                  border: 'none',
+                  padding: '7px 14px',
+                  borderRadius: '8px',
+                  fontSize: '12.5px',
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  cursor: 'pointer',
+                }}
+              >
+                <span>📄 Word</span>
+              </button>
+
+              {/* Close Button */}
+              <button
+                type="button"
+                onClick={() => setIsPreviewModalOpen(false)}
+                style={{
+                  background: 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  border: 'none',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '14px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  marginLeft: '4px',
+                }}
+                title="Tutup Preview"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+
+          {/* Modal Body / A4 Paper Sheet Preview */}
+          <div
+            style={{
+              flex: 1,
+              background: '#2b2f3a',
+              overflowY: 'auto',
+              padding: '40px 16px',
+              display: 'flex',
+              justifyContent: 'center',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              ref={previewPrintRef}
+              style={{
+                width: '210mm',
+                maxWidth: '100%',
+                minHeight: '297mm',
+                background: '#eceef2',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.5)',
+                borderRadius: '4px',
+                overflow: 'hidden',
+                position: 'relative',
+                color: '#2b2f3a',
+                fontFamily: 'Poppins, system-ui, sans-serif',
+                fontSize: '12px',
+                lineHeight: 1.5,
+              }}
+            >
+              {/* --- A4 Report Template Container --- */}
+              <div style={{ background: '#4a62a8', color: '#fff', padding: '38px 44px 120px', position: 'relative', borderBottomRightRadius: '46px', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 6px)', gap: '4px' }}>
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                    </div>
+                    <div>
+                      <b style={{ display: 'block', fontSize: '22px', fontWeight: 700, letterSpacing: '.5px' }}>WEE LAPORAN</b>
+                      <small style={{ fontSize: '9px', letterSpacing: '1.5px', opacity: .85 }}>LAPORAN KERJA HARIAN</small>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '10.5px', opacity: .9, textAlign: 'left' }}>
+                    <b style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>Wee Studio</b>
+                    Medan, Sumatera Utara<br />rizalsaragih498@gmail.com
+                  </div>
+                </div>
+                <div style={{ marginTop: '44px', display: 'flex', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap' }}>
+                  <div>
+                    <small style={{ display: 'block', fontSize: '11px', opacity: .75 }}>Laporan kerja oleh</small>
+                    <b style={{ display: 'block', fontSize: '15px', fontWeight: 600 }}>Rizal Fadhilah</b>
+                    <span style={{ fontSize: '11px', opacity: .85 }}>Tim Kreatif - Wee Studio</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '34px' }}>
+                    <div>
+                      <small style={{ display: 'block', fontSize: '11px', opacity: .75 }}>Periode</small>
+                      <b style={{ display: 'block', fontSize: '15px', fontWeight: 600 }}>{monthName} {selectedYear}</b>
+                      <span style={{ fontSize: '11px', opacity: .85 }}>1 - 31 {monthName}</span>
+                    </div>
+                    <div>
+                      <small style={{ display: 'block', fontSize: '11px', opacity: .75 }}>Dicetak</small>
+                      <b style={{ display: 'block', fontSize: '15px', fontWeight: 600 }}>13 Okt</b>
+                      <span style={{ fontSize: '11px', opacity: .85 }}>{selectedYear}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Content */}
+              <div style={{ padding: '0 36px 20px', marginTop: '-78px', position: 'relative', zIndex: 2 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1.1fr 1.6fr', background: '#f6f7fa', borderRadius: '22px', height: '64px', boxShadow: '0 10px 22px rgba(30,40,80,.18), inset 0 -2px 0 rgba(255,255,255,.7)', fontWeight: 600, fontSize: '11.5px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Tanggal</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Nama Pekerjaan</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Desain/Gambar</div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '26px 12px 6px', paddingBottom: '6px', borderBottom: '1.5px solid #4a62a8', fontSize: '11px' }}>
+                  <b style={{ color: '#4a62a8', fontWeight: 700, fontSize: '12.5px' }}>Minggu 1</b>
+                  <span style={{ color: '#707586' }}>1 - 7 {monthName} {selectedYear}</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1.1fr 1.6fr', borderBottom: '1px solid #cfd3dc', minHeight: '112px', background: '#fff', borderRadius: '12px', marginBottom: '10px' }}>
+                  <div style={{ padding: '14px 6px', textAlign: 'center', fontWeight: 600, color: '#4a62a8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    1/{selectedMonth === 10 ? '10' : selectedMonth}/{selectedYear}
+                    <small style={{ fontWeight: 400, color: '#707586', fontSize: '10px' }}>Rabu</small>
+                  </div>
+                  <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #cfd3dc' }}>
+                    <b style={{ fontWeight: 600, fontSize: '12px' }}>Dokumentasi dan edit kegiatan emka</b>
+                    <small style={{ color: '#707586', fontSize: '10.5px', marginTop: '2px' }}>Foto kegiatan dan hasil edit</small>
+                    <span style={{ display: 'inline-block', alignSelf: 'flex-start', marginTop: '8px', fontSize: '9.5px', fontWeight: 600, padding: '2px 10px', borderRadius: '20px', background: '#dfe5f6', color: '#3d5296' }}>Completed</span>
+                  </div>
+                  <div style={{ padding: '12px', borderLeft: '1px solid #cfd3dc', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ flex: '1 1 90px', maxWidth: '150px', aspectRatio: '4/3', borderRadius: '10px', background: 'linear-gradient(135deg,#d6dcee,#b3bfe0) center/cover no-repeat', border: '2px solid #fff' }} />
+                    <div style={{ flex: '1 1 90px', maxWidth: '150px', aspectRatio: '4/3', borderRadius: '10px', background: 'linear-gradient(135deg,#d6dcee,#b3bfe0) center/cover no-repeat', border: '2px solid #fff' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '26px 12px 6px', paddingBottom: '6px', borderBottom: '1.5px solid #4a62a8', fontSize: '11px' }}>
+                  <b style={{ color: '#4a62a8', fontWeight: 700, fontSize: '12.5px' }}>Minggu 2</b>
+                  <span style={{ color: '#707586' }}>8 - 14 {monthName} {selectedYear}</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1.1fr 1.6fr', borderBottom: '1px solid #cfd3dc', minHeight: '112px', background: '#fff', borderRadius: '12px', marginBottom: '10px' }}>
+                  <div style={{ padding: '14px 6px', textAlign: 'center', fontWeight: 600, color: '#4a62a8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    8/{selectedMonth === 10 ? '10' : selectedMonth}/{selectedYear}
+                    <small style={{ fontWeight: 400, color: '#707586', fontSize: '10px' }}>Rabu</small>
+                  </div>
+                  <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #cfd3dc' }}>
+                    <b style={{ fontWeight: 600, fontSize: '12px' }}>DOKUMENTASI SUASANA PSB</b>
+                    <small style={{ color: '#707586', fontSize: '10.5px', marginTop: '2px' }}>Dokumentasi penerimaan siswa baru</small>
+                    <span style={{ display: 'inline-block', alignSelf: 'flex-start', marginTop: '8px', fontSize: '9.5px', fontWeight: 600, padding: '2px 10px', borderRadius: '20px', background: '#dfe5f6', color: '#3d5296' }}>Completed</span>
+                  </div>
+                  <div style={{ padding: '12px', borderLeft: '1px solid #cfd3dc', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ flex: '1 1 90px', maxWidth: '150px', aspectRatio: '4/3', borderRadius: '10px', background: 'linear-gradient(135deg,#d6dcee,#b3bfe0) center/cover no-repeat', border: '2px solid #fff' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Recap Section */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px', padding: '10px 36px 8px', alignItems: 'start' }}>
+                <div style={{ border: '1px solid #cfd3dc', borderRadius: '18px', padding: '18px 20px', background: 'rgba(255,255,255,.35)' }}>
+                  <h4 style={{ fontSize: '10.5px', fontWeight: 700, marginBottom: '8px', letterSpacing: '.3px' }}>REKAP SOSIAL MEDIA</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', fontSize: '10.5px', gap: '2px 8px', color: '#4a4f5e' }}>
+                    <span>Instagram</span><span>: 8 konten</span>
+                    <span>TikTok</span><span>: 4 konten</span>
+                    <span>YouTube</span><span>: 3 konten</span>
+                    <span>Total terbit</span><span>: 15 konten</span>
+                  </div>
+                  <p style={{ fontSize: '10px', color: '#707586', marginTop: '14px' }}>Bukti unggahan (screenshot) dilampirkan pada kolom Desain/Gambar di tanggal terkait.</p>
+                </div>
+
+                <div style={{ background: '#fff', borderRadius: '18px', border: '1px solid #cfd3dc', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px', borderBottom: '1px solid #cfd3dc' }}><span>Minggu 1</span><b style={{ fontWeight: 600 }}>7 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px', borderBottom: '1px solid #cfd3dc' }}><span>Minggu 2</span><b style={{ fontWeight: 600 }}>8 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px', borderBottom: '1px solid #cfd3dc' }}><span>Minggu 3</span><b style={{ fontWeight: 600 }}>6 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px' }}><span>Minggu 4</span><b style={{ fontWeight: 600 }}>5 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', background: '#4a62a8', color: '#fff', borderRadius: '14px', padding: '12px 20px', fontWeight: 600, margin: '10px', boxShadow: '0 8px 18px rgba(74,98,168,.35)' }}><span>Total Sebulan</span><span>{totalReportsCount} pekerjaan</span></div>
+                </div>
+              </div>
+
+              <div style={{ padding: '0 36px', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ margin: '42px 0 0 auto', width: '60%', textAlign: 'center', fontSize: '11px', color: '#707586', borderTop: '1px solid #cfd3dc', paddingTop: '8px' }}>Disetujui oleh Project Lead</div>
+              </div>
+              <div style={{ margin: '26px 36px 28px', background: '#4a62a8', color: '#fff', textAlign: 'center', fontSize: '10.5px', padding: '10px', borderRadius: '30px' }}>Terima kasih atas kerja kerasnya</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
