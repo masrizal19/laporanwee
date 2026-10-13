@@ -2007,6 +2007,8 @@ export function App() {
             onNavigate={handleNavigate}
             onAddToast={addToast}
             onRefresh={refreshAnalyticsFromApi}
+            currentUser={user}
+            isAdmin={isAdmin}
           />
         )}
 

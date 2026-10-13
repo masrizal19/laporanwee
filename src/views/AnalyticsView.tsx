@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AnalyticsSummary, ViewType } from '../types';
+import { AnalyticsSummary, ViewType, AuthUser } from '../types';
 import { Icon } from '../components/icons';
-import { analyticsService } from '../utils/api';
+import { analyticsService, getStoredToken, getStoredUser } from '../utils/api';
 
 interface AnalyticsViewProps {
   analytics?: AnalyticsSummary;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
   onRefresh?: () => void;
+  currentUser?: AuthUser | null;
+  isAdmin?: boolean;
 }
 
 export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
@@ -15,6 +17,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   onNavigate,
   onAddToast,
   onRefresh,
+  currentUser: propCurrentUser,
+  isAdmin: propIsAdmin,
 }) => {
   const [data, setData] = useState<AnalyticsSummary>(
     propAnalytics || {
@@ -76,15 +80,32 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleExport = (format: 'excel' | 'word' | 'jpg') => {
-    const token =
-      localStorage.getItem('laporanwee_token') ||
-      localStorage.getItem('auth_token') ||
-      '';
-    const downloadUrl = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=${format}&month=${selectedMonth}&year=${selectedYear}&token=${token}`;
-    window.open(downloadUrl, '_blank');
+  const currentUser = propCurrentUser || getStoredUser();
+  const isAdmin = propIsAdmin !== undefined ? propIsAdmin : Boolean(
+    currentUser?.role?.toLowerCase() === 'admin' || (currentUser as any)?.is_admin === true
+  );
+
+  const handleExportPdf = () => {
+    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export/index.php?month=${selectedMonth}&year=${selectedYear}`;
+    window.open(url, '_blank');
     setIsExportOpen(false);
-    onAddToast(`Memulai unduhan laporan format ${format.toUpperCase()} (Bulan ${selectedMonth}/${selectedYear})...`);
+    onAddToast(`Membuka preview cetak laporan bulan ${selectedMonth}/${selectedYear}...`);
+  };
+
+  const handleExportJpg = () => {
+    const token = getStoredToken() || localStorage.getItem('laporanwee_token') || localStorage.getItem('auth_token') || '';
+    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=jpg&month=${selectedMonth}&year=${selectedYear}&token=${token}`;
+    window.open(url, '_blank');
+    setIsExportOpen(false);
+    onAddToast(`Mengekspor gambar laporan (.jpg) bulan ${selectedMonth}/${selectedYear}...`);
+  };
+
+  const handleEditDesign = () => {
+    const token = getStoredToken() || localStorage.getItem('laporanwee_token') || localStorage.getItem('auth_token') || '';
+    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export/edit-export/index.php?month=${selectedMonth}&year=${selectedYear}&token=${token}`;
+    window.open(url, '_blank');
+    setIsExportOpen(false);
+    onAddToast('Membuka editor desain rekap laporan...');
   };
 
   const handlePrint = () => {
@@ -183,10 +204,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => {
-                    setIsExportOpen(false);
-                    setIsPreviewModalOpen(true);
-                  }}
+                  onClick={handleExportPdf}
                   style={{
                     width: '100%',
                     padding: '10px 14px',
@@ -210,7 +228,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleExport('jpg')}
+                  onClick={handleExportJpg}
                   style={{
                     width: '100%',
                     padding: '10px 14px',
@@ -232,6 +250,32 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   <Icon name="image" style={{ width: 14, height: 14, color: '#9333ea' }} />
                   <span>Export Gambar (.jpg)</span>
                 </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    onClick={handleEditDesign}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      textAlign: 'left',
+                      background: 'none',
+                      borderTop: '1px solid var(--line-soft)',
+                      border: 'none',
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: '#0a7a58',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(10,122,88,0.08)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
+                  >
+                    <span>🎨 Edit Desain Laporan</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -578,7 +622,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               {/* Export JPEG */}
               <button
                 type="button"
-                onClick={() => handleExport('jpg')}
+                onClick={handleExportJpg}
                 style={{
                   background: '#9333ea',
                   color: '#fff',
