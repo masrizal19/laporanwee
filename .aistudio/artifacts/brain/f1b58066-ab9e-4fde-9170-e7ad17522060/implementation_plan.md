@@ -1,35 +1,34 @@
-# Implementation Plan - Structured Edit Report URL (/laporan/edit-laporan)
+# Implementation Plan - Disable Kanban Add Task & Fix Drag-and-Drop Stability
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Dedicated Structured URL**: Add `/laporan/edit-laporan` to SPA routing and navigation mapping.
-> - **Direct Edit Form Open**: Navigating to `/laporan/edit-laporan` directly opens the report editing form (or handles selected report editing with hardware-accelerated fluid motion).
-
-- **Confirmed Decision**: Route `/laporan/edit-laporan` maps to report editing. When a user clicks a task card or selects edit report, the URL updates to `/laporan/edit-laporan` and directly renders the report edit view.
+> - **Disable Add Task Buttons on Kanban**: Remove the "+ Tambah Tugas" buttons from all columns in `TasksView`. Tasks are now managed exclusively via Daily Reports.
+> - **Fix Drag-and-Drop Jumpiness / Bug**: Refine `handleDragOver`, `handleDrop`, and touch move/end handlers in `TasksView` to accurately determine the drop target column using `e.currentTarget` and validated bounding rects, preventing cards from randomly jumping to 'To Do' or 'Review'.
+> - **Hardware-Accelerated CSS & Motion**: Ensure card dragging states and dropzone highlights utilize GPU-accelerated CSS (`transform: translate3d(...)`, `will-change: transform`, `transition: all 0.2s cubic-bezier(...)`).
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Establishes a clean, structured URL path (`/laporan/edit-laporan`) for editing daily reports, aligning with the user's domain requirement.
-- **Key Value**: Professional URL structure and direct routing to the report editing interface with maximum fluid motion and hardware acceleration.
+- **What It Does**: 
+  1. Removes the "+ Tambah Tugas" mini buttons at the bottom of Kanban columns in `TasksView`.
+  2. Stabilizes drag-and-drop mechanics to prevent erratic column jumping during drag/drop operations.
+  3. Enhances visual fluidity and animation performance using hardware-accelerated CSS properties.
 
 ---
 
-## 2. User Experience & Visual Design
+## 2. Technical Changes in `TasksView.tsx`
 
-- **Key User Flows**:
-  1. Clicking a task card on Kanban or Edit Report updates URL to `/laporan/edit-laporan`.
-  2. The application renders the report editor view smoothly.
-- **Motion & Fluidity**: CSS hardware-accelerated transitions (`transform`, `opacity`, `will-change`) for seamless page transitions.
+- **Remove Add Task UI**: Delete the `<button className="add-task-mini">...</button>` block inside column rendering.
+- **Robust Drop Zone Detection**:
+  - In `handleDrop(e, colFromProp)` and touch end handlers, rely strictly on `data-col-id` from `e.currentTarget` or element closest container with bounds checking rather than flawed pointer coordinates.
+  - Prevent event bubbling and default behaviors cleanly.
+- **Hardware-Accelerated CSS & Motion**:
+  - Ensure `.kcard.dragging` and `.kcol.dragover` use GPU acceleration (`will-change: transform`, `transform: translateZ(0)`).
 
 ---
 
-## 3. Technical Architecture & Routing
+## 3. Verification Plan
 
-- Update `App.tsx`:
-  - Add `/laporan/edit-laporan` to `validPaths`.
-  - Add mapping in `pathToViewMap` / `viewToPathMap`.
-  - Update `handleNavigateToReportEdit` to pushState `/laporan/edit-laporan`.
-- Ensure robust handling of selected report state and direct rendering of `DailyReportForm` or `ReportDetailView` in edit mode.
+- Compile with `compile_applet` and test drag-and-drop behavior across columns.

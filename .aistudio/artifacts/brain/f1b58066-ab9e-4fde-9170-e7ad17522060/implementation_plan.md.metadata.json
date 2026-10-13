@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for creating a dedicated structured URL /laporan/edit-laporan for editing reports.",
-  "updatedAt": "2026-10-13T03:34:49.864427108Z",
+  "summary": "Implementation plan to disable Add Task buttons on Kanban board and fix drag & drop dropzone calculation bugs with hardware-accelerated CSS and motion.",
+  "updatedAt": "2026-10-13T03:52:36.811674121Z",
   "requestFeedback": true,
   "userFacing": true
 }

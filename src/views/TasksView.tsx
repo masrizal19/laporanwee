@@ -293,14 +293,19 @@ export const TasksView: React.FC<TasksViewProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
-    // Accurately detect target column based on client pointer coordinates
-    let targetCol: TaskStatus = colFromProp;
+    // Accurately detect target column, prioritizing activeDropZone or colFromProp
+    let targetCol: TaskStatus = activeDropZone && ['todo', 'inprogress', 'review', 'done'].includes(activeDropZone)
+      ? activeDropZone
+      : colFromProp;
+
     try {
-      const dropEl = document.elementFromPoint(e.clientX, e.clientY);
-      const colEl = dropEl?.closest('[data-col-id]') as HTMLElement | null;
-      const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
-      if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
-        targetCol = detected;
+      if (e.clientX > 0 && e.clientY > 0) {
+        const dropEl = document.elementFromPoint(e.clientX, e.clientY);
+        const colEl = dropEl?.closest('[data-col-id]') as HTMLElement | null;
+        const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
+        if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
+          targetCol = detected;
+        }
       }
     } catch (_) {}
 
@@ -355,13 +360,19 @@ export const TasksView: React.FC<TasksViewProps> = ({
     const touch = e.changedTouches[0];
     let targetCol: TaskStatus | null = activeDropZone;
     try {
-      const element = document.elementFromPoint(touch.clientX, touch.clientY);
-      const colEl = element?.closest('[data-col-id]') as HTMLElement | null;
-      const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
-      if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
-        targetCol = detected;
+      if (touch && touch.clientX > 0 && touch.clientY > 0) {
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        const colEl = element?.closest('[data-col-id]') as HTMLElement | null;
+        const detected = colEl?.getAttribute('data-col-id') as TaskStatus | null;
+        if (detected && ['todo', 'inprogress', 'review', 'done'].includes(detected)) {
+          targetCol = detected;
+        }
       }
     } catch (_) {}
+
+    if (!targetCol && activeDropZone) {
+      targetCol = activeDropZone;
+    }
 
     setDraggingTaskId(null);
     setActiveDropZone(null);
@@ -712,17 +723,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   </div>
                 </div>
               ))}
-
-              <button
-                className="add-task-mini"
-                onClick={() => {
-                  setDefaultCol(colDef.col);
-                  setIsAddOpen(true);
-                }}
-              >
-                <Icon name="plus" />
-                <span>Tambah Tugas</span>
-              </button>
             </div>
           );
         })}
