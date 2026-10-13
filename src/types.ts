@@ -175,7 +175,6 @@ export interface Task {
   id: string;
   report_id?: string;
   daily_report_id?: string;
-  project_id?: number | string;
   proj: string;
   title: string;
   description?: string;
@@ -184,7 +183,6 @@ export interface Task {
   assignee: string;
   assignee_email?: string;
   due: string;
-  deadline?: string;
   progress: number;
   col: TaskStatus;
   documents?: TaskDocument[];

@@ -13,7 +13,6 @@ interface TasksViewProps {
   isAdmin?: boolean;
   onAddTask: (task: Omit<Task, 'id'>) => void;
   onUpdateTask: (task: Task) => Promise<boolean> | boolean | void;
-  onUpdateTaskStatus?: (taskId: string, col: TaskStatus, progress?: number) => Promise<boolean> | boolean | void;
   onDeleteTask: (taskId: string) => void;
   onResetTasks?: () => void;
   onRefreshTasks?: () => void;
@@ -27,7 +26,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
   isAdmin = false,
   onAddTask,
   onUpdateTask,
-  onUpdateTaskStatus,
   onDeleteTask,
   onResetTasks,
   onRefreshTasks,
@@ -51,7 +49,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Modal State for Editing Task
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Task Documentation State
   const [taskDocs, setTaskDocs] = useState<TaskDocument[]>([]);
@@ -260,12 +257,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
     isSubmittingDropRef.current = true;
     try {
-      let ok: any;
-      if (onUpdateTaskStatus) {
-        ok = await onUpdateTaskStatus(task.id, targetCol, targetProgress);
-      } else {
-        ok = await onUpdateTask(updated);
-      }
+      const ok = await onUpdateTask(updated);
       if (ok !== false) {
         onAddToast(`Status tugas dan laporan kerja berhasil diperbarui ke "${statusLabel}".`);
       }
@@ -382,25 +374,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
     e.preventDefault();
     if (!editingTask) return;
 
-    if (!editingTask.title.trim()) {
-      onAddToast('Judul tugas tidak boleh kosong.');
-      return;
-    }
-
-    setIsSavingEdit(true);
-    try {
-      const ok = await onUpdateTask(editingTask);
-      if (ok !== false) {
-        onAddToast(`Tugas "${editingTask.title}" berhasil diperbarui!`);
-        setEditingTask(null);
-        if (onRefreshTasks) {
-          onRefreshTasks();
-        }
-      }
-    } catch (err: any) {
-      onAddToast(err?.message || 'Gagal menyimpan perubahan tugas.');
-    } finally {
-      setIsSavingEdit(false);
+    const ok = await onUpdateTask(editingTask);
+    if (ok !== false) {
+      onAddToast(`Tugas "${editingTask.title}" diperbarui!`);
+      setEditingTask(null);
     }
   };
 
@@ -663,29 +640,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   onTouchStart={(e) => handleTouchStart(e, t.id)}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
-                  onClick={() => {
-                    const matchedProject = projects.find(
-                      (p) => p.name.toLowerCase() === (t.proj || '').toLowerCase()
-                    );
-                    const initialProjectId =
-                      t.project_id !== undefined && t.project_id !== null && Number(t.project_id) > 0
-                        ? Number(t.project_id)
-                        : matchedProject
-                        ? Number(matchedProject.id)
-                        : 1;
-
-                    setEditingTask({
-                      ...t,
-                      project_id: initialProjectId,
-                      description: t.description || '',
-                      deadline:
-                        t.deadline && /^\d{4}-\d{2}-\d{2}$/.test(t.deadline)
-                          ? t.deadline
-                          : t.due && /^\d{4}-\d{2}-\d{2}$/.test(t.due)
-                          ? t.due
-                          : '',
-                    });
-                  }}
+                  onClick={() => setEditingTask(t)}
                 >
                   <div className="kcard-top">
                     <span className="kcard-proj">
@@ -864,27 +819,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
               <input
                 id="edit-task-title"
                 type="text"
-                className="input"
                 value={editingTask.title}
                 onChange={(e) =>
                   setEditingTask({ ...editingTask, title: e.target.value })
                 }
-                placeholder="Masukkan judul tugas..."
-                required
-              />
-            </div>
-
-            <div className="field">
-              <label htmlFor="edit-task-description">Deskripsi Tugas</label>
-              <textarea
-                id="edit-task-description"
-                className="input"
-                rows={3}
-                value={editingTask.description || ''}
-                onChange={(e) =>
-                  setEditingTask({ ...editingTask, description: e.target.value })
-                }
-                placeholder="Tuliskan detail atau deskripsi pekerjaan..."
               />
             </div>
 
@@ -894,15 +832,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 id="edit-task-proj"
                 className="input"
                 value={editingTask.proj}
-                onChange={(e) => {
-                  const selectedName = e.target.value;
-                  const matched = projects.find((p) => p.name === selectedName);
-                  setEditingTask({
-                    ...editingTask,
-                    proj: selectedName,
-                    project_id: matched ? Number(matched.id) : (editingTask.project_id || 1),
-                  });
-                }}
+                onChange={(e) =>
+                  setEditingTask({ ...editingTask, proj: e.target.value })
+                }
               >
                 {projects.length > 0 ? (
                   projects.map((p) => (
@@ -957,29 +889,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   <option value="Low">Rendah (Low)</option>
                 </select>
               </div>
-            </div>
-
-            <div className="field">
-              <label htmlFor="edit-task-deadline">Tenggat Waktu / Deadline</label>
-              <input
-                id="edit-task-deadline"
-                type="date"
-                className="input"
-                value={
-                  editingTask.deadline && /^\d{4}-\d{2}-\d{2}$/.test(editingTask.deadline)
-                    ? editingTask.deadline
-                    : editingTask.due && /^\d{4}-\d{2}-\d{2}$/.test(editingTask.due)
-                    ? editingTask.due
-                    : ''
-                }
-                onChange={(e) =>
-                  setEditingTask({
-                    ...editingTask,
-                    deadline: e.target.value,
-                    due: e.target.value,
-                  })
-                }
-              />
             </div>
 
             <div className="field">
@@ -1197,12 +1106,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 >
                   Batal
                 </button>
-                <button
-                  type="submit"
-                  className="btn btn-dark"
-                  disabled={isSavingEdit}
-                >
-                  {isSavingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
+                <button type="submit" className="btn btn-dark">
+                  Simpan Perubahan
                 </button>
               </div>
             </div>
