@@ -85,7 +85,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const handleExportPdf = () => {
     const month = selectedMonth || (new Date().getMonth() + 1);
     const year = selectedYear || new Date().getFullYear();
-    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export/index.php?month=${month}&year=${year}`;
+    const url = `/analitik/exporlaporan?month=${month}&year=${year}`;
     window.open(url, '_blank');
     setIsExportOpen(false);
     onAddToast(`Membuka preview cetak laporan bulan ${month}/${year}...`);
@@ -94,8 +94,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const handleExportJpg = () => {
     const month = selectedMonth || (new Date().getMonth() + 1);
     const year = selectedYear || new Date().getFullYear();
-    const token = getStoredToken() || localStorage.getItem('auth_token') || '';
-    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=jpg&month=${month}&year=${year}&token=${token}`;
+    const url = `/analitik/exporlaporan?month=${month}&year=${year}&format=jpg`;
     window.open(url, '_blank');
     setIsExportOpen(false);
     onAddToast(`Mengekspor gambar laporan (.jpg) bulan ${month}/${year}...`);
@@ -104,8 +103,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const handleEditDesign = () => {
     const month = selectedMonth || (new Date().getMonth() + 1);
     const year = selectedYear || new Date().getFullYear();
-    const token = getStoredToken() || localStorage.getItem('auth_token') || '';
-    const url = `https://api-laporanwe.mkverse.my.id/api/analytics/export/edit-export/index.php?month=${month}&year=${year}&token=${token}`;
+    const url = `/analitik/editlaporan?month=${month}&year=${year}`;
     window.open(url, '_blank');
     setIsExportOpen(false);
     onAddToast('Membuka editor desain rekap laporan...');

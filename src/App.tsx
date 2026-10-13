@@ -31,6 +31,8 @@ import { ProfileCropView } from './views/ProfileCropView';
 import { UserProfileView } from './views/UserProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { AdminUISettingsView } from './views/AdminUISettingsView';
+import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
+import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -234,6 +236,8 @@ export function App() {
       '/tim',
       '/kalender',
       '/analitik',
+      '/analitik/exporlaporan',
+      '/analitik/editlaporan',
       '/admin/ui-settings',
       '/ui-settings',
       '/profil',
@@ -385,6 +389,8 @@ export function App() {
     '/tim': 'team',
     '/kalender': 'calendar',
     '/analitik': 'analytics',
+    '/analitik/exporlaporan': 'export-laporan',
+    '/analitik/editlaporan': 'edit-laporan',
     '/admin/ui-settings': 'ui-settings',
     '/ui-settings': 'ui-settings',
     '/profil': 'profile',
@@ -408,6 +414,8 @@ export function App() {
     'user-profile': '/profil/user',
     'analytics': '/analitik',
     'ui-settings': '/admin/ui-settings',
+    'export-laporan': '/analitik/exporlaporan',
+    'edit-laporan': '/analitik/editlaporan',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -1715,7 +1723,25 @@ export function App() {
   const currentReport =
     reports.find((r) => String(r.id).trim() === String(selectedReportId).trim()) || reports[0];
 
-  // Conditional Rendering for Auth Flows
+  // Conditional Rendering for Standalone Export / Edit Views
+  if (currentView === 'export-laporan' || currentPath === '/analitik/exporlaporan') {
+    return (
+      <>
+        <ExportLaporanStandalone />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
+
+  if (currentView === 'edit-laporan' || currentPath === '/analitik/editlaporan') {
+    return (
+      <>
+        <EditLaporanStandalone />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
+
   if (currentPath === '/verify-email') {
     return (
       <>
