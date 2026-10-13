@@ -49,6 +49,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   // Modal State for Editing Task
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   // Task Documentation State
   const [taskDocs, setTaskDocs] = useState<TaskDocument[]>([]);
@@ -372,12 +373,64 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingTask) return;
+    if (!editingTask || isSavingEdit) return;
 
-    const ok = await onUpdateTask(editingTask);
-    if (ok !== false) {
-      onAddToast(`Tugas "${editingTask.title}" diperbarui!`);
-      setEditingTask(null);
+    if (!editingTask.title.trim()) {
+      onAddToast('Judul tugas wajib diisi.');
+      return;
+    }
+
+    // 1. Resolve strictly integer ID
+    const rawId = editingTask.id;
+    let numericId: number | null = null;
+    if (typeof rawId === 'number' && !isNaN(rawId)) {
+      numericId = Math.floor(rawId);
+    } else if (typeof rawId === 'string') {
+      const match = rawId.match(/\d+/);
+      if (match) {
+        numericId = parseInt(match[0], 10);
+      }
+    }
+
+    if (!numericId || isNaN(numericId) || numericId <= 0) {
+      console.error('[TasksView] Gagal membaca ID tugas yang valid:', rawId);
+      onAddToast('Gagal menyimpan: ID tugas tidak valid atau bukan angka.');
+      return;
+    }
+
+    // 2. Resolve strictly integer project_id
+    let resolvedProjectId: number = 1;
+    if (editingTask.project_id && !isNaN(Number(editingTask.project_id)) && Number(editingTask.project_id) > 0) {
+      resolvedProjectId = Math.floor(Number(editingTask.project_id));
+    } else {
+      const matched = projects.find(
+        (p) => String(p.id) === String(editingTask.proj) || p.name === editingTask.proj
+      );
+      if (matched && !isNaN(Number(matched.id)) && Number(matched.id) > 0) {
+        resolvedProjectId = Math.floor(Number(matched.id));
+      } else if (projects.length > 0 && !isNaN(Number(projects[0].id)) && Number(projects[0].id) > 0) {
+        resolvedProjectId = Math.floor(Number(projects[0].id));
+      }
+    }
+
+    const taskToSave: Task = {
+      ...editingTask,
+      id: String(numericId),
+      project_id: resolvedProjectId,
+    };
+
+    setIsSavingEdit(true);
+    try {
+      const ok = await onUpdateTask(taskToSave);
+      if (ok !== false) {
+        onAddToast(`Perubahan tugas "${taskToSave.title}" berhasil disimpan!`);
+        setEditingTask(null);
+      }
+    } catch (err: any) {
+      console.error('[TasksView] Gagal menyimpan perubahan tugas:', err);
+      onAddToast(err?.message || 'Gagal menyimpan perubahan tugas ke server.');
+    } finally {
+      setIsSavingEdit(false);
     }
   };
 
@@ -831,19 +884,29 @@ export const TasksView: React.FC<TasksViewProps> = ({
               <select
                 id="edit-task-proj"
                 className="input"
-                value={editingTask.proj}
-                onChange={(e) =>
-                  setEditingTask({ ...editingTask, proj: e.target.value })
+                value={
+                  editingTask.project_id
+                    ? String(editingTask.project_id)
+                    : (projects.find((p) => p.name === editingTask.proj)?.id || editingTask.proj)
                 }
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const matched = projects.find((p) => String(p.id) === val || p.name === val);
+                  setEditingTask({
+                    ...editingTask,
+                    proj: matched ? matched.name : val,
+                    project_id: matched ? Number(matched.id) : (Number(val) || undefined),
+                  });
+                }}
               >
                 {projects.length > 0 ? (
                   projects.map((p) => (
-                    <option key={p.id} value={p.name}>
+                    <option key={p.id} value={p.id}>
                       {p.name}
                     </option>
                   ))
                 ) : (
-                  <option value={editingTask.proj}>{editingTask.proj}</option>
+                  <option value={editingTask.project_id || 1}>{editingTask.proj}</option>
                 )}
               </select>
             </div>
@@ -909,6 +972,23 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 />
                 <span className="slider-val">{editingTask.progress}%</span>
               </div>
+            </div>
+
+            <div className="field">
+              <label htmlFor="edit-task-desc">Deskripsi Tugas</label>
+              <textarea
+                id="edit-task-desc"
+                className="input"
+                rows={3}
+                value={editingTask.description || ''}
+                onChange={(e) =>
+                  setEditingTask({
+                    ...editingTask,
+                    description: e.target.value,
+                  })
+                }
+                placeholder="Deskripsi atau rincian pekerjaan..."
+              />
             </div>
 
             {/* SECTION DOKUMENTASI PEKERJAAN */}
@@ -1106,8 +1186,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 >
                   Batal
                 </button>
-                <button type="submit" className="btn btn-dark">
-                  Simpan Perubahan
+                <button
+                  type="submit"
+                  className="btn btn-dark"
+                  disabled={isSavingEdit}
+                >
+                  {isSavingEdit ? 'Menyimpan...' : 'Simpan Perubahan'}
                 </button>
               </div>
             </div>
