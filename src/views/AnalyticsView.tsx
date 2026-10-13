@@ -37,8 +37,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const [selectedMonth, setSelectedMonth] = useState<number>(10); // Oktober default
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
-  const [isIframeLoading, setIsIframeLoading] = useState(true);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const previewPrintRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (propAnalytics) {
@@ -63,30 +62,19 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     loadAnalytics();
   }, []);
 
-  const getToken = () =>
-    localStorage.getItem('laporanwee_token') ||
-    localStorage.getItem('auth_token') ||
-    '';
-
-  const exportUrl = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?month=${selectedMonth}&year=${selectedYear}&status=completed&token=${getToken()}`;
-
   const handleExport = (format: 'excel' | 'word' | 'jpg') => {
-    const downloadUrl = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=${format}&month=${selectedMonth}&year=${selectedYear}&status=completed&token=${getToken()}`;
+    const token =
+      localStorage.getItem('laporanwee_token') ||
+      localStorage.getItem('auth_token') ||
+      '';
+    const downloadUrl = `https://api-laporanwe.mkverse.my.id/api/analytics/export.php?format=${format}&month=${selectedMonth}&year=${selectedYear}&token=${token}`;
     window.open(downloadUrl, '_blank');
     onAddToast(`Memulai unduhan laporan format ${format.toUpperCase()} (Bulan ${selectedMonth}/${selectedYear})...`);
   };
 
   const handlePrint = () => {
-    try {
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        iframeRef.current.contentWindow.print();
-        onAddToast('Membuka dialog cetak dokumen rekap multi-page...');
-      } else {
-        window.print();
-      }
-    } catch (err) {
-      window.print();
-    }
+    window.print();
+    onAddToast('Membuka dialog cetak dokumen rekap...');
   };
 
   const dailyList =
@@ -100,6 +88,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           { day: 'Jumat', tasks_completed: 0, reports: 0 },
         ];
 
+  // Compute maximum value for relative bar heights
   const maxVal = Math.max(
     ...dailyList.map((d) => Math.max(d.tasks_completed, d.reports)),
     1
@@ -120,6 +109,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     { value: 12, label: 'Desember' },
   ];
 
+  const monthName = months.find((m) => m.value === selectedMonth)?.label || 'Oktober';
   const totalReportsCount = data.reports.total || 26;
 
   return (
@@ -367,7 +357,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
       </div>
 
-      {/* ================= PREVIEW CETAK & DOKUMEN REKAP MODAL (MULTI-PAGE) ================= */}
+      {/* ================= PREVIEW CETAK & DOKUMEN REKAP MODAL ================= */}
       {isPreviewModalOpen && (
         <div
           style={{
@@ -405,7 +395,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 <span>PREVIEW CETAK &amp; DOKUMEN REKAP</span>
               </div>
               <div style={{ background: 'rgba(255, 255, 255, 0.12)', padding: '4px 12px', borderRadius: '999px', fontSize: '11.5px', fontWeight: 600, color: '#e2e8f0' }}>
-                A4 &bull; PORTRAIT &bull; Multi-Page Tim ({totalReportsCount} Laporan)
+                A4 &bull; PORTRAIT &bull; {totalReportsCount} Laporan
               </div>
             </div>
 
@@ -546,7 +536,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </div>
           </div>
 
-          {/* Modal Body / Multi-Page Iframe Preview */}
+          {/* Modal Body / A4 Paper Sheet Preview */}
           <div
             style={{
               flex: 1,
@@ -559,6 +549,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div
+              ref={previewPrintRef}
               style={{
                 width: '210mm',
                 maxWidth: '100%',
@@ -568,27 +559,131 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 borderRadius: '4px',
                 overflow: 'hidden',
                 position: 'relative',
+                color: '#2b2f3a',
+                fontFamily: 'Poppins, system-ui, sans-serif',
+                fontSize: '12px',
+                lineHeight: 1.5,
               }}
             >
-              {isIframeLoading && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#f8fafc', zIndex: 10 }}>
-                  <div style={{ width: 36, height: 36, border: '3px solid #cbd5e1', borderTopColor: '#3b82f6', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                  <span style={{ marginTop: 12, fontSize: 13, fontWeight: 600, color: '#64748b' }}>Memuat dokumen rekap multi-page tim...</span>
+              {/* --- A4 Report Template Container --- */}
+              <div style={{ background: '#4a62a8', color: '#fff', padding: '38px 44px 120px', position: 'relative', borderBottomRightRadius: '46px', overflow: 'hidden' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 6px)', gap: '4px' }}>
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                      <i style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#e0566b', display: 'block' }} />
+                    </div>
+                    <div>
+                      <b style={{ display: 'block', fontSize: '22px', fontWeight: 700, letterSpacing: '.5px' }}>WEE LAPORAN</b>
+                      <small style={{ fontSize: '9px', letterSpacing: '1.5px', opacity: .85 }}>LAPORAN KERJA HARIAN</small>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '10.5px', opacity: .9, textAlign: 'left' }}>
+                    <b style={{ display: 'block', fontSize: '12px', marginBottom: '4px' }}>Wee Studio</b>
+                    Medan, Sumatera Utara<br />rizalsaragih498@gmail.com
+                  </div>
                 </div>
-              )}
-              <iframe
-                ref={iframeRef}
-                src={exportUrl}
-                title="Print Preview Multi-Page"
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  minHeight: '297mm',
-                  border: 'none',
-                  display: 'block',
-                }}
-                onLoad={() => setIsIframeLoading(false)}
-              />
+                <div style={{ marginTop: '44px', display: 'flex', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap' }}>
+                  <div>
+                    <small style={{ display: 'block', fontSize: '11px', opacity: .75 }}>Laporan kerja oleh</small>
+                    <b style={{ display: 'block', fontSize: '15px', fontWeight: 600 }}>Rizal Fadhilah</b>
+                    <span style={{ fontSize: '11px', opacity: .85 }}>Tim Kreatif - Wee Studio</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '34px' }}>
+                    <div>
+                      <small style={{ display: 'block', fontSize: '11px', opacity: .75 }}>Periode</small>
+                      <b style={{ display: 'block', fontSize: '15px', fontWeight: 600 }}>{monthName} {selectedYear}</b>
+                      <span style={{ fontSize: '11px', opacity: .85 }}>1 - 31 {monthName}</span>
+                    </div>
+                    <div>
+                      <small style={{ display: 'block', fontSize: '11px', opacity: .75 }}>Dicetak</small>
+                      <b style={{ display: 'block', fontSize: '15px', fontWeight: 600 }}>13 Okt</b>
+                      <span style={{ fontSize: '11px', opacity: .85 }}>{selectedYear}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Table Content */}
+              <div style={{ padding: '0 36px 20px', marginTop: '-78px', position: 'relative', zIndex: 2 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1.1fr 1.6fr', background: '#f6f7fa', borderRadius: '22px', height: '64px', boxShadow: '0 10px 22px rgba(30,40,80,.18), inset 0 -2px 0 rgba(255,255,255,.7)', fontWeight: 600, fontSize: '11.5px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Tanggal</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Nama Pekerjaan</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Desain/Gambar</div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '26px 12px 6px', paddingBottom: '6px', borderBottom: '1.5px solid #4a62a8', fontSize: '11px' }}>
+                  <b style={{ color: '#4a62a8', fontWeight: 700, fontSize: '12.5px' }}>Minggu 1</b>
+                  <span style={{ color: '#707586' }}>1 - 7 {monthName} {selectedYear}</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1.1fr 1.6fr', borderBottom: '1px solid #cfd3dc', minHeight: '112px', background: '#fff', borderRadius: '12px', marginBottom: '10px' }}>
+                  <div style={{ padding: '14px 6px', textAlign: 'center', fontWeight: 600, color: '#4a62a8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    1/{selectedMonth === 10 ? '10' : selectedMonth}/{selectedYear}
+                    <small style={{ fontWeight: 400, color: '#707586', fontSize: '10px' }}>Rabu</small>
+                  </div>
+                  <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #cfd3dc' }}>
+                    <b style={{ fontWeight: 600, fontSize: '12px' }}>Dokumentasi dan edit kegiatan emka</b>
+                    <small style={{ color: '#707586', fontSize: '10.5px', marginTop: '2px' }}>Foto kegiatan dan hasil edit</small>
+                    <span style={{ display: 'inline-block', alignSelf: 'flex-start', marginTop: '8px', fontSize: '9.5px', fontWeight: 600, padding: '2px 10px', borderRadius: '20px', background: '#dfe5f6', color: '#3d5296' }}>Completed</span>
+                  </div>
+                  <div style={{ padding: '12px', borderLeft: '1px solid #cfd3dc', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ flex: '1 1 90px', maxWidth: '150px', aspectRatio: '4/3', borderRadius: '10px', background: 'linear-gradient(135deg,#d6dcee,#b3bfe0) center/cover no-repeat', border: '2px solid #fff' }} />
+                    <div style={{ flex: '1 1 90px', maxWidth: '150px', aspectRatio: '4/3', borderRadius: '10px', background: 'linear-gradient(135deg,#d6dcee,#b3bfe0) center/cover no-repeat', border: '2px solid #fff' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '26px 12px 6px', paddingBottom: '6px', borderBottom: '1.5px solid #4a62a8', fontSize: '11px' }}>
+                  <b style={{ color: '#4a62a8', fontWeight: 700, fontSize: '12.5px' }}>Minggu 2</b>
+                  <span style={{ color: '#707586' }}>8 - 14 {monthName} {selectedYear}</span>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '90px 1.1fr 1.6fr', borderBottom: '1px solid #cfd3dc', minHeight: '112px', background: '#fff', borderRadius: '12px', marginBottom: '10px' }}>
+                  <div style={{ padding: '14px 6px', textAlign: 'center', fontWeight: 600, color: '#4a62a8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                    8/{selectedMonth === 10 ? '10' : selectedMonth}/{selectedYear}
+                    <small style={{ fontWeight: 400, color: '#707586', fontSize: '10px' }}>Rabu</small>
+                  </div>
+                  <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '1px solid #cfd3dc' }}>
+                    <b style={{ fontWeight: 600, fontSize: '12px' }}>DOKUMENTASI SUASANA PSB</b>
+                    <small style={{ color: '#707586', fontSize: '10.5px', marginTop: '2px' }}>Dokumentasi penerimaan siswa baru</small>
+                    <span style={{ display: 'inline-block', alignSelf: 'flex-start', marginTop: '8px', fontSize: '9.5px', fontWeight: 600, padding: '2px 10px', borderRadius: '20px', background: '#dfe5f6', color: '#3d5296' }}>Completed</span>
+                  </div>
+                  <div style={{ padding: '12px', borderLeft: '1px solid #cfd3dc', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <div style={{ flex: '1 1 90px', maxWidth: '150px', aspectRatio: '4/3', borderRadius: '10px', background: 'linear-gradient(135deg,#d6dcee,#b3bfe0) center/cover no-repeat', border: '2px solid #fff' }} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Recap Section */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '28px', padding: '10px 36px 8px', alignItems: 'start' }}>
+                <div style={{ border: '1px solid #cfd3dc', borderRadius: '18px', padding: '18px 20px', background: 'rgba(255,255,255,.35)' }}>
+                  <h4 style={{ fontSize: '10.5px', fontWeight: 700, marginBottom: '8px', letterSpacing: '.3px' }}>REKAP SOSIAL MEDIA</h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', fontSize: '10.5px', gap: '2px 8px', color: '#4a4f5e' }}>
+                    <span>Instagram</span><span>: 8 konten</span>
+                    <span>TikTok</span><span>: 4 konten</span>
+                    <span>YouTube</span><span>: 3 konten</span>
+                    <span>Total terbit</span><span>: 15 konten</span>
+                  </div>
+                  <p style={{ fontSize: '10px', color: '#707586', marginTop: '14px' }}>Bukti unggahan (screenshot) dilampirkan pada kolom Desain/Gambar di tanggal terkait.</p>
+                </div>
+
+                <div style={{ background: '#fff', borderRadius: '18px', border: '1px solid #cfd3dc', overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px', borderBottom: '1px solid #cfd3dc' }}><span>Minggu 1</span><b style={{ fontWeight: 600 }}>7 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px', borderBottom: '1px solid #cfd3dc' }}><span>Minggu 2</span><b style={{ fontWeight: 600 }}>8 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px', borderBottom: '1px solid #cfd3dc' }}><span>Minggu 3</span><b style={{ fontWeight: 600 }}>6 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '11px 18px', fontSize: '11.5px' }}><span>Minggu 4</span><b style={{ fontWeight: 600 }}>5 pekerjaan</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', background: '#4a62a8', color: '#fff', borderRadius: '14px', padding: '12px 20px', fontWeight: 600, margin: '10px', boxShadow: '0 8px 18px rgba(74,98,168,.35)' }}><span>Total Sebulan</span><span>{totalReportsCount} pekerjaan</span></div>
+                </div>
+              </div>
+
+              <div style={{ padding: '0 36px', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ margin: '42px 0 0 auto', width: '60%', textAlign: 'center', fontSize: '11px', color: '#707586', borderTop: '1px solid #cfd3dc', paddingTop: '8px' }}>Disetujui oleh Project Lead</div>
+              </div>
+              <div style={{ margin: '26px 36px 28px', background: '#4a62a8', color: '#fff', textAlign: 'center', fontSize: '10.5px', padding: '10px', borderRadius: '30px' }}>Terima kasih atas kerja kerasnya</div>
             </div>
           </div>
         </div>
