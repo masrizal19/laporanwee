@@ -2,6 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ViewType, AuthUser, SocialMediaDataResponse, SocialMediaAccount } from '../types';
 import { Icon } from '../components/icons';
 import { socialMediaService, formatApiErrorMessage } from '../utils/api';
+import {
+  sanitizeExternalUrl,
+  sanitizeTextInput,
+  sanitizeHandle,
+} from '../utils/security';
 
 interface SocialMediaViewProps {
   onNavigate: (view: ViewType) => void;
@@ -128,15 +133,19 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
     setIsMetricsModalOpen(true);
   };
 
-  // Submit Tambah Akun
+  // Submit Tambah Akun (Protected with Input Sanitization)
   const handleAddAccount = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newAccountName.trim()) {
-      onAddToast('Nama akun wajib diisi!');
+    const safeName = sanitizeTextInput(newAccountName);
+    const safeHandle = sanitizeHandle(newAccountHandle);
+    const safeUrl = sanitizeExternalUrl(newAccountUrl) || '#';
+
+    if (!safeName) {
+      onAddToast('Nama akun wajib diisi dan tidak boleh mengandung karakter terlarang!');
       return;
     }
-    if (!newAccountHandle.trim()) {
-      onAddToast('Handle akun (misal @smk_multikarya_official) wajib diisi!');
+    if (!safeHandle) {
+      onAddToast('Handle akun wajib diisi!');
       return;
     }
 
@@ -144,9 +153,9 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
     try {
       const res = await socialMediaService.addAccount({
         platform: newPlatform,
-        account_name: newAccountName.trim(),
-        account_handle: newAccountHandle.trim(),
-        account_url: newAccountUrl.trim() || '#',
+        account_name: safeName,
+        account_handle: safeHandle,
+        account_url: safeUrl,
       });
       onAddToast(res.message || 'Akun sosial media berhasil ditambahkan!');
       setIsAddAccountModalOpen(false);
@@ -161,14 +170,15 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
     }
   };
 
-  // Submit Simpan Metrik
+  // Submit Simpan Metrik (Protected with Input Sanitization)
   const handleSaveMetrics = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!accountToUpdate) return;
 
-    const start = Number(metricStartFollowers) || 0;
-    const end = Number(metricEndFollowers) || 0;
-    const posts = Number(metricPostsCount) || 0;
+    const start = Math.max(0, Number(metricStartFollowers) || 0);
+    const end = Math.max(0, Number(metricEndFollowers) || 0);
+    const posts = Math.max(0, Number(metricPostsCount) || 0);
+    const safeNotes = sanitizeTextInput(metricNotes);
 
     setIsSubmitting(true);
     try {
@@ -179,7 +189,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
         followers_start: start,
         followers_end: end,
         posts_count: posts,
-        notes: metricNotes.trim(),
+        notes: safeNotes,
       });
       onAddToast(res.message || 'Metrik perkembangan berhasil disimpan!');
       setIsMetricsModalOpen(false);
@@ -264,14 +274,14 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               Manajemen &amp; Rekapan
             </span>
             <span className="text-xs text-slate-400 font-medium">
-              Multi-Account &bull; Auto-Scan
+              Multi-Account &bull; Terverifikasi
             </span>
           </div>
           <h1 className="view-title" style={{ fontSize: '28px', fontWeight: 800, margin: 0 }}>
             Sosial Media Sekolah
           </h1>
           <p className="view-subtitle" style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '13.5px' }}>
-            Pantau pertumbuhan followers otomatis, evaluasi distribusi konten mingguan, dan integrasi multi-akun sekolah.
+            Pantau pertumbuhan followers, evaluasi distribusi konten mingguan, dan kelola multi-akun sekolah secara aman.
           </p>
         </div>
 
@@ -320,7 +330,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
             ))}
           </select>
 
-          {/* Tombol Pindai Semua Akun (Auto-Scan All) */}
+          {/* Tombol Pindai Semua Akun (Clean, Professional, No AI Slop) */}
           <button
             type="button"
             className="btn btn-secondary"
@@ -335,22 +345,23 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               borderRadius: '10px',
               fontSize: '13px',
               fontWeight: 700,
-              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              background: 'var(--primary-color, #4A55FF)',
               color: '#ffffff',
               border: 'none',
               cursor: isScanningAll ? 'not-allowed' : 'pointer',
-              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)',
+              boxShadow: '0 2px 8px rgba(74, 85, 255, 0.25)',
+              transition: 'opacity 0.2s ease',
             }}
           >
             {isScanningAll ? (
               <>
-                <Icon name="loader" className="spin" style={{ width: 15, height: 15 }} />
+                <Icon name="loader" className="spin" style={{ width: 14, height: 14 }} />
                 <span>Memindai Semua...</span>
               </>
             ) : (
               <>
-                <Icon name="zap" style={{ width: 15, height: 15 }} />
-                <span>⚡ Pindai Semua Akun</span>
+                <Icon name="refresh" style={{ width: 14, height: 14 }} />
+                <span>Pindai Semua Akun</span>
               </>
             )}
           </button>
@@ -538,12 +549,12 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               </span>
             </div>
             <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '6px' }}>
-              Mendukung multi-akun &amp; pemindaian cerdas
+              Mendukung multi-akun terhubung
             </div>
           </div>
         </div>
 
-        {/* Card 4: Periode Monitoring & Auto-Scan Status */}
+        {/* Card 4: Periode Monitoring (Clean Icon, No AI Slop) */}
         <div
           className="stat-card motion-fade-in"
           style={{
@@ -558,7 +569,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Sistem Auto-Scan
+              Sinkronisasi Berkala
             </span>
             <div
               style={{
@@ -572,7 +583,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Icon name="zap" style={{ width: 18, height: 18 }} />
+              <Icon name="refresh" style={{ width: 18, height: 18 }} />
             </div>
           </div>
           <div style={{ marginTop: '12px' }}>
@@ -580,7 +591,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
             </div>
             <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '8px' }}>
-              Pindai otomatis langsung memetakan konten per minggu M1-M4
+              Distribusi metrik dan postingan terbit per minggu M1–M4
             </div>
           </div>
         </div>
@@ -689,7 +700,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               Daftar Akun Sosial Media Sekolah
             </h3>
             <p style={{ fontSize: '12.5px', color: 'var(--muted)', marginTop: '2px', margin: 0 }}>
-              Pindai otomatis untuk sinkronisasi metrik real-time &amp; pantau pemetaan konten per minggu.
+              Pindai berkala untuk sinkronisasi metrik real-time &amp; pantau pemetaan konten per minggu.
             </p>
           </div>
 
@@ -776,7 +787,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               Belum Ada Akun Sosial Media
             </h4>
             <p style={{ fontSize: '13px', color: 'var(--muted)', maxWidth: '420px', margin: '0 auto 20px' }}>
-              Tambahkan akun media sosial sekolah (seperti Instagram Resmi, TikTok OSIS, Channel YouTube Humas, dll) untuk mulai melacak performanya secara otomatis.
+              Tambahkan akun media sosial sekolah (seperti Instagram Resmi, TikTok OSIS, Channel YouTube Humas, dll) untuk mulai melacak performanya.
             </p>
             <button
               type="button"
@@ -802,6 +813,9 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               const w2 = wb.week2 ?? wb.w2 ?? 0;
               const w3 = wb.week3 ?? wb.w3 ?? 0;
               const w4 = wb.week4 ?? wb.w4 ?? 0;
+
+              // Security: validate & sanitize external URL to prevent javascript: or open redirect XSS
+              const safeExternalUrl = sanitizeExternalUrl(account.account_url);
 
               return (
                 <div
@@ -848,10 +862,10 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                         </div>
                       </div>
 
-                      {/* External profile link */}
-                      {account.account_url && account.account_url !== '#' && (
+                      {/* External profile link (Sanitized with safe protocol & noopener noreferrer) */}
+                      {safeExternalUrl && (
                         <a
-                          href={account.account_url}
+                          href={safeExternalUrl}
                           target="_blank"
                           rel="noopener noreferrer"
                           title="Buka profil di tab baru"
@@ -896,7 +910,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                       <span>
                         {account.last_synced_at
                           ? `Terakhir dipindai: ${account.last_synced_at}`
-                          : 'Belum pernah dipindai otomatis'}
+                          : 'Belum pernah dipindai'}
                       </span>
                     </div>
 
@@ -1055,9 +1069,9 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Actions Footer: Tombol Pindai (⚡), Edit Manual (✏️), dan Hapus (🗑️) */}
+                  {/* Actions Footer: Tombol Pindai (Clean), Edit Manual, dan Hapus */}
                   <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--line-soft)' }}>
-                    {/* Tombol Auto-Scan Akun ini */}
+                    {/* Tombol Pindai Akun ini (Clean Professional Button, No AI Slop) */}
                     <button
                       type="button"
                       onClick={() => handleAutoScanSingle(account)}
@@ -1072,11 +1086,11 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '5px',
-                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        background: 'var(--primary-color, #4A55FF)',
                         color: '#ffffff',
                         border: 'none',
                         cursor: isScanningThis ? 'not-allowed' : 'pointer',
-                        boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)',
+                        boxShadow: '0 2px 6px rgba(74, 85, 255, 0.2)',
                       }}
                       title="Pindai followers dan hitung postingan akun ini secara otomatis"
                     >
@@ -1087,8 +1101,8 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                         </>
                       ) : (
                         <>
-                          <Icon name="zap" style={{ width: 13, height: 13 }} />
-                          <span>⚡ Pindai</span>
+                          <Icon name="refresh" style={{ width: 13, height: 13 }} />
+                          <span>Pindai</span>
                         </>
                       )}
                     </button>
@@ -1242,6 +1256,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                   placeholder="Misal: Akun Utama Sekolah, OSIS SMK, Humas"
                   value={newAccountName}
                   onChange={(e) => setNewAccountName(e.target.value)}
+                  maxLength={100}
                   required
                   style={{
                     width: '100%',
@@ -1264,6 +1279,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                   placeholder="Misal: @smk_multikarya_official"
                   value={newAccountHandle}
                   onChange={(e) => setNewAccountHandle(e.target.value)}
+                  maxLength={60}
                   required
                   style={{
                     width: '100%',
@@ -1286,6 +1302,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                   placeholder="https://www.instagram.com/smk_multikarya_official/"
                   value={newAccountUrl}
                   onChange={(e) => setNewAccountUrl(e.target.value)}
+                  maxLength={255}
                   style={{
                     width: '100%',
                     padding: '10px 14px',
@@ -1496,9 +1513,10 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="Misal: Penambahan followers didorong oleh video reels viral peringatan HUT sekolah..."
+                  placeholder="Misal: Penambahan followers didorong oleh publikasi liputan kegiatan sekolah..."
                   value={metricNotes}
                   onChange={(e) => setMetricNotes(e.target.value)}
+                  maxLength={300}
                   style={{
                     width: '100%',
                     padding: '9px 12px',

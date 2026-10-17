@@ -21,25 +21,25 @@ export const maskEmail = (email: string): string => {
  */
 export const openWebmail = (email: string) => {
   if (!email || !email.includes('@')) {
-    window.open('https://mail.google.com', '_blank');
+    window.open('https://mail.google.com', '_blank', 'noopener,noreferrer');
     return;
   }
   const domain = email.split('@')[1]?.toLowerCase().trim();
   if (domain === 'gmail.com' || domain === 'googlemail.com') {
-    window.open('https://mail.google.com', '_blank');
+    window.open('https://mail.google.com', '_blank', 'noopener,noreferrer');
   } else if (domain === 'yahoo.com' || domain === 'ymail.com') {
-    window.open('https://mail.yahoo.com', '_blank');
+    window.open('https://mail.yahoo.com', '_blank', 'noopener,noreferrer');
   } else if (
     domain === 'outlook.com' ||
     domain === 'hotmail.com' ||
     domain === 'live.com' ||
     domain === 'msn.com'
   ) {
-    window.open('https://outlook.live.com', '_blank');
+    window.open('https://outlook.live.com', '_blank', 'noopener,noreferrer');
   } else if (domain === 'icloud.com') {
-    window.open('https://www.icloud.com/mail', '_blank');
-  } else {
-    window.open(`https://${domain}`, '_blank');
+    window.open('https://www.icloud.com/mail', '_blank', 'noopener,noreferrer');
+  } else if (/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)) {
+    window.open(`https://${domain}`, '_blank', 'noopener,noreferrer');
   }
 };
 

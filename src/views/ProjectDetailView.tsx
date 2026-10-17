@@ -508,7 +508,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                         <div className="flex gap-2 pt-1">
                           <button
                             type="button"
-                            onClick={() => window.open(previewUrl, '_blank')}
+                            onClick={() => window.open(previewUrl, '_blank', 'noopener,noreferrer')}
                             className="flex-1 py-1.5 bg-white text-slate-900 rounded-lg text-xs font-bold hover:bg-slate-100 transition cursor-pointer"
                           >
                             Buka

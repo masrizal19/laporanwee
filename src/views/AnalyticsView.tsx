@@ -86,7 +86,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     const month = selectedMonth || (new Date().getMonth() + 1);
     const year = selectedYear || new Date().getFullYear();
     const url = `/analitik/exporlaporan?month=${month}&year=${year}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
     setIsExportOpen(false);
     onAddToast(`Membuka preview cetak laporan bulan ${month}/${year}...`);
   };
@@ -95,7 +95,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     const month = selectedMonth || (new Date().getMonth() + 1);
     const year = selectedYear || new Date().getFullYear();
     const url = `/analitik/exporlaporan?month=${month}&year=${year}&format=jpg`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
     setIsExportOpen(false);
     onAddToast(`Mengekspor gambar laporan (.jpg) bulan ${month}/${year}...`);
   };
@@ -104,7 +104,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     const month = selectedMonth || (new Date().getMonth() + 1);
     const year = selectedYear || new Date().getFullYear();
     const url = `/analitik/editlaporan?month=${month}&year=${year}`;
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
     setIsExportOpen(false);
     onAddToast('Membuka editor desain rekap laporan...');
   };
