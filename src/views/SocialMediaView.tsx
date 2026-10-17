@@ -15,6 +15,11 @@ const MONTH_NAMES = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
+const MONTH_SHORT = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+  'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+];
+
 const PLATFORMS = [
   { id: 'Instagram', name: 'Instagram', icon: 'instagram', color: '#E1306C', bg: 'rgba(225, 48, 108, 0.1)' },
   { id: 'TikTok', name: 'TikTok', icon: 'tiktok', color: '#000000', bg: 'rgba(0, 0, 0, 0.08)' },
@@ -39,6 +44,10 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
   const [selectedPlatformFilter, setSelectedPlatformFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
+  // Scanning State
+  const [isScanningAll, setIsScanningAll] = useState<boolean>(false);
+  const [scanningAccountId, setScanningAccountId] = useState<number | string | null>(null);
+
   // Modal States
   const [isAddAccountModalOpen, setIsAddAccountModalOpen] = useState(false);
   const [isMetricsModalOpen, setIsMetricsModalOpen] = useState(false);
@@ -59,8 +68,8 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
   const [metricNotes, setMetricNotes] = useState('');
 
   // Fetch Data
-  const fetchData = async () => {
-    setIsLoading(true);
+  const fetchData = async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
     try {
       const res = await socialMediaService.getData(selectedMonth, selectedYear);
       setData(res);
@@ -68,7 +77,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
       console.error('[SocialMedia] Fetch error:', err);
       onAddToast(formatApiErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   };
 
@@ -76,7 +85,40 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
     fetchData();
   }, [selectedMonth, selectedYear]);
 
-  // Open Metrics Modal
+  // Handle Auto-Scan Semua Akun
+  const handleAutoScanAll = async () => {
+    if (isScanningAll) return;
+    setIsScanningAll(true);
+    try {
+      const res = await socialMediaService.autoScan();
+      const count = res.synced_accounts || res.results?.length || (data?.accounts?.length || 0);
+      onAddToast(res.message || `Sukses memindai ${count} akun secara otomatis`);
+      await fetchData(false);
+    } catch (err: any) {
+      console.error('[SocialMedia] Auto-scan all error:', err);
+      onAddToast(formatApiErrorMessage(err) || 'Gagal memindai akun secara otomatis.');
+    } finally {
+      setIsScanningAll(false);
+    }
+  };
+
+  // Handle Auto-Scan Satu Akun
+  const handleAutoScanSingle = async (account: SocialMediaAccount) => {
+    if (scanningAccountId !== null) return;
+    setScanningAccountId(account.id);
+    try {
+      const res = await socialMediaService.autoScan(account.id);
+      onAddToast(res.message || `Sukses memindai akun ${account.account_name}`);
+      await fetchData(false);
+    } catch (err: any) {
+      console.error('[SocialMedia] Auto-scan single error:', err);
+      onAddToast(formatApiErrorMessage(err) || `Gagal memindai akun ${account.account_name}`);
+    } finally {
+      setScanningAccountId(null);
+    }
+  };
+
+  // Open Metrics Modal (Manual override)
   const openMetricsModal = (account: SocialMediaAccount) => {
     setAccountToUpdate(account);
     setMetricStartFollowers(account.followers_start !== undefined ? account.followers_start : 0);
@@ -94,7 +136,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
       return;
     }
     if (!newAccountHandle.trim()) {
-      onAddToast('Handle akun (misal @smk_official) wajib diisi!');
+      onAddToast('Handle akun (misal @smk_multikarya_official) wajib diisi!');
       return;
     }
 
@@ -208,24 +250,28 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
     return '#6366f1';
   };
 
+  // Short month name for weekly labels
+  const shortMonth = MONTH_SHORT[selectedMonth - 1] || 'Bln';
+  const lastDayOfMonth = new Date(selectedYear, selectedMonth, 0).getDate();
+
   return (
     <div className="analytics-view motion-fade-in" style={{ paddingBottom: '60px' }}>
       {/* Top Header & Filters */}
-      <div className="view-header" style={{ marginBottom: '24px' }}>
+      <div className="view-header motion-fade-in" style={{ marginBottom: '24px' }}>
         <div className="header-left">
           <div className="flex items-center gap-2 mb-1.5">
             <span className="px-3 py-0.5 text-xs font-semibold rounded-full bg-violet-100 text-violet-700 border border-violet-200">
               Manajemen &amp; Rekapan
             </span>
             <span className="text-xs text-slate-400 font-medium">
-              Multi-Account System
+              Multi-Account &bull; Auto-Scan
             </span>
           </div>
           <h1 className="view-title" style={{ fontSize: '28px', fontWeight: 800, margin: 0 }}>
             Sosial Media Sekolah
           </h1>
           <p className="view-subtitle" style={{ marginTop: '4px', color: 'var(--muted)', fontSize: '13.5px' }}>
-            Pantau pertumbuhan followers, aktivitas publikasi konten, dan evaluasi performa seluruh channel media sosial.
+            Pantau pertumbuhan followers otomatis, evaluasi distribusi konten mingguan, dan integrasi multi-akun sekolah.
           </p>
         </div>
 
@@ -274,11 +320,46 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
             ))}
           </select>
 
+          {/* Tombol Pindai Semua Akun (Auto-Scan All) */}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={handleAutoScanAll}
+            disabled={isScanningAll || isLoading}
+            title="Pindai followers dan konten seluruh akun secara otomatis"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '7px',
+              padding: '8px 16px',
+              borderRadius: '10px',
+              fontSize: '13px',
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+              color: '#ffffff',
+              border: 'none',
+              cursor: isScanningAll ? 'not-allowed' : 'pointer',
+              boxShadow: '0 2px 8px rgba(245, 158, 11, 0.3)',
+            }}
+          >
+            {isScanningAll ? (
+              <>
+                <Icon name="loader" className="spin" style={{ width: 15, height: 15 }} />
+                <span>Memindai Semua...</span>
+              </>
+            ) : (
+              <>
+                <Icon name="zap" style={{ width: 15, height: 15 }} />
+                <span>⚡ Pindai Semua Akun</span>
+              </>
+            )}
+          </button>
+
           {/* Refresh Button */}
           <button
             type="button"
             className="icon-btn"
-            onClick={fetchData}
+            onClick={() => fetchData()}
             title="Muat ulang data"
             style={{
               padding: '8px',
@@ -313,10 +394,10 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
       </div>
 
       {/* Bento Grid: Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8 motion-fade-in">
         {/* Card 1: Total Pertumbuhan Followers */}
         <div
-          className="stat-card"
+          className="stat-card motion-fade-in"
           style={{
             background: 'var(--paper)',
             borderRadius: '20px',
@@ -374,7 +455,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
 
         {/* Card 2: Total Konten Terupload */}
         <div
-          className="stat-card"
+          className="stat-card motion-fade-in"
           style={{
             background: 'var(--paper)',
             borderRadius: '20px',
@@ -419,7 +500,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
 
         {/* Card 3: Akun Aktif Terkelola */}
         <div
-          className="stat-card"
+          className="stat-card motion-fade-in"
           style={{
             background: 'var(--paper)',
             borderRadius: '20px',
@@ -457,14 +538,14 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               </span>
             </div>
             <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '6px' }}>
-              Mendukung multi-akun per platform
+              Mendukung multi-akun &amp; pemindaian cerdas
             </div>
           </div>
         </div>
 
-        {/* Card 4: Periode Monitoring */}
+        {/* Card 4: Periode Monitoring & Auto-Scan Status */}
         <div
-          className="stat-card"
+          className="stat-card motion-fade-in"
           style={{
             background: 'var(--paper)',
             borderRadius: '20px',
@@ -477,7 +558,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Status Sinkronisasi
+              Sistem Auto-Scan
             </span>
             <div
               style={{
@@ -491,7 +572,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                 justifyContent: 'center',
               }}
             >
-              <Icon name="clock" style={{ width: 18, height: 18 }} />
+              <Icon name="zap" style={{ width: 18, height: 18 }} />
             </div>
           </div>
           <div style={{ marginTop: '12px' }}>
@@ -499,14 +580,14 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
             </div>
             <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '8px' }}>
-              Tersinkronisasi otomatis dengan server MySQL mkverse.my.id
+              Pindai otomatis langsung memetakan konten per minggu M1-M4
             </div>
           </div>
         </div>
       </div>
 
       {/* Grid: Platform Breakdown */}
-      <div className="mb-8">
+      <div className="mb-8 motion-fade-in">
         <h3 style={{ fontSize: '15px', fontWeight: 800, marginBottom: '14px', color: 'var(--text)' }}>
           Akumulasi Performa Platform
         </h3>
@@ -519,6 +600,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               return (
                 <div
                   key={platformKey}
+                  className="motion-fade-in"
                   style={{
                     background: 'var(--paper)',
                     borderRadius: '16px',
@@ -600,14 +682,14 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
       </div>
 
       {/* Multi-Account Management Section */}
-      <div style={{ marginTop: '32px' }}>
+      <div style={{ marginTop: '32px' }} className="motion-fade-in">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px', flexWrap: 'wrap', gap: '12px' }}>
           <div>
             <h3 style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text)', margin: 0 }}>
               Daftar Akun Sosial Media Sekolah
             </h3>
             <p style={{ fontSize: '12.5px', color: 'var(--muted)', marginTop: '2px', margin: 0 }}>
-              Kelola metrik bulanan per akun dan lihat riwayat perubahan secara detail.
+              Pindai otomatis untuk sinkronisasi metrik real-time &amp; pantau pemetaan konten per minggu.
             </p>
           </div>
 
@@ -666,6 +748,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
           </div>
         ) : filteredAccounts.length === 0 ? (
           <div
+            className="motion-fade-in"
             style={{
               padding: '48px 24px',
               textAlign: 'center',
@@ -693,7 +776,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               Belum Ada Akun Sosial Media
             </h4>
             <p style={{ fontSize: '13px', color: 'var(--muted)', maxWidth: '420px', margin: '0 auto 20px' }}>
-              Tambahkan akun media sosial sekolah (seperti Instagram Resmi, TikTok OSIS, Channel YouTube Humas, dll) untuk mulai melacak performanya.
+              Tambahkan akun media sosial sekolah (seperti Instagram Resmi, TikTok OSIS, Channel YouTube Humas, dll) untuk mulai melacak performanya secara otomatis.
             </p>
             <button
               type="button"
@@ -711,33 +794,40 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
               const brandColor = getPlatformColor(account.platform);
               const growthVal = account.growth !== undefined ? account.growth : (account.followers_end || 0) - (account.followers_start || 0);
               const isPositive = growthVal >= 0;
+              const isScanningThis = scanningAccountId === account.id;
+
+              // Weekly breakdown calculation
+              const wb = account.weekly_breakdown || {};
+              const w1 = wb.week1 ?? wb.w1 ?? 0;
+              const w2 = wb.week2 ?? wb.w2 ?? 0;
+              const w3 = wb.week3 ?? wb.w3 ?? 0;
+              const w4 = wb.week4 ?? wb.w4 ?? 0;
 
               return (
                 <div
                   key={account.id}
+                  className="motion-fade-in hover:shadow-lg transition-all"
                   style={{
                     background: 'var(--paper)',
-                    borderRadius: '20px',
+                    borderRadius: '22px',
                     border: '1px solid var(--line-soft)',
-                    boxShadow: '0 4px 16px rgba(0,0,0,0.03)',
+                    boxShadow: '0 4px 18px rgba(0,0,0,0.03)',
                     padding: '20px',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
                     position: 'relative',
-                    transition: 'transform 0.2s, box-shadow 0.2s',
                   }}
-                  className="hover:shadow-lg transition-all"
                 >
-                  {/* Card Header: Platform, Name, Handle, External link */}
+                  {/* Card Header: Platform, Name, Handle, External link, and Last Synced status */}
                   <div>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <div
                           style={{
-                            width: 40,
-                            height: 40,
-                            borderRadius: '12px',
+                            width: 42,
+                            height: 42,
+                            borderRadius: '13px',
                             background: `${brandColor}18`,
                             color: brandColor,
                             display: 'flex',
@@ -746,13 +836,13 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                             flexShrink: 0,
                           }}
                         >
-                          <Icon name={platformIcon} style={{ width: 20, height: 20 }} />
+                          <Icon name={platformIcon} style={{ width: 21, height: 21 }} />
                         </div>
                         <div>
                           <h4 style={{ margin: 0, fontSize: '15px', fontWeight: 800, color: 'var(--text)' }}>
                             {account.account_name}
                           </h4>
-                          <span style={{ fontSize: '12.5px', color: 'var(--muted)', fontWeight: 500 }}>
+                          <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 500 }}>
                             {account.account_handle}
                           </span>
                         </div>
@@ -783,91 +873,255 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                       )}
                     </div>
 
-                    {/* Metrics Display Box for Selected Period */}
+                    {/* Status Terakhir Dipindai */}
                     <div
                       style={{
-                        marginTop: '16px',
+                        marginTop: '10px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        fontSize: '11px',
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      <span
+                        style={{
+                          width: 6,
+                          height: 6,
+                          borderRadius: '50%',
+                          background: account.last_synced_at ? '#10b981' : '#94a3b8',
+                          display: 'inline-block',
+                        }}
+                      />
+                      <span>
+                        {account.last_synced_at
+                          ? `Terakhir dipindai: ${account.last_synced_at}`
+                          : 'Belum pernah dipindai otomatis'}
+                      </span>
+                    </div>
+
+                    {/* Metrik Utama Box (Awal, Akhir, Kenaikan Bersih, Total Post) */}
+                    <div
+                      style={{
+                        marginTop: '14px',
                         padding: '14px',
                         background: 'var(--subtle)',
-                        borderRadius: '14px',
+                        borderRadius: '16px',
                         border: '1px solid var(--line-soft)',
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
-                          Periode: {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            padding: '2px 8px',
-                            borderRadius: '6px',
-                            fontWeight: 700,
-                            background: isPositive ? '#ecfdf5' : '#fef2f2',
-                            color: isPositive ? '#059669' : '#dc2626',
-                          }}
-                        >
-                          {growthVal > 0 ? `+${growthVal.toLocaleString()}` : growthVal.toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-2 text-center pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                      <div className="grid grid-cols-2 gap-3 mb-2 pb-2 border-b border-slate-200/60 dark:border-slate-700/60">
                         <div>
-                          <div style={{ fontSize: '10.5px', color: 'var(--muted)' }}>Awal Bulan</div>
-                          <div style={{ fontSize: '13.5px', fontWeight: 800, marginTop: '2px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600 }}>Awal Bulan</div>
+                          <div style={{ fontSize: '16px', fontWeight: 800, marginTop: '2px', color: 'var(--text)' }}>
                             {(account.followers_start || 0).toLocaleString()}
                           </div>
                         </div>
                         <div>
-                          <div style={{ fontSize: '10.5px', color: 'var(--muted)' }}>Akhir Bulan</div>
-                          <div style={{ fontSize: '13.5px', fontWeight: 800, marginTop: '2px' }}>
+                          <div style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600 }}>Akhir Bulan</div>
+                          <div style={{ fontSize: '16px', fontWeight: 800, marginTop: '2px', color: 'var(--text)' }}>
                             {(account.followers_end || 0).toLocaleString()}
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '10.5px', color: 'var(--muted)' }}>Konten Terbit</div>
-                          <div style={{ fontSize: '13.5px', fontWeight: 800, marginTop: '2px', color: 'var(--primary-color, #4A55FF)' }}>
-                            {account.posts_count || 0}
                           </div>
                         </div>
                       </div>
 
+                      <div className="flex items-center justify-between gap-2 pt-1">
+                        <div>
+                          <div style={{ fontSize: '10.5px', color: 'var(--muted)', fontWeight: 600, marginBottom: '2px' }}>
+                            Kenaikan Bersih
+                          </div>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              fontSize: '11.5px',
+                              padding: '2px 8px',
+                              borderRadius: '6px',
+                              fontWeight: 800,
+                              background: isPositive ? '#ecfdf5' : '#fef2f2',
+                              color: isPositive ? '#059669' : '#dc2626',
+                              border: isPositive ? '1px solid #a7f3d0' : '1px solid #fecaca',
+                            }}
+                          >
+                            {growthVal > 0 ? `+${growthVal.toLocaleString()}` : growthVal.toLocaleString()}
+                          </span>
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: '10.5px', color: 'var(--muted)', fontWeight: 600, marginBottom: '2px' }}>
+                            Total Konten Terbit
+                          </div>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              fontSize: '11.5px',
+                              padding: '2px 9px',
+                              borderRadius: '6px',
+                              fontWeight: 800,
+                              background: 'rgba(74, 85, 255, 0.1)',
+                              color: 'var(--primary-color, #4A55FF)',
+                              border: '1px solid rgba(74, 85, 255, 0.2)',
+                            }}
+                          >
+                            {account.posts_count || 0} Post
+                          </span>
+                        </div>
+                      </div>
+
                       {account.notes && (
-                        <div style={{ marginTop: '8px', fontSize: '11.5px', color: 'var(--muted)', fontStyle: 'italic', borderTop: '1px dashed var(--line-soft)', paddingTop: '6px' }}>
+                        <div style={{ marginTop: '8px', fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic', borderTop: '1px dashed var(--line-soft)', paddingTop: '6px' }}>
                           "{account.notes}"
                         </div>
                       )}
                     </div>
+
+                    {/* Tampilan Distribusi Konten Per Minggu (Bento Row M1, M2, M3, M4) */}
+                    <div style={{ marginTop: '12px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>
+                        Distribusi Konten Mingguan
+                      </div>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {/* M1: 1-7 */}
+                        <div
+                          style={{
+                            padding: '8px 4px',
+                            borderRadius: '10px',
+                            background: 'var(--paper)',
+                            border: '1px solid var(--line-soft)',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--muted)' }}>
+                            M1 (1-7 {shortMonth})
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                            {w1} <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--muted)' }}>post</span>
+                          </div>
+                        </div>
+
+                        {/* M2: 8-14 */}
+                        <div
+                          style={{
+                            padding: '8px 4px',
+                            borderRadius: '10px',
+                            background: 'var(--paper)',
+                            border: '1px solid var(--line-soft)',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--muted)' }}>
+                            M2 (8-14 {shortMonth})
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                            {w2} <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--muted)' }}>post</span>
+                          </div>
+                        </div>
+
+                        {/* M3: 15-21 */}
+                        <div
+                          style={{
+                            padding: '8px 4px',
+                            borderRadius: '10px',
+                            background: 'var(--paper)',
+                            border: '1px solid var(--line-soft)',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--muted)' }}>
+                            M3 (15-21 {shortMonth})
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                            {w3} <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--muted)' }}>post</span>
+                          </div>
+                        </div>
+
+                        {/* M4: 22-End */}
+                        <div
+                          style={{
+                            padding: '8px 4px',
+                            borderRadius: '10px',
+                            background: 'var(--paper)',
+                            border: '1px solid var(--line-soft)',
+                            textAlign: 'center',
+                          }}
+                        >
+                          <div style={{ fontSize: '9.5px', fontWeight: 600, color: 'var(--muted)' }}>
+                            M4 (22-{lastDayOfMonth} {shortMonth})
+                          </div>
+                          <div style={{ fontSize: '13px', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                            {w4} <span style={{ fontSize: '9.5px', fontWeight: 500, color: 'var(--muted)' }}>post</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Actions Footer */}
+                  {/* Actions Footer: Tombol Pindai (⚡), Edit Manual (✏️), dan Hapus (🗑️) */}
                   <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', paddingTop: '12px', borderTop: '1px solid var(--line-soft)' }}>
+                    {/* Tombol Auto-Scan Akun ini */}
                     <button
                       type="button"
-                      className="btn btn-primary"
-                      onClick={() => openMetricsModal(account)}
+                      onClick={() => handleAutoScanSingle(account)}
+                      disabled={isScanningThis || isScanningAll}
                       style={{
-                        flex: 1,
+                        flex: 1.2,
                         padding: '7px 12px',
                         borderRadius: '9px',
-                        fontSize: '12.5px',
+                        fontSize: '12px',
                         fontWeight: 700,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: '5px',
+                        background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                        color: '#ffffff',
+                        border: 'none',
+                        cursor: isScanningThis ? 'not-allowed' : 'pointer',
+                        boxShadow: '0 2px 6px rgba(245, 158, 11, 0.25)',
                       }}
+                      title="Pindai followers dan hitung postingan akun ini secara otomatis"
                     >
-                      <Icon name="pencil" style={{ width: 13, height: 13 }} />
-                      <span>Input Metrik</span>
+                      {isScanningThis ? (
+                        <>
+                          <Icon name="loader" className="spin" style={{ width: 13, height: 13 }} />
+                          <span>Memindai...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="zap" style={{ width: 13, height: 13 }} />
+                          <span>⚡ Pindai</span>
+                        </>
+                      )}
                     </button>
 
+                    {/* Tombol Edit Metrik Manual */}
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={() => openMetricsModal(account)}
+                      style={{
+                        flex: 1,
+                        padding: '7px 10px',
+                        borderRadius: '9px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '4px',
+                      }}
+                      title="Edit atau override metrik manual"
+                    >
+                      <Icon name="pencil" style={{ width: 12, height: 12 }} />
+                      <span>Edit</span>
+                    </button>
+
+                    {/* Tombol Hapus Akun */}
                     <button
                       type="button"
                       title="Hapus Akun"
                       onClick={() => setAccountToDelete(account)}
                       style={{
-                        padding: '7px 10px',
+                        padding: '7px 9px',
                         borderRadius: '9px',
                         background: 'transparent',
                         border: '1px solid var(--line-soft)',
@@ -876,7 +1130,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                       }}
                       className="hover:text-red-600 hover:border-red-300 transition"
                     >
-                      <Icon name="trash" style={{ width: 14, height: 14 }} />
+                      <Icon name="trash" style={{ width: 13, height: 13 }} />
                     </button>
                   </div>
                 </div>
@@ -889,6 +1143,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
       {/* MODAL: TAMBAH AKUN BARU */}
       {isAddAccountModalOpen && (
         <div
+          className="motion-fade-in"
           style={{
             position: 'fixed',
             inset: 0,
@@ -1006,7 +1261,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                 </label>
                 <input
                   type="text"
-                  placeholder="Misal: @smk_official"
+                  placeholder="Misal: @smk_multikarya_official"
                   value={newAccountHandle}
                   onChange={(e) => setNewAccountHandle(e.target.value)}
                   required
@@ -1028,7 +1283,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
                 </label>
                 <input
                   type="url"
-                  placeholder="https://instagram.com/smk_official"
+                  placeholder="https://www.instagram.com/smk_multikarya_official/"
                   value={newAccountUrl}
                   onChange={(e) => setNewAccountUrl(e.target.value)}
                   style={{
@@ -1071,9 +1326,10 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
         </div>
       )}
 
-      {/* MODAL: INPUT / UPDATE METRIK BULANAN */}
+      {/* MODAL: INPUT / UPDATE METRIK BULANAN (MANUAL OVERRIDE) */}
       {isMetricsModalOpen && accountToUpdate && (
         <div
+          className="motion-fade-in"
           style={{
             position: 'fixed',
             inset: 0,
@@ -1287,6 +1543,7 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
       {/* MODAL: KONFIRMASI HAPUS AKUN */}
       {accountToDelete && (
         <div
+          className="motion-fade-in"
           style={{
             position: 'fixed',
             inset: 0,

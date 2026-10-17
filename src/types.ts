@@ -283,6 +283,17 @@ export interface SocialMediaSummary {
   by_platform: Record<string, SocialMediaPlatformSummary>;
 }
 
+export interface WeeklyBreakdown {
+  week1?: number;
+  week2?: number;
+  week3?: number;
+  week4?: number;
+  w1?: number;
+  w2?: number;
+  w3?: number;
+  w4?: number;
+}
+
 export interface SocialMediaAccount {
   id: number | string;
   platform: string;
@@ -296,6 +307,8 @@ export interface SocialMediaAccount {
   posts_count?: number;
   has_uploaded?: boolean;
   notes?: string;
+  last_synced_at?: string;
+  weekly_breakdown?: WeeklyBreakdown;
   created_at?: string;
   updated_at?: string;
 }

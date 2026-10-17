@@ -2314,6 +2314,11 @@ export const socialMediaService = {
       account_id: accountId,
     });
   },
+
+  autoScan: async (accountId?: number | string) => {
+    const body = accountId !== undefined ? { account_id: accountId } : {};
+    return await api.post('/social-media/index.php?action=auto_scan', body);
+  },
 };
 
 
