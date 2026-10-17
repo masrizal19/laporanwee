@@ -66,6 +66,20 @@ button {
   font-family: 'Caveat', cursive;
 }
 
+/* CSS Motion Keyframes for Bento Gallery */
+.motion-fade-in { 
+  animation: fadeIn 1.2s ease-out forwards; 
+}
+
+@keyframes fadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.dense {
+  grid-auto-flow: dense;
+}
+
 /* ---------- Layout shell ---------- */
 #app-shell {
   min-height: 100vh;
