@@ -11,6 +11,9 @@ import {
   PriorityLevel,
   DailyReportFile,
   PublicProfile,
+  SocialMediaDataResponse,
+  SocialMediaAccount,
+  SocialMediaSummary,
 } from '../types';
 
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
@@ -2270,6 +2273,46 @@ export const profileAvatarService = {
 
   getCached: (userId: string | number): PublicProfile | undefined => {
     return profileAvatarCache.get(String(userId).trim());
+  },
+};
+
+export const socialMediaService = {
+  getData: async (month: number, year: number): Promise<SocialMediaDataResponse> => {
+    return await api.get(`/social-media/index.php?month=${month}&year=${year}`);
+  },
+
+  addAccount: async (payload: {
+    platform: string;
+    account_name: string;
+    account_handle: string;
+    account_url: string;
+  }) => {
+    return await api.post('/social-media/index.php', {
+      action: 'add_account',
+      ...payload,
+    });
+  },
+
+  saveMetrics: async (payload: {
+    account_id: number | string;
+    month: number;
+    year: number;
+    followers_start: number;
+    followers_end: number;
+    posts_count: number;
+    notes?: string;
+  }) => {
+    return await api.post('/social-media/index.php', {
+      action: 'save_metrics',
+      ...payload,
+    });
+  },
+
+  deleteAccount: async (accountId: number | string) => {
+    return await api.post('/social-media/index.php', {
+      action: 'delete_account',
+      account_id: accountId,
+    });
   },
 };
 

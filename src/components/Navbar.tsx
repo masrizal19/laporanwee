@@ -60,6 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'projects', label: 'Proyek', icon: 'folder' },
     { view: 'reports', label: 'Laporan', icon: 'doc' },
     { view: 'tasks', label: 'Tugas', icon: 'checksq' },
+    { view: 'social-media', label: 'Sosial Media', icon: 'share' },
     { view: 'team', label: 'Tim', icon: 'users' },
     { view: 'calendar', label: 'Kalender', icon: 'calendar' },
     { view: 'analytics', label: 'Analitik', icon: 'chart' },
@@ -271,6 +272,22 @@ export const Navbar: React.FC<NavbarProps> = ({
                   )}
                 </div>
                 <span>Statistik & Analitik</span>
+              </div>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setShowProfile(false);
+                  onNavigate('social-media');
+                }}
+              >
+                <div className="icon-wrapper">
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="share" className="profile-menu-icon" />
+                  )}
+                </div>
+                <span>Sosial Media Sekolah</span>
               </div>
               <div
                 className="dropdown-item"

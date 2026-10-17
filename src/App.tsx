@@ -30,6 +30,7 @@ import { ProfileView } from './views/ProfileView';
 import { ProfileCropView } from './views/ProfileCropView';
 import { UserProfileView } from './views/UserProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
+import { SocialMediaView } from './views/SocialMediaView';
 import { AdminUISettingsView } from './views/AdminUISettingsView';
 import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
@@ -393,6 +394,8 @@ export function App() {
     '/analitik/editlaporan': 'edit-laporan',
     '/admin/ui-settings': 'ui-settings',
     '/ui-settings': 'ui-settings',
+    '/sosial-media': 'social-media',
+    '/social-media': 'social-media',
     '/profil': 'profile',
     '/profile': 'profile',
     '/profil/crop': 'profile-crop',
@@ -413,6 +416,7 @@ export function App() {
     'profile-crop': '/profil/crop',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
+    'social-media': '/sosial-media',
     'ui-settings': '/admin/ui-settings',
     'export-laporan': '/analitik/exporlaporan',
     'edit-laporan': '/analitik/editlaporan',
@@ -2033,6 +2037,15 @@ export function App() {
             onNavigate={handleNavigate}
             onAddToast={addToast}
             onRefresh={refreshAnalyticsFromApi}
+            currentUser={user}
+            isAdmin={isAdmin}
+          />
+        )}
+
+        {currentView === 'social-media' && (
+          <SocialMediaView
+            onNavigate={handleNavigate}
+            onAddToast={addToast}
             currentUser={user}
             isAdmin={isAdmin}
           />

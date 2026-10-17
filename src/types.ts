@@ -14,7 +14,8 @@ export type ViewType =
   | 'analytics'
   | 'ui-settings'
   | 'export-laporan'
-  | 'edit-laporan';
+  | 'edit-laporan'
+  | 'social-media';
 
 export interface UISettings {
   id?: number;
@@ -265,4 +266,46 @@ export interface CalendarEvent {
 export interface ToastMessage {
   id: string;
   text: string;
+}
+
+export interface SocialMediaPlatformSummary {
+  accounts_count: number;
+  start_followers: number;
+  end_followers: number;
+  growth: number;
+  posts_count: number;
+}
+
+export interface SocialMediaSummary {
+  total_accounts: number;
+  total_growth: number;
+  total_posts: number;
+  by_platform: Record<string, SocialMediaPlatformSummary>;
+}
+
+export interface SocialMediaAccount {
+  id: number | string;
+  platform: string;
+  account_name: string;
+  account_handle: string;
+  account_url: string;
+  followers_start?: number;
+  followers_end?: number;
+  growth?: number;
+  growth_label?: string;
+  posts_count?: number;
+  has_uploaded?: boolean;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface SocialMediaDataResponse {
+  success: boolean;
+  period: {
+    month: number;
+    year: number;
+  };
+  summary: SocialMediaSummary;
+  accounts: SocialMediaAccount[];
 }
