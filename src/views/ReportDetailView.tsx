@@ -801,28 +801,165 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
             </p>
 
             {allDocs.length > 0 ? (
-              <div className="attach-grid" style={{ marginTop: '14px' }}>
-                {allDocs.map((doc) => (
-                  <a
-                    key={doc.id}
-                    href={doc.file_url || `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="attach-card"
-                    style={{ textDecoration: 'none', color: 'inherit' }}
-                    title={`Buka berkas asli ${doc.original_name}`}
-                  >
-                    <div className="attach-thumb" style={{ background: 'var(--paper)' }}>
-                      <Icon name={doc.file_type === 'image' ? 'image' : doc.file_type === 'video' ? 'video' : 'doc'} />
-                    </div>
-                    <div className="attach-meta">
-                      <div className="fn">{doc.original_name}</div>
-                      <div className="fs">
-                        {doc.file_size_formatted || (doc.file_size ? `${Math.round(doc.file_size / 1024)} KB` : 'Dokumen')} &bull; Asli
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+                  gap: '14px',
+                  marginTop: '14px',
+                }}
+              >
+                {allDocs.map((doc) => {
+                  const isImg =
+                    Boolean((doc as any).is_image) ||
+                    doc.file_type === 'image' ||
+                    /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(doc.file_url || (doc as any).url || doc.original_name);
+                  const isVid =
+                    doc.file_type === 'video' ||
+                    Boolean((doc as any).mime_type?.startsWith('video/')) ||
+                    /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(doc.file_url || (doc as any).url || doc.original_name);
+                  const previewUrl =
+                    (doc as any).preview_url ||
+                    doc.file_url ||
+                    (doc as any).url ||
+                    `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
+                  const downloadUrl =
+                    (doc as any).download_url ||
+                    `${API_BASE_URL}/project-documents/original.php?id=${doc.id}&download=1`;
+                  const thumbUrl =
+                    (doc as any).thumbnail_url ||
+                    doc.file_url ||
+                    (doc as any).url ||
+                    `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
+                  const docTitle = doc.original_name || (doc as any).title || doc.file_name || 'Berkas';
+
+                  return (
+                    <div
+                      key={doc.id}
+                      className="group border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+                      style={{
+                        borderRadius: '12px',
+                        border: '1.5px solid var(--line-soft)',
+                        background: 'var(--card, #fff)',
+                        overflow: 'hidden',
+                      }}
+                    >
+                      {/* Media Header with Real Image or Media / Doc Preview */}
+                      {isImg ? (
+                        <div className="w-full h-28 bg-slate-100 rounded-t-xl overflow-hidden relative group">
+                          <img
+                            src={thumbUrl}
+                            alt={docTitle}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                            loading="lazy"
+                          />
+                          {/* Overlay aksi hover */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => window.open(previewUrl, '_blank')}
+                              className="px-2.5 py-1 bg-white text-slate-800 text-xs font-semibold rounded-md shadow hover:bg-slate-100 transition-colors flex items-center gap-1 cursor-pointer"
+                              title="Buka gambar di tab baru"
+                            >
+                              👁️ Buka
+                            </button>
+                            <a
+                              href={downloadUrl}
+                              download={docTitle}
+                              className="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md shadow hover:bg-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+                              style={{ textDecoration: 'none' }}
+                              title="Unduh berkas"
+                            >
+                              ⬇️ Unduh
+                            </a>
+                          </div>
+                        </div>
+                      ) : isVid ? (
+                        <div className="w-full h-28 bg-slate-900 rounded-t-xl overflow-hidden relative group flex items-center justify-center">
+                          <video
+                            src={`${previewUrl}#t=0.5`}
+                            preload="metadata"
+                            className="w-full h-full object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => window.open(previewUrl, '_blank')}
+                              className="px-2.5 py-1 bg-white text-slate-800 text-xs font-semibold rounded-md shadow hover:bg-slate-100 transition-colors flex items-center gap-1 cursor-pointer"
+                              title="Buka video di tab baru"
+                            >
+                              👁️ Buka
+                            </button>
+                            <a
+                              href={downloadUrl}
+                              download={docTitle}
+                              className="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md shadow hover:bg-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+                              style={{ textDecoration: 'none' }}
+                              title="Unduh berkas video"
+                            >
+                              ⬇️ Unduh
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full h-28 bg-slate-100 dark:bg-slate-800 rounded-t-xl overflow-hidden relative group flex flex-col items-center justify-center">
+                          <div className="w-10 h-10 rounded-lg bg-white dark:bg-slate-700 flex items-center justify-center shadow-sm text-slate-600 dark:text-slate-200">
+                            <Icon name="doc" style={{ width: 22, height: 22 }} />
+                          </div>
+                          <span className="text-[11px] font-bold text-slate-500 mt-1 uppercase">
+                            {docTitle.split('.').pop() || 'DOKUMEN'}
+                          </span>
+                          {/* Overlay aksi hover */}
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => window.open(previewUrl, '_blank')}
+                              className="px-2.5 py-1 bg-white text-slate-800 text-xs font-semibold rounded-md shadow hover:bg-slate-100 transition-colors flex items-center gap-1 cursor-pointer"
+                              title="Buka berkas di tab baru"
+                            >
+                              👁️ Buka
+                            </button>
+                            <a
+                              href={downloadUrl}
+                              download={docTitle}
+                              className="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md shadow hover:bg-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+                              style={{ textDecoration: 'none' }}
+                              title="Unduh berkas"
+                            >
+                              ⬇️ Unduh
+                            </a>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Card Bottom Meta */}
+                      <div style={{ padding: '9px 12px' }}>
+                        <div
+                          style={{
+                            fontSize: '12px',
+                            fontWeight: 700,
+                            color: 'var(--ink)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                          title={docTitle}
+                        >
+                          {docTitle}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '11px',
+                            color: 'var(--muted)',
+                            marginTop: '2px',
+                          }}
+                        >
+                          {doc.file_size_formatted || (doc.file_size ? `${Math.round(doc.file_size / 1024)} KB` : 'Dokumen')} &bull; Asli
+                        </div>
                       </div>
                     </div>
-                  </a>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div

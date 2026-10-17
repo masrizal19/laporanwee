@@ -4,7 +4,7 @@ import { Icon } from '../components/icons';
 import { projectService } from '../utils/projectService';
 import { MediaViewerModal } from '../components/MediaViewerModal';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
-import { getAbsoluteAvatarUrl, profileAvatarService } from '../utils/api';
+import { API_BASE_URL, getAbsoluteAvatarUrl, profileAvatarService } from '../utils/api';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -381,11 +381,32 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 }}
               >
                 {documents.map((doc, idx) => {
-                  const isVid = doc.file_type === 'video' || doc.mime_type?.startsWith('video/');
+                  const isImg =
+                    Boolean((doc as any).is_image) ||
+                    doc.file_type === 'image' ||
+                    /\.(jpg|jpeg|png|webp|gif|svg)$/i.test(doc.file_url || (doc as any).url || doc.original_name);
+                  const isVid =
+                    doc.file_type === 'video' ||
+                    Boolean((doc as any).mime_type?.startsWith('video/')) ||
+                    /\.(mp4|webm|mov|m4v|avi|mkv)$/i.test(doc.file_url || (doc as any).url || doc.original_name);
+                  const previewUrl =
+                    (doc as any).preview_url ||
+                    doc.file_url ||
+                    `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
+                  const downloadUrl =
+                    (doc as any).download_url ||
+                    `${API_BASE_URL}/project-documents/original.php?id=${doc.id}&download=1`;
+                  const thumbUrl =
+                    (doc as any).thumbnail_url ||
+                    doc.file_url ||
+                    (doc as any).url ||
+                    `${API_BASE_URL}/project-documents/original.php?id=${doc.id}`;
+                  const docTitle = doc.original_name || (doc as any).title || doc.file_name || 'Berkas';
+
                   return (
                     <div
                       key={doc.id}
-                      className="task-doc-item"
+                      className="task-doc-item group"
                       style={{
                         position: 'relative',
                         aspectRatio: '16 / 10',
@@ -408,16 +429,35 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                           preload="metadata"
                           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         />
-                      ) : (
+                      ) : isImg ? (
                         <img
-                          src={doc.file_url}
-                          alt={doc.original_name}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                          src={thumbUrl}
+                          alt={docTitle}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', transition: 'transform 0.2s' }}
+                          className="group-hover:scale-105"
                           loading="lazy"
                         />
+                      ) : (
+                        <div
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: '#1f1d2b',
+                            color: '#94a3b8',
+                          }}
+                        >
+                          <Icon name="doc" style={{ width: 24, height: 24 }} />
+                          <span style={{ fontSize: '11px', fontWeight: 700, marginTop: '4px', textTransform: 'uppercase' }}>
+                            {docTitle.split('.').pop() || 'DOK'}
+                          </span>
+                        </div>
                       )}
 
-                      {/* Video Center Play Badge */}
+                      {/* Video Center Play Badge (hidden on hover) */}
                       {isVid && (
                         <div className="task-doc-video-badge">
                           <Icon name="video" style={{ width: 14, height: 14 }} />
@@ -426,8 +466,8 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
 
                       {/* Top Type Pill */}
                       <span className="task-doc-type-pill">
-                        <Icon name={isVid ? 'video' : 'image'} style={{ width: 10, height: 10 }} />
-                        <span>{isVid ? 'Video' : 'Foto'}</span>
+                        <Icon name={isVid ? 'video' : isImg ? 'image' : 'doc'} style={{ width: 10, height: 10 }} />
+                        <span>{isVid ? 'Video' : isImg ? 'Foto' : 'Dokumen'}</span>
                       </span>
 
                       {/* Action buttons (Edit name & Delete) */}
@@ -438,7 +478,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                           right: '6px',
                           display: 'flex',
                           gap: '4px',
-                          zIndex: 2,
+                          zIndex: 4,
                         }}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -487,10 +527,35 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                         </button>
                       </div>
 
+                      {/* Hover Actions: Buka & Unduh */}
+                      <div
+                        className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2"
+                        style={{ zIndex: 3 }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => window.open(previewUrl, '_blank')}
+                          className="px-2.5 py-1 bg-white text-slate-800 text-xs font-semibold rounded-md shadow hover:bg-slate-100 transition-colors flex items-center gap-1 cursor-pointer"
+                          title="Buka berkas di tab baru"
+                        >
+                          👁️ Buka
+                        </button>
+                        <a
+                          href={downloadUrl}
+                          download={docTitle}
+                          className="px-2.5 py-1 bg-blue-600 text-white text-xs font-semibold rounded-md shadow hover:bg-blue-700 transition-colors flex items-center gap-1 cursor-pointer"
+                          style={{ textDecoration: 'none' }}
+                          title="Unduh berkas"
+                        >
+                          ⬇️ Unduh
+                        </a>
+                      </div>
+
                       {/* Bottom Info Overlay */}
-                      <div className="task-doc-meta-overlay">
-                        <span className="task-doc-name-cut" title={doc.original_name}>
-                          {doc.original_name}
+                      <div className="task-doc-meta-overlay" style={{ zIndex: 2 }}>
+                        <span className="task-doc-name-cut" title={docTitle}>
+                          {docTitle}
                         </span>
                         <span className="task-doc-size">{doc.file_size_formatted || ''}</span>
                       </div>
