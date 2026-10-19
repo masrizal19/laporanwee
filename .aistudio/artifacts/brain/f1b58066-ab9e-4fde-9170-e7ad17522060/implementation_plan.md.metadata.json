@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana komprehensif audit dan desain ulang total LaporanWee UI 5.0 (Zero-Distortion & Neo-Glass Bento). Mencakup implementasi Design System Token v5.0 (Light/Dark mode, glassmorphism, aksen lavender & lime, ambient glow), Floating Rail Navigation desktop dengan auto-expand hover, Mobile bottom dock pill, Topbar baru dengan breadcrumb dan theme switcher, desain ulang Auth (Login/Register/Verify) dengan bento stage card, serta transformasi seluruh modul (Dashboard, Proyek, Tugas Kanban, Laporan, Kalender, Sosial Media, Tim, Analitik) ke tata letak Bento Grid tanpa distorsi/gepeng dengan tetap mempertahankan 100% integrasi API & data yang ada.",
-  "updatedAt": "2026-10-19T04:49:50.716022230Z",
+  "summary": "Rencana integrasi fungsi syncDashboardData dan penanganan toggle tugas 2 arah ke backend (https://api-laporanwe.mkverse.my.id/api/dashboard/index.php & toggle.php) dengan polling otomatis setiap 30 detik, optimistic UI, rollback otomatis + toast error jika gagal, dan pengambilan token Bearer dari localStorage.",
+  "updatedAt": "2026-10-19T06:07:11.482996798Z",
   "requestFeedback": true,
   "userFacing": true
 }

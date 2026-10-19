@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../types';
 import { getUserFirstName } from '../utils/userUtils';
-import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -34,18 +33,124 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Interactive to-do items local state
+  // Dynamic dashboard state synced with backend
+  const [dateLabel, setDateLabel] = useState('Rabu, 11 Mei');
+  const [kpiActiveProjects, setKpiActiveProjects] = useState<number | string>(12);
+  const [kpiOngoingTasks, setKpiOngoingTasks] = useState<number | string>(48);
+  const [kpiCompletionRate, setKpiCompletionRate] = useState<number>(82);
+
   const [todoList, setTodoList] = useState([
-    { id: '1', title: 'Review & umpan balik klien', desc: 'Redesain landing page', time: '22.00 – 23.45', done: true, avatars: ['Ri', 'Sa'] },
-    { id: '2', title: 'Susun laporan mingguan', desc: 'Divisi Kreatif', time: '10.00 – 11.00', done: false, avatars: ['Ri', 'Di'] },
-    { id: '3', title: 'Revisi kemasan Kopi Nusa', desc: 'Rebranding', time: '13.30 – 15.00', done: false, avatars: ['Sa', 'Ba'] },
-    { id: '4', title: 'Rapat sinkronisasi tim', desc: 'Google Meet', time: '16.00 – 16.30', done: false, avatars: ['Ba', 'Ti'] },
+    { id: '1', title: 'Review & umpan balik klien', subtitle: 'Redesain landing page', time: '22.00 – 23.45', done: true, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Sa', bg: '#f6e6cf' }] },
+    { id: '2', title: 'Susun laporan mingguan', subtitle: 'Divisi Kreatif', time: '10.00 – 11.00', done: false, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Di', bg: '#e9f5b8' }] },
+    { id: '3', title: 'Revisi kemasan Kopi Nusa', subtitle: 'Rebranding', time: '13.30 – 15.00', done: false, assignees: [{ initial: 'Sa', bg: '#f6e6cf' }, { initial: 'Ba', bg: '#d6ecdf' }] },
+    { id: '4', title: 'Rapat sinkronisasi tim', subtitle: 'Google Meet', time: '16.00 – 16.30', done: false, assignees: [{ initial: 'Ba', bg: '#d6ecdf' }, { initial: 'Ti', bg: '#f1d8e4' }] },
   ]);
 
-  const toggleTodo = (id: string) => {
+  // Sync dashboard data from backend API with 30s polling
+  useEffect(() => {
+    const syncDashboardData = async () => {
+      try {
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+        const adminEmail = localStorage.getItem('admin_email') || '';
+
+        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/dashboard/index.php', {
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'X-Admin-Email': adminEmail,
+            'Accept': 'application/json',
+          },
+        });
+        const text = await res.text();
+        let result: any = {};
+        try {
+          result = text ? JSON.parse(text) : {};
+        } catch {
+          return;
+        }
+
+        if (!result.success) return;
+
+        if (result.header && result.header.date_label) {
+          setDateLabel(result.header.date_label);
+        }
+
+        if (Array.isArray(result.running_tasks) && result.running_tasks.length > 0) {
+          setTodoList(
+            result.running_tasks.map((t: any) => ({
+              id: String(t.id),
+              title: t.title || '',
+              subtitle: t.subtitle || t.desc || '',
+              time: t.time || '10.00 – 11.00',
+              done: Boolean(t.done),
+              assignees: Array.isArray(t.assignees) ? t.assignees : [{ initial: 'Ri', bg: '#e3ddfa' }],
+            }))
+          );
+        }
+
+        if (result.kpi) {
+          if (result.kpi.active_projects !== undefined) setKpiActiveProjects(result.kpi.active_projects);
+          if (result.kpi.ongoing_tasks !== undefined) setKpiOngoingTasks(result.kpi.ongoing_tasks);
+          if (result.kpi.completion_rate !== undefined) setKpiCompletionRate(Number(result.kpi.completion_rate));
+        }
+      } catch (err) {
+        console.warn('Dashboard sync offline:', err);
+      }
+    };
+
+    syncDashboardData();
+    const intervalId = setInterval(syncDashboardData, 30000);
+    return () => clearInterval(intervalId);
+  }, []);
+
+  // 2-way toggle task handler with Optimistic UI & Rollback on failure
+  const toggleTodo = async (id: string) => {
+    const targetItem = todoList.find((t) => t.id === id);
+    if (!targetItem) return;
+
+    const willBeDone = !targetItem.done;
+
+    // 1. Optimistic UI Update
     setTodoList((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
+      prev.map((t) => (t.id === id ? { ...t, done: willBeDone } : t))
     );
+
+    try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/tasks/toggle.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({ id, completed: willBeDone }),
+      });
+
+      const text = await res.text();
+      let resData: any = {};
+      try {
+        resData = text ? JSON.parse(text) : {};
+      } catch {
+        throw new Error('Invalid response from server');
+      }
+
+      if (!res.ok || resData.success === false) {
+        throw new Error(resData.message || 'Gagal menyimpan status tugas');
+      }
+
+      // Update KPI stats if returned
+      if (resData.stats) {
+        if (resData.stats.ongoing !== undefined) setKpiOngoingTasks(resData.stats.ongoing);
+        if (resData.stats.completion_rate !== undefined) setKpiCompletionRate(Number(resData.stats.completion_rate));
+      }
+    } catch (e: any) {
+      console.error('Gagal update status tugas:', e);
+      // Rollback Optimistic UI state on error
+      setTodoList((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, done: !willBeDone } : t))
+      );
+      onAddToast(e.message || 'Gagal menyinkronkan perubahan tugas ke server.');
+    }
   };
 
   // Compute dynamic greeting name from session
@@ -57,14 +162,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return s === 'active' || s === 'in progress' || s === 'in_progress' || s === 'on-track';
   });
 
-  const activeProjectsCount = activeProjects.length || (projects.length > 0 ? projects.length : 12);
-  const runningTasksCount = analytics?.tasks?.total || tasksCount || 48;
+  const activeProjectsCount = activeProjects.length || kpiActiveProjects;
+  const runningTasksCount = analytics?.tasks?.total || tasksCount || kpiOngoingTasks;
   const completionRate =
     analytics && analytics.reports?.total > 0
       ? Math.round((analytics.reports.completed / analytics.reports.total) * 100)
-      : projects.length > 0
-      ? Math.round(projects.reduce((acc, p) => acc + (p.progress || 0), 0) / projects.length) || 82
-      : 82;
+      : kpiCompletionRate;
 
   // Filtered projects
   const filteredProjects = useMemo(() => {
@@ -77,7 +180,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return projects;
   }, [projects, filterTab]);
 
-  // Display projects fallback if projects list is empty
   const displayProjects = filteredProjects.length > 0 ? filteredProjects : [
     { id: '1', name: 'Rebranding Kopi Nusa', desc: 'Identitas visual dan kemasan', status: 'On-Track', progress: 78, due: '2026-10-25' },
     { id: '2', name: 'Kampanye Ramadan', desc: 'Konten sosial media 30 hari', status: 'On-Track', progress: 62, due: '2026-11-01' },
@@ -215,7 +317,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="card-h">
             <div>
               <h3>Tugas Berjalan</h3>
-              <div className="sub">Rabu, 11 Mei &bull; Prioritas Harian</div>
+              <div className="sub">{dateLabel} &bull; Prioritas Harian</div>
             </div>
             <button
               type="button"
@@ -250,12 +352,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </span>
                 <div className="tx">
                   <b>{t.title}</b>
-                  <small>{t.desc} &bull; {t.time}</small>
+                  <small>{t.subtitle} &bull; {t.time}</small>
                 </div>
                 <div className="stack">
-                  {t.avatars.map((av, i) => (
-                    <i key={i} style={{ background: i % 2 === 0 ? 'var(--lav)' : 'var(--lime-soft)' }}>
-                      {av}
+                  {t.assignees.map((a, i) => (
+                    <i key={i} style={{ background: a.bg || (i % 2 === 0 ? 'var(--lav)' : 'var(--lime-soft)') }}>
+                      {a.initial}
                     </i>
                   ))}
                 </div>
