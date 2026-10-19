@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana audit total & refaktor modul profil (/profil/user), edit profil modal dengan upload avatar, sinkronisasi UI settings & tema dengan backend (/api/ui-settings.php & /api/profile/settings.php), serta perbaikan safe-area header topbar (padding kiri 32px + rail, breadcrumb margin-left, right utility container .top-actions).",
-  "updatedAt": "2026-10-19T07:44:41.790193981Z",
+  "summary": "Rencana penggabungan utilitas UISettings (Instant Render & Theme Engine) ke dalam src/utils/uiSettings.ts, sinkronisasi dengan localStorage dan API backend, serta verifikasi audit akhir LaporanWee v5.0.",
+  "updatedAt": "2026-10-19T08:18:45.413420919Z",
   "requestFeedback": true,
   "userFacing": true
 }
