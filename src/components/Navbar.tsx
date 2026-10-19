@@ -213,8 +213,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* User Profile Avatar with Gradient Ring */}
           <div
             className="avatar"
-            onClick={() => onNavigate('user-profile')}
-            title={`Profil: ${userName || userEmail || 'Pengguna'}`}
+            onClick={() => onNavigate('profile')}
+            title={`Pengaturan Profil: ${userName || userEmail || 'Pengguna'}`}
             role="button"
             tabIndex={0}
           >
