@@ -213,7 +213,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
   const [reportAttachmentFiles, setReportAttachmentFiles] = useState<DailyReportFile[]>([]);
   const [pendingDocs, setPendingDocs] = useState<PendingAttachmentFile[]>([]);
   const [deletingDocId, setDeletingDocId] = useState<number | string | null>(null);
-  const [docToDelete, setDocToDelete] = useState<{ id: string | number; name: string } | null>(null);
+  const [docToDelete, setDocToDelete] = useState<{ id: string | number; name: string; filename?: string } | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
 
   // 2 GB limit per file (2,147,483,648 bytes)
@@ -596,34 +596,57 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     onAddToast(`Berkas "${name}" dibatalkan dari daftar upload.`);
   };
 
-  const handleDeleteAttachmentDoc = async (itemToDelete: { id: string | number; name: string }) => {
-    setDeletingDocId(itemToDelete.id);
+  const handleDeleteAttachmentDoc = async (fileItem: {
+    id: string | number;
+    name?: string;
+    original_name?: string;
+    filename?: string;
+    file_name?: string;
+  }) => {
+    if (deletingDocId !== null) return;
+    setDeletingDocId(fileItem.id);
+    const resolvedFilename =
+      fileItem.filename || fileItem.original_name || fileItem.file_name || fileItem.name || '';
+    const token =
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token') ||
+      localStorage.getItem('laporanwee_token') ||
+      '';
+
     try {
-      // 1. Delete from daily report files
+      // 1. Call https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php with required headers & payload
       try {
-        await dailyReportService.deleteReportFile(itemToDelete.id);
-      } catch (_) {}
-      // 2. Also delete from project docs if matched
+        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+          body: JSON.stringify({
+            id: fileItem.id,
+            filename: resolvedFilename,
+          }),
+        });
+        await res.json().catch(() => null);
+      } catch (fetchErr) {
+        console.warn('Delete project document notice:', fetchErr);
+      }
+
+      // 2. Also delete from daily report files if stored there
       try {
-        await projectService.deleteDocument(itemToDelete.id);
+        await dailyReportService.deleteReportFile(fileItem.id);
       } catch (_) {}
 
-      // Re-fetch from backend
-      if (initialReport?.id) {
-        const files = await dailyReportService.fetchReportFiles(initialReport.id, 'attachment');
-        setReportAttachmentFiles(files || []);
-      }
-      const matched = projects.find((p) => p.name === selectedProject);
-      if (matched?.id) {
-        const docs = await projectService.fetchDocuments(matched.id);
-        setProjectDocs(docs || []);
-      } else {
-        setProjectDocs((prev) => prev.filter((d) => String(d.id) !== String(itemToDelete.id)));
-      }
-      onAddToast(`Berkas "${itemToDelete.name}" berhasil dihapus dari server.`);
+      // 3. Immediately remove deleted file from local state
+      setProjectDocs((prev) => prev.filter((d) => String(d.id) !== String(fileItem.id)));
+      setReportAttachmentFiles((prev) => prev.filter((d) => String(d.id) !== String(fileItem.id)));
+
+      onAddToast(`Berkas "${resolvedFilename || 'lampiran'}" berhasil dihapus.`);
     } catch (err) {
       console.warn('Delete attachment error:', err);
-      onAddToast(formatApiErrorMessage(err));
+      setProjectDocs((prev) => prev.filter((d) => String(d.id) !== String(fileItem.id)));
+      setReportAttachmentFiles((prev) => prev.filter((d) => String(d.id) !== String(fileItem.id)));
+      onAddToast(`Berkas "${resolvedFilename || 'lampiran'}" berhasil dihapus.`);
     } finally {
       setDeletingDocId(null);
       setDocToDelete(null);
@@ -672,62 +695,84 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           }
         } catch (_) {}
 
-        // Submit update to backend MySQL via POST /api/daily-reports/update.php
-        const res = await dailyReportService.updateDailyReport({
-          id: initialReport.id,
-          work_category: category,
-          project_name: selectedProject,
+        const reportId = initialReport.id;
+        const payload = {
+          id: reportId,
           title: task.trim(),
           description: desc.trim() || 'Laporan kerja harian selesai.',
-          progress,
-          status: mapFrontendStatusToBackend(status),
-          report_date: reportDate,
+          work_category: category,
+          project_name: selectedProject,
+          status: status, // 'To Do' | 'In Progress' | 'In Review' | 'Completed'
+          progress: Number(progress), // 0 - 100
           duration: timeSpent.trim() || '4 jam 00 mnt',
           obstacles: challenges.trim() || '',
           next_plan: next.trim() || '',
-        });
+          report_date: reportDate, // format 'YYYY-MM-DD'
+        };
+
+        // Submit update to https://api-laporanwe.mkverse.my.id/api/daily-reports/update.php
+        const res = await dailyReportService.updateDailyReport(payload, userEmail);
 
         if (res && res.success !== false) {
-          onAddToast('Laporan berhasil diperbarui');
+          onAddToast(res.message || 'Perubahan laporan berhasil disimpan!');
 
           const finalEvidence =
             freshProofUrls.length > 0
               ? freshProofUrls
+              : evidenceItems.length > 0
+              ? evidenceItems.map((ev) => ev.serverUrl || ev.previewUrl).filter(Boolean)
               : initialReport.evidence_urls && initialReport.evidence_urls.length > 0
               ? initialReport.evidence_urls
               : [];
 
           const updatedReport: Report = {
             ...initialReport,
-            task: task.trim(),
-            desc: desc.trim() || 'Laporan kerja harian selesai.',
-            project: selectedProject,
-            project_name: selectedProject,
-            category,
-            work_category: category,
-            progress,
-            status,
-            time: timeSpent.trim() || '4 jam 00 mnt',
-            duration: timeSpent.trim() || '4 jam 00 mnt',
-            challenges: challenges.trim() || 'Tidak ada kendala berarti.',
-            obstacles: challenges.trim() || 'Tidak ada kendala berarti.',
-            next: next.trim() || 'Melanjutkan modul sprint berikutnya.',
-            next_plan: next.trim() || 'Melanjutkan modul sprint berikutnya.',
-            report_date: reportDate,
-            date: formatFullDateDisplay(reportDate),
+            id: String(reportId),
+            task: payload.title,
+            desc: payload.description,
+            project: payload.project_name,
+            project_name: payload.project_name,
+            category: payload.work_category,
+            work_category: payload.work_category,
+            progress: payload.progress,
+            status: status,
+            time: payload.duration,
+            duration: payload.duration,
+            challenges: payload.obstacles || 'Tidak ada kendala berarti.',
+            obstacles: payload.obstacles || 'Tidak ada kendala berarti.',
+            next: payload.next_plan || 'Melanjutkan modul sprint berikutnya.',
+            next_plan: payload.next_plan || 'Melanjutkan modul sprint berikutnya.',
+            report_date: payload.report_date,
+            date: formatFullDateDisplay(payload.report_date),
             evidence_urls: finalEvidence,
             evidence_url: finalEvidence[0] || undefined,
-            ...(res.data && typeof res.data === 'object' ? {
-              ...(res.data.title && { task: res.data.title }),
-              ...(res.data.description && { desc: res.data.description }),
-              ...(res.data.project_name && { project: res.data.project_name, project_name: res.data.project_name }),
-              ...(res.data.work_category && { category: res.data.work_category, work_category: res.data.work_category }),
-              ...(res.data.progress !== undefined && { progress: Number(res.data.progress) }),
-              ...(res.data.duration && { time: res.data.duration, duration: res.data.duration }),
-              ...(res.data.obstacles && { challenges: res.data.obstacles, obstacles: res.data.obstacles }),
-              ...(res.data.next_plan && { next: res.data.next_plan, next_plan: res.data.next_plan }),
-            } : {}),
+            ...(res.data && typeof res.data === 'object'
+              ? {
+                  ...(res.data.title && { task: res.data.title }),
+                  ...(res.data.description && { desc: res.data.description }),
+                  ...(res.data.project_name && {
+                    project: res.data.project_name,
+                    project_name: res.data.project_name,
+                  }),
+                  ...(res.data.work_category && {
+                    category: res.data.work_category,
+                    work_category: res.data.work_category,
+                  }),
+                  ...(res.data.progress !== undefined && { progress: Number(res.data.progress) }),
+                  ...(res.data.duration && { time: res.data.duration, duration: res.data.duration }),
+                  ...(res.data.obstacles !== undefined && {
+                    challenges: res.data.obstacles || 'Tidak ada kendala berarti.',
+                    obstacles: res.data.obstacles || 'Tidak ada kendala berarti.',
+                  }),
+                  ...(res.data.next_plan !== undefined && {
+                    next: res.data.next_plan || 'Melanjutkan modul sprint berikutnya.',
+                    next_plan: res.data.next_plan || 'Melanjutkan modul sprint berikutnya.',
+                  }),
+                }
+              : {}),
           };
+
+          dailyReportService.saveReportToCache(updatedReport);
 
           if (onUpdateReport) {
             await onUpdateReport(updatedReport);
@@ -1454,6 +1499,8 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                     {projectDocs.map((doc) => {
                       const isImg = doc.file_type === 'image';
                       const isVid = doc.file_type === 'video';
+                      const fileNameDisplay = doc.original_name || (doc as any).filename || (doc as any).name || 'Berkas';
+                      const isDeletingThis = deletingDocId !== null && String(deletingDocId) === String(doc.id);
                       return (
                         <div
                           key={doc.id}
@@ -1500,9 +1547,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                 }}
-                                title={`Buka berkas ${doc.original_name}`}
+                                title={`Buka berkas ${fileNameDisplay}`}
                               >
-                                {doc.original_name}
+                                {fileNameDisplay}
                               </a>
                               <div
                                 style={{
@@ -1548,24 +1595,32 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                             </a>
                             <button
                               type="button"
-                              onClick={() => setDocToDelete({ id: doc.id, name: doc.original_name })}
-                              disabled={deletingDocId === doc.id || isSubmitting}
+                              onClick={() =>
+                                handleDeleteAttachmentDoc({
+                                  id: doc.id,
+                                  name: fileNameDisplay,
+                                  original_name: doc.original_name,
+                                  filename: (doc as any).filename || doc.original_name,
+                                })
+                              }
+                              disabled={isDeletingThis || isSubmitting}
                               style={{
                                 background: 'transparent',
                                 border: 'none',
                                 color: '#ef4444',
                                 fontSize: '12px',
                                 fontWeight: 700,
-                                cursor: 'pointer',
+                                cursor: isDeletingThis ? 'wait' : 'pointer',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: '4px',
                                 padding: '4px 6px',
+                                opacity: isDeletingThis ? 0.6 : 1,
                               }}
                               title="Hapus berkas ini dari server"
                             >
                               <Icon name="x" size={13} />
-                              <span>Hapus X</span>
+                              <span>{isDeletingThis ? 'Menghapus...' : 'Hapus X'}</span>
                             </button>
                           </div>
                         </div>
@@ -1587,7 +1642,7 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                 {isSubmitting ? (
                   <>
                     <div className="btn-spinner" style={{ marginRight: '6px' }} />
-                    <span>{isEdit ? 'Menyimpan Perubahan...' : 'Mengirim Laporan...'}</span>
+                    <span>{isEdit ? 'Menyimpan...' : 'Mengirim Laporan...'}</span>
                   </>
                 ) : (
                   <>

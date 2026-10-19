@@ -1901,6 +1901,7 @@ export function App() {
             initialReport={reports.find((r) => String(r.id).trim() === String(selectedReportId).trim())}
             projects={projects}
             userName={user.name}
+            userEmail={user.email}
             avatarUrl={(user as any)?.avatar_url}
             initialIsEditing={reportInitialEdit}
             onNavigate={handleNavigate}

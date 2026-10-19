@@ -13,6 +13,7 @@ interface ReportDetailViewProps {
   initialReport?: Report;
   projects?: Project[];
   userName?: string;
+  userEmail?: string;
   avatarUrl?: string | null;
   initialIsEditing?: boolean;
   onNavigate: (view: ViewType) => void;
@@ -35,6 +36,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   initialReport,
   projects,
   userName,
+  userEmail,
   avatarUrl,
   initialIsEditing = false,
   onNavigate,
@@ -433,6 +435,7 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
           initialReport={currentData}
           projects={projects || []}
           userName={currentData.person}
+          userEmail={userEmail || currentData.user_email}
           onCancel={() => setIsEditing(false)}
           onUpdateReport={async (updatedReport) => {
             setCurrentData(updatedReport);

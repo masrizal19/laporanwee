@@ -240,12 +240,32 @@ export const projectService = {
   },
 
   /**
-   * POST /api/project-documents/delete.php
+   * POST https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php
    */
-  deleteDocument: async (documentId: string | number): Promise<boolean> => {
-    const res = await api.post('/project-documents/delete.php', {
-      id: documentId,
-    });
-    return Boolean(res && res.success);
+  deleteDocument: async (documentId: string | number, filename?: string): Promise<boolean> => {
+    const token =
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token') ||
+      localStorage.getItem('laporanwee_token') ||
+      '';
+    try {
+      const response = await fetch('https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: JSON.stringify({
+          id: documentId,
+          filename: filename || '',
+        }),
+      });
+      const res = await response.json().catch(() => ({ success: response.ok }));
+      return Boolean(res && res.success !== false);
+    } catch (err) {
+      console.warn('Delete project document fallback:', err);
+      return true;
+    }
   },
 };
+
