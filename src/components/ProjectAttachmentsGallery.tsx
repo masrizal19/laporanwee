@@ -90,6 +90,7 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
   const [isDragOver, setIsDragOver] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [activeUploads, setActiveUploads] = useState<GalleryItem[]>([]);
+  const [uploadTrackerItems, setUploadTrackerItems] = useState<GalleryItem[]>([]);
   const [deletingId, setDeletingId] = useState<string | number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -123,15 +124,22 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
         kind: d.kind,
         ext: d.ext,
         cls: d.cls,
-        status: 'success',
+        status: 'success' as const,
         rawDoc: doc,
       };
     });
   }, [documents]);
 
-  // Combined items: active uploads first (newest at top), then server items
+  // Combined items: active uploads and successfully uploaded items, then server items without duplicate names/ids
   const allItems: GalleryItem[] = useMemo(() => {
-    return [...activeUploads, ...serverItems];
+    const serverNameSet = new Set(serverItems.map((s) => s.name));
+    const activeFiltered = activeUploads.filter((up) => {
+      if (up.status === 'success' && serverNameSet.has(up.name)) {
+        return false;
+      }
+      return true;
+    });
+    return [...activeFiltered, ...serverItems];
   }, [activeUploads, serverItems]);
 
   // Counts for filter pills
@@ -223,10 +231,12 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
       if (file.size > MAX_SIZE) {
         onAddToast?.(`File "${file.name}" ditolak. Ukuran maksimal 2 GB per file.`);
         setActiveUploads((prev) => [uploadItem, ...prev]);
+        setUploadTrackerItems((prev) => [uploadItem, ...prev]);
         return;
       }
 
       setActiveUploads((prev) => [uploadItem, ...prev]);
+      setUploadTrackerItems((prev) => [uploadItem, ...prev]);
 
       // Start upload process
       let progress = 0;
@@ -253,31 +263,64 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
                 : it
             )
           );
+          setUploadTrackerItems((prev) =>
+            prev.map((it) =>
+              it.id === uploadId
+                ? {
+                    ...it,
+                    progress: 100,
+                    status: 'processing',
+                    speedText: 'Memproses di server…',
+                  }
+                : it
+            )
+          );
 
           // Invoke real backend upload if provided
           if (onUploadFile) {
             Promise.resolve(onUploadFile(file))
               .then((result) => {
+                const finalUrl = result?.file_url || result?.url || (result as any)?.url;
                 setActiveUploads((prev) =>
                   prev.map((it) =>
                     it.id === uploadId
                       ? {
                           ...it,
                           status: 'success',
-                          url: result?.file_url || it.url,
+                          url: finalUrl || it.url,
+                          speedText: 'Tersimpan di server',
+                        }
+                      : it
+                  )
+                );
+                setUploadTrackerItems((prev) =>
+                  prev.map((it) =>
+                    it.id === uploadId
+                      ? {
+                          ...it,
+                          status: 'success',
+                          url: finalUrl || it.url,
+                          speedText: 'Tersimpan di server',
                         }
                       : it
                   )
                 );
                 onAddToast?.(`✓ Berkas "${file.name}" berhasil diunggah.`);
-                // Clean up finished item from active uploads after animation
-                setTimeout(() => {
-                  setActiveUploads((prev) => prev.filter((it) => it.id !== uploadId));
-                }, 1200);
               })
               .catch((err) => {
                 console.warn('Upload error:', err);
                 setActiveUploads((prev) =>
+                  prev.map((it) =>
+                    it.id === uploadId
+                      ? {
+                          ...it,
+                          status: 'error',
+                          errorMsg: err?.message || 'Gagal menyimpan berkas di server',
+                        }
+                      : it
+                  )
+                );
+                setUploadTrackerItems((prev) =>
                   prev.map((it) =>
                     it.id === uploadId
                       ? {
@@ -299,18 +342,38 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
                     ? {
                         ...it,
                         status: 'success',
+                        speedText: 'Tersimpan',
+                      }
+                    : it
+                )
+              );
+              setUploadTrackerItems((prev) =>
+                prev.map((it) =>
+                  it.id === uploadId
+                    ? {
+                        ...it,
+                        status: 'success',
+                        speedText: 'Tersimpan',
                       }
                     : it
                 )
               );
               onAddToast?.(`✓ Berkas "${file.name}" ditambahkan.`);
-              setTimeout(() => {
-                setActiveUploads((prev) => prev.filter((it) => it.id !== uploadId));
-              }, 1200);
             }, 800);
           }
         } else {
           setActiveUploads((prev) =>
+            prev.map((it) =>
+              it.id === uploadId
+                ? {
+                    ...it,
+                    progress,
+                    speedText: speedFormatted,
+                  }
+                : it
+            )
+          );
+          setUploadTrackerItems((prev) =>
             prev.map((it) =>
               it.id === uploadId
                 ? {
@@ -328,6 +391,7 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
 
   const handleCancelUpload = (uploadId: string | number) => {
     setActiveUploads((prev) => prev.filter((it) => it.id !== uploadId));
+    setUploadTrackerItems((prev) => prev.filter((it) => it.id !== uploadId));
     onAddToast?.('Pengunggahan berkas dibatalkan.');
   };
 
@@ -433,6 +497,159 @@ export const ProjectAttachmentsGallery: React.FC<ProjectAttachmentsGalleryProps>
           </div>
         )}
       </div>
+
+      {/* Upload Process CSS Loader & Real-Time Status Tracker */}
+      {uploadTrackerItems.length > 0 && (
+        <div className="upload-tracker-panel" aria-live="polite">
+          <div className="upload-tracker-head">
+            <div className="upload-tracker-title">
+              <span
+                className={`upload-tracker-pulse ${
+                  uploadTrackerItems.some(
+                    (i) => i.status === 'uploading' || i.status === 'processing'
+                  )
+                    ? ''
+                    : 'is-done'
+                }`}
+              />
+              <span>
+                {uploadTrackerItems.some(
+                  (i) => i.status === 'uploading' || i.status === 'processing'
+                )
+                  ? 'Sedang Mengunggah Berkas ke Server…'
+                  : 'Riwayat Berkas Berhasil Diunggah'}
+              </span>
+              <span
+                className="upload-tracker-badge badge-uploading"
+                style={{ fontSize: '11px', marginLeft: '4px' }}
+              >
+                {uploadTrackerItems.filter((i) => i.status === 'success').length} /{' '}
+                {uploadTrackerItems.length} Selesai
+              </span>
+            </div>
+            {uploadTrackerItems.some((i) => i.status === 'success') && (
+              <button
+                type="button"
+                className="upload-tracker-clear-btn"
+                onClick={() =>
+                  setUploadTrackerItems((prev) =>
+                    prev.filter((i) => i.status !== 'success')
+                  )
+                }
+              >
+                Bersihkan Riwayat Selesai
+              </button>
+            )}
+          </div>
+
+          <div className="upload-tracker-list">
+            {uploadTrackerItems.map((item) => (
+              <div
+                key={item.id}
+                className={`upload-tracker-item ${
+                  item.status === 'success'
+                    ? 'is-success'
+                    : item.status === 'error'
+                    ? 'is-error'
+                    : 'is-uploading'
+                }`}
+              >
+                <div className={`upload-tracker-ext ${item.cls}`}>
+                  {item.ext}
+                </div>
+                <div className="upload-tracker-body">
+                  <div className="upload-tracker-title-row">
+                    <span className="upload-tracker-filename" title={item.name}>
+                      {item.name}
+                    </span>
+                    <span
+                      className={`upload-tracker-badge ${
+                        item.status === 'uploading'
+                          ? 'badge-uploading'
+                          : item.status === 'processing'
+                          ? 'badge-processing'
+                          : item.status === 'success'
+                          ? 'badge-success'
+                          : 'badge-error'
+                      }`}
+                    >
+                      {item.status === 'uploading' && `Mengunggah ${item.progress || 0}%`}
+                      {item.status === 'processing' && 'Memproses di Server…'}
+                      {item.status === 'success' && '✓ Berhasil Diunggah'}
+                      {item.status === 'error' && (item.errorMsg || 'Gagal')}
+                    </span>
+                  </div>
+
+                  <div className="upload-tracker-bar-bg">
+                    <div
+                      className={`upload-tracker-bar-fill ${
+                        item.status === 'processing'
+                          ? 'fill-processing'
+                          : item.status === 'success'
+                          ? 'fill-success'
+                          : ''
+                      }`}
+                      style={{
+                        width: `${
+                          item.status === 'processing' ? 100 : item.progress || 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="upload-tracker-meta">
+                    <span>
+                      {formatFileSize(item.size)}{' '}
+                      {item.speedText ? `• ${item.speedText}` : ''}
+                    </span>
+                    <span>
+                      {item.status === 'success' ? 'Tersedia di galeri' : ''}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="upload-tracker-actions">
+                  {item.status === 'success' && (
+                    <button
+                      type="button"
+                      className="upload-tracker-action-btn"
+                      title="Pratinjau di Lightbox"
+                      onClick={() => openLightbox(item)}
+                    >
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                      >
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                        <circle cx="12" cy="12" r="3" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="upload-tracker-action-btn del-btn"
+                    title="Tutup status"
+                    onClick={() => {
+                      setUploadTrackerItems((prev) =>
+                        prev.filter((i) => i.id !== item.id)
+                      );
+                      if (item.status !== 'success') {
+                        handleCancelUpload(item.id);
+                      }
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Bento Grid Layout (6 columns with 7-slot repeating pattern) */}
       <section

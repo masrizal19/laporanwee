@@ -177,6 +177,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
 
   const [taskErr, setTaskErr] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [uploadStage, setUploadStage] = useState<'idle' | 'evidence' | 'attachments' | 'saving'>('idle');
+  const [uploadProgressPercent, setUploadProgressPercent] = useState<number>(0);
+  const [isEvidenceProcessing, setIsEvidenceProcessing] = useState<boolean>(false);
 
   // Evidence Files State
   const [evidenceItems, setEvidenceItems] = useState<EvidenceFileItem[]>(() => {
@@ -323,9 +326,14 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     // In Edit mode with backend report ID, upload directly to MySQL API
     if (isEdit && initialReport?.id) {
       setIsSubmitting(true);
+      setIsEvidenceProcessing(true);
+      setUploadStage('evidence');
+      setUploadProgressPercent(20);
       try {
-        for (const file of validFiles) {
+        for (let i = 0; i < validFiles.length; i++) {
+          const file = validFiles[i];
           await dailyReportService.uploadReportFile(initialReport.id, file, 'proof');
+          setUploadProgressPercent(Math.round(((i + 1) / validFiles.length) * 100));
         }
         // Re-fetch freshest proof files from backend
         const files = await dailyReportService.fetchReportFiles(initialReport.id, 'proof');
@@ -348,6 +356,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
         onAddToast(formatApiErrorMessage(err));
       } finally {
         setIsSubmitting(false);
+        setIsEvidenceProcessing(false);
+        setUploadStage('idle');
+        setUploadProgressPercent(0);
       }
       return;
     }
@@ -759,30 +770,43 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     }
 
     setIsSubmitting(true);
+    setUploadProgressPercent(15);
     try {
       if (isEdit && initialReport) {
         // Upload any newly selected proof files to /api/daily-reports/upload.php
-        for (const item of evidenceItems) {
-          if (item.file) {
-            try {
-              await dailyReportService.uploadReportFile(initialReport.id, item.file, 'proof');
-            } catch (uploadErr) {
-              console.warn('Gagal upload bukti pekerjaan:', uploadErr);
+        const newProofs = evidenceItems.filter((item) => item.file);
+        if (newProofs.length > 0) {
+          setUploadStage('evidence');
+          for (let i = 0; i < newProofs.length; i++) {
+            const item = newProofs[i];
+            if (item.file) {
+              try {
+                await dailyReportService.uploadReportFile(initialReport.id, item.file, 'proof');
+                setUploadProgressPercent(15 + Math.round(((i + 1) / newProofs.length) * 35));
+              } catch (uploadErr) {
+                console.warn('Gagal upload bukti pekerjaan:', uploadErr);
+              }
             }
           }
         }
 
         // Upload any newly selected attachments to /api/daily-reports/upload.php
         if (pendingDocs.length > 0) {
-          for (const item of pendingDocs) {
+          setUploadStage('attachments');
+          for (let i = 0; i < pendingDocs.length; i++) {
+            const item = pendingDocs[i];
             try {
               await dailyReportService.uploadReportFile(initialReport.id, item.file, 'attachment');
+              setUploadProgressPercent(50 + Math.round(((i + 1) / pendingDocs.length) * 35));
             } catch (uploadDocErr) {
               console.warn(`Gagal upload berkas lampiran "${item.name}":`, uploadDocErr);
             }
           }
           setPendingDocs([]);
         }
+
+        setUploadStage('saving');
+        setUploadProgressPercent(90);
 
         // Re-fetch freshest proof files from backend
         let freshProofUrls: string[] = [];
@@ -904,22 +928,31 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           const cleanId = String(newId).trim();
 
           // 1. Upload actual proof files directly to MySQL API /api/daily-reports/upload.php
-          for (const item of evidenceItems) {
-            if (item.file) {
-              try {
-                await dailyReportService.uploadReportFile(cleanId, item.file, 'proof');
-              } catch (uploadErr) {
-                console.warn('Gagal upload bukti pekerjaan:', uploadErr);
+          const newProofs = evidenceItems.filter((item) => item.file);
+          if (newProofs.length > 0) {
+            setUploadStage('evidence');
+            for (let i = 0; i < newProofs.length; i++) {
+              const item = newProofs[i];
+              if (item.file) {
+                try {
+                  await dailyReportService.uploadReportFile(cleanId, item.file, 'proof');
+                  setUploadProgressPercent(30 + Math.round(((i + 1) / newProofs.length) * 35));
+                } catch (uploadErr) {
+                  console.warn('Gagal upload bukti pekerjaan:', uploadErr);
+                }
               }
             }
           }
 
           // 2. Upload actual attachment files directly to MySQL API /api/daily-reports/upload.php
           if (pendingDocs.length > 0) {
-            for (const doc of pendingDocs) {
+            setUploadStage('attachments');
+            for (let i = 0; i < pendingDocs.length; i++) {
+              const doc = pendingDocs[i];
               if (doc.file) {
                 try {
                   await dailyReportService.uploadReportFile(cleanId, doc.file, 'attachment');
+                  setUploadProgressPercent(65 + Math.round(((i + 1) / pendingDocs.length) * 30));
                 } catch (uploadDocErr) {
                   console.warn(`Gagal upload berkas lampiran "${doc.name}":`, uploadDocErr);
                 }
@@ -927,6 +960,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
             }
             setPendingDocs([]);
           }
+
+          setUploadStage('saving');
+          setUploadProgressPercent(95);
 
           // 3. Re-fetch freshest report detail so proof files & attachments are cached & linked
           await dailyReportService.fetchDailyReportDetail(cleanId).catch(() => null);
@@ -964,6 +1000,8 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
       onAddToast(errorMsg);
     } finally {
       setIsSubmitting(false);
+      setUploadStage('idle');
+      setUploadProgressPercent(0);
     }
   };
 
@@ -1145,6 +1183,35 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           </div>
 
           <form onSubmit={handleSubmit}>
+            {/* Global Form Upload Loader Banner */}
+            {isSubmitting && (
+              <div className="report-upload-loader-banner" role="status" aria-live="polite">
+                <div className="report-upload-spinner-ring" />
+                <div className="report-upload-banner-content">
+                  <div className="report-upload-banner-title">
+                    {uploadStage === 'evidence'
+                      ? 'Mengunggah Foto Bukti Pekerjaan ke Server…'
+                      : uploadStage === 'attachments'
+                      ? 'Mengunggah Berkas Lampiran Proyek ke Server…'
+                      : uploadStage === 'saving'
+                      ? 'Menyimpan Perubahan Data Laporan ke Database Server…'
+                      : isEdit
+                      ? 'Memproses Penyimpanan Perubahan Laporan…'
+                      : 'Mengirim Laporan Harian ke Database Server…'}
+                  </div>
+                  <div className="report-upload-banner-desc">
+                    Mohon tunggu beberapa detik, berkas dan data sedang disinkronkan ke server ({uploadProgressPercent}%).
+                  </div>
+                  <div className="report-upload-banner-bar">
+                    <div
+                      className="report-upload-banner-bar-inner"
+                      style={{ width: `${Math.max(10, uploadProgressPercent)}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Field: Project Terkait & Kategori */}
             <div className="form-2col">
               <div className="field">
@@ -1260,6 +1327,14 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                       : 'Pilih satu atau beberapa screenshot/foto pekerjaan Anda'}
                   </span>
                 </div>
+
+                {/* Inline Evidence Uploading Loader */}
+                {isEvidenceProcessing && (
+                  <div className="evidence-upload-inline-loader">
+                    <div className="btn-spinner" style={{ borderColor: '#818cf8', borderTopColor: '#4338ca' }} />
+                    <span>Sedang mengunggah foto bukti ke server ({uploadProgressPercent}%)…</span>
+                  </div>
+                )}
 
                 {/* Thumbnails Gallery with Action buttons */}
                 {evidenceItems.length > 0 && (
@@ -1434,8 +1509,18 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
               >
                 {isSubmitting ? (
                   <>
-                    <div className="btn-spinner" style={{ marginRight: '6px' }} />
-                    <span>{isEdit ? 'Menyimpan...' : 'Mengirim Laporan...'}</span>
+                    <div className="btn-spinner" style={{ marginRight: '8px' }} />
+                    <span>
+                      {uploadStage === 'evidence'
+                        ? 'Mengunggah Bukti Pekerjaan…'
+                        : uploadStage === 'attachments'
+                        ? 'Mengunggah Berkas Lampiran…'
+                        : uploadStage === 'saving'
+                        ? 'Menyimpan ke Server…'
+                        : isEdit
+                        ? 'Menyimpan Perubahan…'
+                        : 'Mengirim Laporan…'}
+                    </span>
                   </>
                 ) : (
                   <>
