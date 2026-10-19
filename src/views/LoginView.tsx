@@ -262,7 +262,13 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
         {/* Middle Illustration Column */}
         <div className="illustration">
-          <h1>Start Your<br />Journey.</h1>
+          <div className="login-v3-pill">
+            <span className="v3-dot" />
+            <span>LaporanWee v3.0</span>
+          </div>
+          <h1 style={{ fontSize: '24px', lineHeight: '1.25', margin: '4px 0 10px 0' }}>
+            JANGAN LUPA<br />KERJA HARI INI
+          </h1>
           <p>Catat progres kreatif tim terpusat harian.</p>
           <div className="art">
             <div className="badge-auth">
@@ -407,6 +413,10 @@ export const LoginView: React.FC<LoginViewProps> = ({
           <p className="terms">
             By clicking the Sign In Button, you therefore agree to the Privacy Policy. For more information, read about our privacy here.
           </p>
+
+          <div style={{ textAlign: 'center', marginTop: '14px', fontSize: '11px', color: '#94a3b8', fontWeight: 600 }}>
+            LaporanWee v3.0 &bull; JANGAN LUPA KERJA HARI INI
+          </div>
         </div>
 
         {/* Success Overlay View */}

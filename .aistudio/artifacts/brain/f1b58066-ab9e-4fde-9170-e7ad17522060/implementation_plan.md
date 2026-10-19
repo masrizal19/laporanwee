@@ -1,76 +1,84 @@
-# Implementation Plan - CSS Loader & Visual Upload Progress pada Edit Laporan Harian
+# Implementation Plan - Pembaruan LaporanWee Versi 3.0 & Tagline Baru
 
-Menerapkan indikator loader CSS modern dan panel status progres upload data yang interaktif pada halaman **Edit Laporan Harian (`DailyReportForm.tsx`)** dan **Galeri Lampiran Berkas (`ProjectAttachmentsGallery.tsx`)**, sesuai dengan preferensi pengguna:
-1. **Lokasi Loader**: Tampil di seluruh area unggahan (Dropzone Bento & Area Bukti Pekerjaan) serta pada tombol Simpan/Kirim.
-2. **Sinkronisasi Berkas**: Kartu berkas yang berhasil diunggah tetap ditampilkan di daftar loader (dengan status sukses/selesai) dan sekaligus muncul langsung di galeri berkas.
-3. **Integritas Desain & Data**: Mempertahankan seluruh styling CSS yang sudah ada, tanpa merubah skema data, endpoint backend, atau fungsionalitas inti.
+Meningkatkan versi aplikasi web LaporanWee menjadi **Versi 3.0 (v3.0)**, memperbarui tagline resmi menjadi **"JANGAN LUPA KERJA HARI INI"**, dan menghadirkan **Pop-up Modal Interaktif Pengumuman Pembaruan 3.0** untuk seluruh pengguna.
 
 ---
 
-## 1. Analisis Kebutuhan & Arsitektur Loader
+## 1. Overview & Lokasi Penerapan
 
-Berdasarkan jawaban klarifikasi pengguna:
-- **Area Unggahan Bukti & Lampiran**:
-  - Saat berkas (foto/video/dokumen) ditarik atau dipilih, loader CSS interaktif aktif menampilkan progres unggah (0-100%), kecepatan transfer, dan status pemrosesan di server.
-  - Overlay loader semi-transparan dengan animasi `sweep` dan `shine` (memanfaatkan CSS bento yang sudah terintegrasi di `src/index.css`) saat proses pengiriman data sedang berlangsung.
-- **Tombol Simpan Perubahan / Kirim**:
-  - Tombol simpan menampilkan CSS spinner halus, animasi denyut (*pulse/glow*), dan status teks dinamis (`Mengunggah Berkas...`, `Menyimpan Data ke Server...`).
-  - Mencegah klik ganda (*prevent double submit*) dan mengunci input formulir selama proses upload data belum selesai.
-- **Tampilan Berkas Sinkron (Loader & Galeri)**:
-  - Kartu upload yang berhasil tidak langsung menghilang begitu saja; berkas tetap tercantum dalam list status upload aktif dengan penanda hijau centang `Selesai`, dan secara bersamaan berkas langsung terdaftar dalam grid galeri bento sehingga pengguna yakin data telah masuk ke server.
-
----
-
-## 2. Rincian Modifikasi Antarmuka & CSS Loader
-
-### A. Komponen CSS Loader di `src/index.css`:
-- Mengoptimalkan kelas `.bento-tile-state`, `.bento-progress`, `.bento-progress-bar`, dan animasi `@keyframes bentoSweep`.
-- Menambahkan kelas loader khusus untuk area formulir edit laporan:
-  - `.upload-loader-overlay`: Lapisan backdrop blur dengan kartu status pemrosesan upload data.
-  - `.upload-status-card`: Kartu floating berdesain selaras dengan bento card (border halus, badge status, bar persentase).
-  - `.btn-save-loading`: Animasi shimmer pada tombol simpan saat proses transfer payload sedang berjalan.
-
-### B. Penyempurnaan `ProjectAttachmentsGallery.tsx`:
-- Mengubah alur penghapusan item dari `activeUploads`:
-  - Mengubah logika `setTimeout(() => setActiveUploads(...), 1200)` menjadi state persisten atau transisi halus di mana berkas yang statusnya `'success'` tetap terlihat dengan badge `✓ Berhasil Diunggah` di panel upload dan langsung muncul di koleksi `serverItems` secara real-time.
-- Menampilkan panel ringkasan status upload (*Upload Queue & Progress List*) di atas grid ketika ada proses upload aktif maupun yang baru saja selesai.
-
-### C. Penyempurnaan `DailyReportForm.tsx`:
-- Menambahkan visual upload loader state pada:
-  1. **Bagian Bukti Pekerjaan (Evidence Upload)**: Progress bar animasi dan spinner saat kompresi/upload gambar bukti ke server.
-  2. **Bagian Galeri Lampiran & Berkas Proyek**: Indikator upload langsung ke endpoint `/api/daily-reports/upload.php` atau `/api/project-documents/upload.php`.
-  3. **Tombol Submit (Simpan Perubahan)**:
-     - Tampilan status real-time: `isSubmitting` dengan spinner loader CSS yang diperkaya label status tahapan (misal: "Mengunggah Lampiran..." dilanjutkan "Menyimpan Laporan...").
-  4. **Banner / Overlay Progres Global Formulir**: Notifikasi proses upload yang jelas di bagian atas formulir saat proses simpan berjalan sehingga pengguna tahu persis statusnya.
+Sesuai konfirmasi pengguna:
+1. **Perubahan Versi**: Mengubah versi dari `v2.4` menjadi `v3.0` pada footer, metadata, navbar, dan pengumuman sistem.
+2. **Tagline Baru ("JANGAN LUPA KERJA HARI INI")**:
+   - **Footer Web**: Menggantikan teks lama menjadi `LaporanWee v3.0 • JANGAN LUPA KERJA HARI INI`
+   - **Navbar Atas**: Menampilkan badge `v3.0` dan teks tagline `JANGAN LUPA KERJA HARI INI` yang estetik dan selaras dengan tema modern.
+   - **Halaman Login**: Menampilkan tagline tebal dan bersemangat `JANGAN LUPA KERJA HARI INI` beserta badge versi 3.0 pada kartu login tim kreatif.
+3. **Pengumuman Pembaruan Versi 3.0 ke Seluruh Pengguna**:
+   - Menghadirkan **Pop-up Modal Interaktif "Apa yang Baru di Versi 3.0"** yang otomatis muncul saat pengguna membuka aplikasi/login pertama kali.
+   - Menyediakan fitur *Remember State* via `localStorage` (`laporanwee_v3_0_seen`) agar tidak mengganggu pengguna berulang kali, serta tombol akses manual (klik badge versi di footer atau navbar) kapan pun pengguna ingin membacanya kembali.
 
 ---
 
-## 3. Langkah Implementasi (Implementation Steps)
+## 2. Rincian Fitur Pembaruan Versi 3.0 yang Diumumkan
 
-1. **Langkah 1: Penambahan Gaya CSS Loader (`src/index.css`)**
-   - Menambahkan rule CSS untuk floating upload queue loader, progress bar kilau, dan indikator status berhasil/gagal.
-   - Memastikan tidak ada gaya yang bertabrakan dengan styling form laporan yang sudah ada.
-
-2. **Langkah 2: Pembaruan `ProjectAttachmentsGallery.tsx`**
-   - Sinkronisasi state berkas terunggah: berkas berstatus `'success'` tetap ditampilkan pada antrean upload dengan tanda centang dan secara bersamaan direfleksikan di grid galeri.
-   - Memberikan tombol tutup manual (*dismiss*) atau riwayat ringkas upload berkas.
-
-3. **Langkah 3: Pembaruan `DailyReportForm.tsx`**
-   - Menghubungkan feedback upload langsung ke antarmuka formulir edit.
-   - Menambahkan visual loader pada tombol simpan dan area picker bukti pekerjaan saat proses pengunggahan berlangsung.
-
-4. **Langkah 4: Verifikasi & Build Testing**
-   - Menjalankan `compile_applet` untuk memastikan seluruh tipe data TypeScript valid dan build berhasil 100%.
+Modal pengumuman akan menyajikan ringkasan fitur unggulan yang telah disempurnakan:
+1. **Galeri Bento Lampiran & Berkas Proyek**:
+   - Tampilan editorial Bento Grid 6-kolom desktop & 2-kolom mobile untuk dokumen, foto, dan video.
+   - Filter instan kategori (Semua, Gambar, Video, Dokumen) dengan live counter.
+   - Lightbox interaktif resolusi penuh dengan navigasi keyboard.
+2. **Real-Time CSS Loader & Upload Tracker**:
+   - Indikator loader animasi (*sweep shimmer bar*, *pulse ring*) saat berkas diunggah.
+   - Pelacak status unggah ganda: berkas tampil di panel antrean status dan secara bersamaan langsung muncul di galeri.
+   - Animasi loader dinamis pada tombol Simpan Perubahan / Kirim Laporan dengan penanda tahapan.
+3. **Dukungan Berkas Hingga 2 GB & Endpoint MySQL Cepat**:
+   - Peningkatan efisiensi pengiriman data langsung ke database server.
+4. **Pembaruan Hak Akses & Keamanan Akun**:
+   - Penguatan otorisasi multi-role dan pengelolaan laporan harian yang lebih andal.
 
 ---
 
-## 4. Rencana Pengujian (Verification Plan)
+## 3. Komponen Baru & Modifikasi Berkas
 
-- **Uji Visual Loader Dropzone & Bento**:
-  - Drag atau pilih file ke area lampiran, periksa apakah progress bar animasi dan status kecepatan/tahapan muncul dengan jelas.
-- **Uji Sinkronisasi Galeri**:
-  - Pastikan kartu berkas muncul di daftar upload sukses dan langsung terlihat di galeri bento lampiran.
-- **Uji Tombol Simpan**:
-  - Tekan tombol "SIMPAN PERUBAHAN", pastikan spinner loader aktif, tombol nonaktif selama proses, dan status tersimpan kembali normal setelah berhasil.
-- **Uji Kompilasi**:
-  - Eksekusi `compile_applet` tanpa error.
+### A. Komponen Baru: `src/components/VersionUpdateModal.tsx`
+- Modal dialog responsif berdesain modern (glassmorphism/dark overlay, kartu bergradien halus).
+- Elemen isi:
+  - Header: Badge `Versi 3.0 Dirilis!`, judul `Pembaruan Akbar LaporanWee v3.0`, dan tagline `JANGAN LUPA KERJA HARI INI`.
+  - Kartu sorotan (*feature cards*) dengan ikon, deskripsi singkat, dan badge "Baru".
+  - Tombol aksi utama: `[Mengerti & Mulai Bekerja]` yang menutup modal dan menandai status `localStorage`.
+
+### B. Pembaruan `src/components/Navbar.tsx`:
+- Menambahkan badge versi `v3.0` yang dapat diklik untuk membuka modal rilis.
+- Menyematkan tagline `"JANGAN LUPA KERJA HARI INI"` di bagian header / sub-branding navbar.
+
+### C. Pembaruan `src/views/LoginView.tsx`:
+- Menampilkan tagline resmi `"JANGAN LUPA KERJA HARI INI"` dan badge `v3.0` pada welcome card login.
+
+### D. Pembaruan `src/App.tsx`:
+- Memperbarui teks footer: `LaporanWee v3.0 • JANGAN LUPA KERJA HARI INI`.
+- Mengintegrasikan state modal `showUpdateModal` dan auto-popup bagi pengguna yang baru pertama kali membuka versi 3.0.
+- Memberikan interaktivitas: klik pada teks footer versi 3.0 membuka kembali modal changelog.
+
+---
+
+## 4. Rencana Langkah Kerja (Implementation Steps)
+
+1. **Langkah 1**: Buat komponen `VersionUpdateModal.tsx` dengan daftar pembaruan lengkap dan desain modern.
+2. **Langkah 2**: Tambahkan badge versi dan tagline `"JANGAN LUPA KERJA HARI INI"` di `Navbar.tsx`.
+3. **Langkah 3**: Terapkan tagline `"JANGAN LUPA KERJA HARI INI"` dan penanda versi 3.0 di `LoginView.tsx`.
+4. **Langkah 4**: Perbarui footer di `App.tsx` dan integrasikan logika pop-up modal interaktif otomatis serta pemicu manualnya.
+5. **Langkah 5**: Jalankan `compile_applet` dan uji build untuk memastikan seluruh perubahan bebas galat.
+
+---
+
+## 5. Rencana Pengujian (Verification Plan)
+
+- **Uji Footer & Navbar**:
+  - Pastikan teks footer menampilkan `LaporanWee v3.0 • JANGAN LUPA KERJA HARI INI`.
+  - Pastikan navbar menampilkan badge versi `v3.0` dan tagline dengan rapi tanpa merusak tata letak responsif.
+- **Uji Halaman Login**:
+  - Pastikan halaman login menampilkan tagline baru `"JANGAN LUPA KERJA HARI INI"`.
+- **Uji Pop-up Modal 3.0**:
+  - Verifikasi modal muncul otomatis saat pertama kali masuk aplikasi.
+  - Verifikasi modal dapat ditutup dengan tombol "Mengerti & Mulai Bekerja" atau tombol silang.
+  - Verifikasi klik badge versi di footer/navbar memunculkan kembali modal changelog.
+- **Uji Kompilasi TypeScript**:
+  - Menjalankan `compile_applet` hingga sukses 100%.

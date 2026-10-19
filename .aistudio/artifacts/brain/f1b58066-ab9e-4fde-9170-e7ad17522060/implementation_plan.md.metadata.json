@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana implementasi CSS Loader dan indikator visual proses upload data pada Formulir Edit Laporan Harian (DailyReportForm) dan Galeri Lampiran Berkas, mencakup area unggahan, tombol simpan, serta tampilan sinkron di daftar loader dan galeri.",
-  "updatedAt": "2026-10-19T02:08:23.447999946Z",
+  "summary": "Rencana pembaruan web LaporanWee ke Versi 3.0 dengan penerapan tagline baru 'JANGAN LUPA KERJA HARI INI' pada footer, navbar atas, dan halaman login, serta pembuatan modal pengumuman interaktif pembaruan versi 3.0 untuk seluruh pengguna.",
+  "updatedAt": "2026-10-19T02:27:42.579195256Z",
   "requestFeedback": true,
   "userFacing": true
 }
