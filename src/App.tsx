@@ -38,6 +38,7 @@ import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
+import { isUserAdmin } from './utils/userUtils';
 import { VerifyEmailView } from './views/VerifyEmailView';
 import {
   api,
@@ -461,11 +462,8 @@ export function App() {
   } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Determine if current logged in user has Administrator privileges strictly from database users.role (Rule 4)
-  const isAdmin = Boolean(
-    user?.role?.toLowerCase() === 'admin' ||
-    (user as any)?.is_admin === true
-  );
+  // Determine if current logged in user has Administrator privileges (ID 1, ID 13, admin role, or is_admin)
+  const isAdmin = Boolean(isUserAdmin(user));
 
   // Synchronize Tasks and Daily Reports with Backend PHP/MySQL API — Single Source of Truth
   const refreshTasksFromApi = useCallback(async (reportListOverride?: Report[]) => {
@@ -1836,6 +1834,7 @@ export function App() {
         logoUrl={uiSettings?.logo_url}
         menuIconUrl={uiSettings?.menu_icon_url}
         signoutIconUrl={uiSettings?.signout_icon_url}
+        isAdmin={isAdmin}
       />
 
       {/* Main Container */}

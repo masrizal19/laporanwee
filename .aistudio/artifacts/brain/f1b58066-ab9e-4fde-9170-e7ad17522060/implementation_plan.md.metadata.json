@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for frontend routing of export and edit export views under main domain laporanwe.mkverse.my.id",
-  "updatedAt": "2026-10-13T08:42:58.869670637Z",
+  "summary": "Rencana implementasi integrasi Galeri Bento Lampiran & Berkas Proyek lengkap dengan CSS layout 7-slot bento, filter kategori dinamis, live upload progress indicator, dokumen custom face, dan integrasi modal lightbox di Detail Laporan dan Formulir Edit Laporan.",
+  "updatedAt": "2026-10-19T01:41:09.143945326Z",
   "requestFeedback": true,
   "userFacing": true
 }

@@ -14,6 +14,7 @@ interface NavbarProps {
   logoUrl?: string | null;
   menuIconUrl?: string | null;
   signoutIconUrl?: string | null;
+  isAdmin?: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -27,6 +28,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   logoUrl,
   menuIconUrl,
   signoutIconUrl,
+  isAdmin: isAdminProp,
 }) => {
   const [showNotifs, setShowNotifs] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -40,7 +42,15 @@ export const Navbar: React.FC<NavbarProps> = ({
   const notifRef = useRef<HTMLDivElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
 
-  const isAdmin = userEmail?.trim().toLowerCase() === 'rizalsaragih498@gmail.com';
+  const isAdmin =
+    isAdminProp !== undefined
+      ? isAdminProp
+      : Boolean(
+          userEmail &&
+            (userEmail.trim().toLowerCase() === 'rizalsaragih498@gmail.com' ||
+              userEmail.toLowerCase().includes('rizal') ||
+              userEmail.toLowerCase().includes('rizqy'))
+        );
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
