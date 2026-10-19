@@ -471,6 +471,28 @@ export function App() {
     }
   });
 
+  // Dark/Light Theme state synchronized with [data-theme]
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_theme') as 'light' | 'dark' | null;
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch (_) {
+      return 'light';
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem('laporanwee_theme', theme);
+    } catch (_) {}
+  }, [theme]);
+
+  const handleSetTheme = (nextTheme: 'light' | 'dark') => {
+    setTheme(nextTheme);
+  };
+
   // Determine if current logged in user has Administrator privileges (ID 1, ID 13, admin role, or is_admin)
   const isAdmin = Boolean(isUserAdmin(user));
 
@@ -1770,9 +1792,46 @@ export function App() {
     );
   }
 
+  const renderThemeSwitch = () => (
+    <>
+      <div className="ambient" aria-hidden="true">
+        <i></i>
+        <i></i>
+        <i></i>
+      </div>
+      <div className="theme-switch-pill" role="group" aria-label="Tema Tampilan">
+        <div className="theme-knob" />
+        <button
+          type="button"
+          className={theme === 'light' ? 'is-active' : ''}
+          onClick={() => handleSetTheme('light')}
+          aria-label="Mode Terang"
+          title="Mode Terang"
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={theme === 'dark' ? 'is-active' : ''}
+          onClick={() => handleSetTheme('dark')}
+          aria-label="Mode Gelap"
+          title="Mode Gelap"
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" />
+          </svg>
+        </button>
+      </div>
+    </>
+  );
+
   if (!user && currentPath === '/register') {
     return (
       <>
+        {renderThemeSwitch()}
         <RegisterView
           logoUrl={uiSettings?.logo_url}
           onRegisterSuccess={() => {
@@ -1789,6 +1848,7 @@ export function App() {
   if (!user || currentPath === '/login') {
     return (
       <>
+        {renderThemeSwitch()}
         <LoginView
           logoUrl={uiSettings?.logo_url}
           onLoginSuccess={(email, name, fullUser) => {
@@ -1831,6 +1891,41 @@ export function App() {
 
   return (
     <div id="app-shell">
+      {/* Ambient Moving Fog Blobs */}
+      <div className="ambient" aria-hidden="true">
+        <i></i>
+        <i></i>
+        <i></i>
+      </div>
+
+      {/* Floating Theme Switcher */}
+      <div className="theme-switch-pill" role="group" aria-label="Tema Tampilan">
+        <div className="theme-knob" />
+        <button
+          type="button"
+          className={theme === 'light' ? 'is-active' : ''}
+          onClick={() => handleSetTheme('light')}
+          aria-label="Mode Terang"
+          title="Mode Terang"
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round">
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className={theme === 'dark' ? 'is-active' : ''}
+          onClick={() => handleSetTheme('dark')}
+          aria-label="Mode Gelap"
+          title="Mode Gelap"
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" />
+          </svg>
+        </button>
+      </div>
+
       {/* Top and Bottom Navigation */}
       <Navbar
         currentView={currentView}
