@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana integrasi halaman Pengaturan Profil (Profile Settings) dari code.html ke dalam aplikasi LaporanWee. Mencakup navigasi langsung saat avatar topbar diklik, penyelarasan tampilan dengan desain Neo-Glass Bento 5.0 dari code.html (Hero card, progress ring percentage, expandable info rows, crop image modal), serta integrasi penuh dengan endpoint backend https://api-laporanwe.mkverse.my.id/api/profile/ (get.php, save.php, upload.php, update.php).",
-  "updatedAt": "2026-10-19T09:14:51.788040820Z",
+  "summary": "Rencana perbaikan menyeluruh Pengaturan Profil: menambahkan tombol 'Simpan Profil' di header atas DAN di bawah kartu Informasi Profil, memperbaiki pengeditan baris profil (Nama, Email, Pekerjaan, Status) dengan tombol Terapkan & Batal, mengaktifkan modal Crop Foto dengan drag/zoom/preview dialog tambahan sebelum disimpan ke backend MySQL, serta sinkronisasi avatar real-time ke top bar.",
+  "updatedAt": "2026-10-19T09:24:17.558982191Z",
   "requestFeedback": true,
   "userFacing": true
 }
