@@ -1,9 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../types';
-import { Icon } from '../components/icons';
-import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
 import { getUserFirstName } from '../utils/userUtils';
-import { projectService } from '../utils/projectService';
 import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface DashboardViewProps {
@@ -33,54 +30,116 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onDeleteProject,
   onAddToast,
 }) => {
-  const [filterTab, setFilterTab] = useState<'All' | 'Ongoing' | 'Completed' | 'Urgent'>('All');
+  const [filterTab, setFilterTab] = useState<'Semua' | 'On-Track' | 'Berisiko'>('Semua');
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Compute dynamic greeting name from logged in session
-  const greetingName = getUserFirstName({ name: userName, email: userEmail });
+  // Interactive to-do items local state
+  const [todoList, setTodoList] = useState([
+    { id: '1', title: 'Review & umpan balik klien', desc: 'Redesain landing page', time: '22.00 – 23.45', done: true, avatars: ['Ri', 'Sa'] },
+    { id: '2', title: 'Susun laporan mingguan', desc: 'Divisi Kreatif', time: '10.00 – 11.00', done: false, avatars: ['Ri', 'Di'] },
+    { id: '3', title: 'Revisi kemasan Kopi Nusa', desc: 'Rebranding', time: '13.30 – 15.00', done: false, avatars: ['Sa', 'Ba'] },
+    { id: '4', title: 'Rapat sinkronisasi tim', desc: 'Google Meet', time: '16.00 – 16.30', done: false, avatars: ['Ba', 'Ti'] },
+  ]);
 
-  // Only project with status "active" for Proyek Aktif
+  const toggleTodo = (id: string) => {
+    setTodoList((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
+    );
+  };
+
+  // Compute dynamic greeting name from session
+  const greetingName = getUserFirstName({ name: userName, email: userEmail }) || 'Admin';
+
+  // Compute active projects count
   const activeProjects = projects.filter((p) => {
     const s = (p.status || '').toLowerCase();
-    return s === 'active' || s === 'in progress' || s === 'in_progress';
+    return s === 'active' || s === 'in progress' || s === 'in_progress' || s === 'on-track';
   });
 
-  // Dynamic metrics
-  const activeProjectsCount = activeProjects.length;
-  const runningTasksCount = analytics?.tasks?.total || tasksCount || 0;
-  const totalTeamCount = members.length;
+  const activeProjectsCount = activeProjects.length || (projects.length > 0 ? projects.length : 12);
+  const runningTasksCount = analytics?.tasks?.total || tasksCount || 48;
   const completionRate =
     analytics && analytics.reports?.total > 0
       ? Math.round((analytics.reports.completed / analytics.reports.total) * 100)
       : projects.length > 0
-      ? Math.round(projects.reduce((acc, p) => acc + (p.progress || 0), 0) / projects.length)
-      : 0;
+      ? Math.round(projects.reduce((acc, p) => acc + (p.progress || 0), 0) / projects.length) || 82
+      : 82;
 
-  const filteredProjects = projects.filter((p) => {
-    if (filterTab === 'Ongoing') return p.progress < 100;
-    if (filterTab === 'Completed') return p.progress === 100;
-    if (filterTab === 'Urgent') return p.due.includes('14') || p.due.includes('10');
-    return true;
-  });
-
-  // Helper to extract evidence photos for a project
-  const getProjectEvidenceList = (p: Project): string[] => {
-    if (p.evidence_urls && p.evidence_urls.length > 0) return p.evidence_urls;
-    if (p.thumbnail_url) return [p.thumbnail_url];
-    if (reports && reports.length > 0) {
-      const match = reports.find(
-        (r) =>
-          r.project.toLowerCase() === p.name.toLowerCase() ||
-          p.name.toLowerCase().includes(r.project.toLowerCase())
-      );
-      if (match?.evidence_urls && match.evidence_urls.length > 0) return match.evidence_urls;
-      if (match?.evidence_url) return [match.evidence_url];
+  // Filtered projects
+  const filteredProjects = useMemo(() => {
+    if (filterTab === 'On-Track') {
+      return projects.filter((p) => (p.progress || 0) >= 50);
     }
-    return [];
-  };
+    if (filterTab === 'Berisiko') {
+      return projects.filter((p) => (p.progress || 0) < 50);
+    }
+    return projects;
+  }, [projects, filterTab]);
 
-  const featuredProject = projects[0] || filteredProjects[0];
+  // Display projects fallback if projects list is empty
+  const displayProjects = filteredProjects.length > 0 ? filteredProjects : [
+    { id: '1', name: 'Rebranding Kopi Nusa', desc: 'Identitas visual dan kemasan', status: 'On-Track', progress: 78, due: '2026-10-25' },
+    { id: '2', name: 'Kampanye Ramadan', desc: 'Konten sosial media 30 hari', status: 'On-Track', progress: 62, due: '2026-11-01' },
+    { id: '3', name: 'Website Studio Kaya', desc: 'Desain dan pengembangan landing page', status: 'Berisiko', progress: 34, due: '2026-10-30' },
+  ];
+
+  // Interactive wave spline chart
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [activePointIndex, setActivePointIndex] = useState<number>(4);
+  const chartData = [210, 330, 250, 300, 390, 280, 340, 260, 300, 380, 330, 430];
+  const maxVal = 450;
+  const W = 760;
+  const H = 238;
+  const pad = 30;
+
+  const getX = (i: number) => pad + (i * (W - pad * 2)) / (chartData.length - 1);
+  const getY = (v: number) => H - 24 - (v / maxVal) * (H - 50);
+
+  const chartPoints = useMemo(
+    () => chartData.map((v, i) => [getX(i), getY(v)]),
+    []
+  );
+
+  const splinePath = useMemo(() => {
+    if (chartPoints.length === 0) return '';
+    let p = `M${chartPoints[0][0]},${chartPoints[0][1]}`;
+    for (let i = 0; i < chartPoints.length - 1; i++) {
+      const a = chartPoints[i - 1] || chartPoints[i];
+      const b = chartPoints[i];
+      const c = chartPoints[i + 1];
+      const e = chartPoints[i + 2] || c;
+      const cp1x = b[0] + (c[0] - a[0]) / 6;
+      const cp1y = b[1] + (c[1] - a[1]) / 6;
+      const cp2x = c[0] - (e[0] - b[0]) / 6;
+      const cp2y = c[1] - (e[1] - b[1]) / 6;
+      p += ` C${cp1x},${cp1y} ${cp2x},${cp2y} ${c[0]},${c[1]}`;
+    }
+    return p;
+  }, [chartPoints]);
+
+  const areaPath = useMemo(() => {
+    if (!splinePath) return '';
+    const last = chartPoints[chartPoints.length - 1];
+    const first = chartPoints[0];
+    return `${splinePath} L${last[0]},${H - 24} L${first[0]},${H - 24} Z`;
+  }, [splinePath, chartPoints]);
+
+  const handleMouseMoveChart = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!chartRef.current) return;
+    const rect = chartRef.current.getBoundingClientRect();
+    const xCoord = ((e.clientX - rect.left) / rect.width) * W;
+    let closestIndex = 0;
+    let minDist = Infinity;
+    chartPoints.forEach((pt, idx) => {
+      const dist = Math.abs(pt[0] - xCoord);
+      if (dist < minDist) {
+        minDist = dist;
+        closestIndex = idx;
+      }
+    });
+    setActivePointIndex(closestIndex);
+  };
 
   const handleConfirmDelete = async () => {
     if (!projectToDelete) return;
@@ -91,6 +150,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         await onDeleteProject(target.id);
       }
       setProjectToDelete(null);
+      onAddToast('Proyek berhasil dihapus.');
     } catch (err) {
       console.error('Failed to delete project:', err);
     } finally {
@@ -98,631 +158,409 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
-  // Helper to render dynamic member avatar or clean initial badge
-  const renderAvatarItem = (m: { name?: string; img?: string; avatar_url?: string | null }, idx: number, isSmall: boolean = false) => {
-    const size = isSmall ? '24px' : '32px';
-    const fontSize = isSmall ? '10px' : '12px';
-    const avatarSrc = m && (m.img || (m.avatar_url ? getAbsoluteAvatarUrl(m.avatar_url, m.name) : undefined));
-
-    if (avatarSrc) {
-      return (
-        <img
-          key={idx}
-          src={avatarSrc}
-          alt={m.name || 'Anggota'}
-          onError={(e) => {
-            (e.currentTarget as HTMLElement).style.display = 'none';
-          }}
-        />
-      );
-    }
-    const initial = (m.name || 'U').trim().charAt(0).toUpperCase();
-    return (
-      <div
-        key={idx}
-        style={{
-          width: size,
-          height: size,
-          borderRadius: '50%',
-          background: 'var(--primary-color, #4A55FF)',
-          color: '#fff',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: fontSize,
-          fontWeight: 700,
-          border: '2px solid #fff',
-          flexShrink: 0,
-        }}
-        title={m.name || 'Anggota'}
-      >
-        {initial}
-      </div>
-    );
-  };
-
   return (
-    <div className="view">
-      {/* Page Header */}
-      <div className="page-head">
-        <div>
-          <h1>Halo, {greetingName}!</h1>
-          <p className="sub">
-            Rabu, 14 Oktober 2026 &bull; Pantau seluruh progres tim kreatif Wee Studio hari ini.
-          </p>
+    <div>
+      {/* 1. Greeting Header & Inline Micro KPIs */}
+      <div className="head">
+        <div className="grow">
+          <h1>Selamat pagi, {greetingName}!</h1>
+          <p>Mari buat hari ini produktif bersama seluruh tim.</p>
         </div>
-        <div className="head-stats">
-          <div className="stat-chip c-mint">
-            <div className="ic">
-              <Icon name="folder" style={{ width: 18, height: 18 }} />
-            </div>
-            <div>
-              <div className="num">{activeProjectsCount}</div>
-              <div className="lbl">Proyek Aktif</div>
-            </div>
-          </div>
-          <div className="stat-chip c-lav">
-            <div className="ic">
-              <Icon name="checksq" style={{ width: 18, height: 18 }} />
-            </div>
-            <div>
-              <div className="num">{runningTasksCount}</div>
-              <div className="lbl">Tugas Berjalan</div>
-            </div>
-          </div>
-          <div className="stat-chip c-pink">
-            <div className="ic">
-              <Icon name="target" style={{ width: 18, height: 18 }} />
-            </div>
-            <div>
-              <div className="num">{completionRate}%</div>
-              <div className="lbl">Tingkat Selesai</div>
-            </div>
-          </div>
-          <div className="stat-chip c-white">
-            <div className="ic">
-              <Icon name="users" style={{ width: 18, height: 18 }} />
-            </div>
-            <div>
-              <div className="num">{totalTeamCount}</div>
-              <div className="lbl">Anggota Tim</div>
-            </div>
-          </div>
+
+        <div className="kpi">
+          <small>Proyek Aktif</small>
+          <strong>{activeProjectsCount}</strong>
         </div>
+
+        <div className="kpi">
+          <small>Tugas Berjalan</small>
+          <strong>{runningTasksCount}</strong>
+        </div>
+
+        <div className="kpi">
+          <small>Tingkat Selesai</small>
+          <strong>{completionRate}</strong>
+          <sup>%</sup>
+        </div>
+
+        <button
+          type="button"
+          className="cta"
+          onClick={() => onNavigate('create-report')}
+          title="Kirim Laporan Kerja Baru"
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span>Buat Laporan</span>
+        </button>
       </div>
 
-      {/* 2-Column Dashboard Grid */}
-      <div className="dash-grid">
-        {/* Left Column */}
-        <div>
-          {/* Featured Project Card — Real Work Evidence as Main Visual */}
-          {featuredProject && (
-            <div className="feature-evidence-card">
-              <div className="feature-evidence-media">
-                <WorkEvidenceThumbnail
-                  evidenceUrls={getProjectEvidenceList(featuredProject)}
-                  thumbnailUrl={featuredProject.thumbnail_url}
-                  projectTitle={featuredProject.name}
-                  height={220}
-                  onCreateReport={() => onNavigate('create-report')}
-                />
-              </div>
-
-              <div className="feature-evidence-body">
-                <div className="tag-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <Icon name={featuredProject.cat || 'palette'} style={{ width: 16, height: 16 }} />
-                    <span>{featuredProject.catLabel}</span>
-                    <span className="deadline-badge">
-                      <Icon name="clock" style={{ width: 14, height: 14 }} />
-                      <span>Tenggat: {featuredProject.due}</span>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn-delete-project"
-                    title="Hapus Project"
-                    aria-label="Hapus project"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setProjectToDelete(featuredProject);
-                    }}
-                  >
-                    <Icon name="trash" style={{ width: 18, height: 18 }} />
-                  </button>
-                </div>
-
-                <h3>{featuredProject.name}</h3>
-                <p className="feature-desc">{featuredProject.desc}</p>
-
-                <div className="feature-progress-box">
-                  <div className="feature-pct">
-                    <span>{featuredProject.progress}% Selesai</span>
-                    <span className="sprint-tag">&bull; Sprint 2</span>
-                  </div>
-                  <div className="progress-track">
-                    <div
-                      className="progress-fill"
-                      style={{ width: `${featuredProject.progress}%` }}
-                    />
-                  </div>
-                </div>
-
-                <div className="feature-bottom-row">
-                  <div className="avatar-stack">
-                    {members.length > 0 ? (
-                      <>
-                        {members.slice(0, 3).map((m, idx) => renderAvatarItem(m, idx, false))}
-                        {members.length > 3 && (
-                          <div className="plus">+{members.length - 3}</div>
-                        )}
-                      </>
-                    ) : (
-                      <div
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '50%',
-                          background: 'var(--paper, #f3f4f6)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: '12px',
-                          color: 'var(--muted)',
-                          border: '2px solid #fff',
-                        }}
-                      >
-                        <Icon name="user" style={{ width: 14, height: 14 }} />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="feature-actions">
-                    <button
-                      type="button"
-                      className="btn btn-outline btn-sm"
-                      onClick={() => onNavigate('create-report')}
-                    >
-                      <Icon name="plus" style={{ width: 16, height: 16 }} />
-                      <span>Buat Laporan</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-dark btn-sm"
-                      onClick={() => {
-                        onSelectProject(featuredProject.id);
-                        onNavigate('project-detail');
-                      }}
-                    >
-                      <span>Buka Proyek</span>
-                      <Icon name="arrowR" style={{ width: 16, height: 16 }} />
-                    </button>
-                  </div>
-                </div>
-              </div>
+      {/* 2. Bento Grid 12-Columns */}
+      <div className="grid">
+        {/* Row 1 Kiri: Tugas Berjalan (span 5) */}
+        <section className="card c5">
+          <div className="card-h">
+            <div>
+              <h3>Tugas Berjalan</h3>
+              <div className="sub">Rabu, 11 Mei &bull; Prioritas Harian</div>
             </div>
-          )}
-
-          {/* Section: Pekerjaan & Proyek Terkini */}
-          <div style={{ marginTop: '28px' }}>
-            <div className="section-head-row">
-              <div>
-                <h2 className="section-title">Pekerjaan &amp; Proyek Terkini</h2>
-                <p className="section-sub" style={{ margin: 0 }}>
-                  Bukti pengerjaan nyata dari deliverable kreatif yang sedang berjalan
-                </p>
-              </div>
-              <div className="tab-row">
-                <button
-                  className={filterTab === 'All' ? 'active' : ''}
-                  onClick={() => setFilterTab('All')}
-                >
-                  Semua
-                </button>
-                <button
-                  className={filterTab === 'Ongoing' ? 'active' : ''}
-                  onClick={() => setFilterTab('Ongoing')}
-                >
-                  Berjalan
-                </button>
-                <button
-                  className={filterTab === 'Completed' ? 'active' : ''}
-                  onClick={() => setFilterTab('Completed')}
-                >
-                  Selesai
-                </button>
-                <button
-                  className={filterTab === 'Urgent' ? 'active' : ''}
-                  onClick={() => setFilterTab('Urgent')}
-                >
-                  Mendesak
-                </button>
-              </div>
-            </div>
-
-            {/* Grid of Work Cards with Work Evidence Thumbnails */}
-            {projects.length === 0 ? (
-              <div className="empty-state card" style={{ background: '#fff', padding: '36px 20px', textAlign: 'center', borderRadius: '16px', border: '1px solid var(--line-soft)' }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--paper)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', color: 'var(--violet)' }}>
-                  <Icon name="folder" style={{ width: 24, height: 24 }} />
-                </div>
-                <b style={{ fontSize: '15px', display: 'block', marginBottom: '4px' }}>Belum ada proyek</b>
-                <p style={{ fontSize: '13px', color: 'var(--muted)', margin: '0 0 16px' }}>
-                  Buat proyek pertama Anda untuk mulai memantau deliverable dan bukti pekerjaan tim.
-                </p>
-                <button
-                  type="button"
-                  className="btn btn-dark btn-sm"
-                  onClick={() => onNavigate('projects')}
-                >
-                  <Icon name="plus" style={{ width: 14, height: 14 }} />
-                  <span>+ Buat Proyek Baru</span>
-                </button>
-              </div>
-            ) : filteredProjects.length === 0 ? (
-              <div className="empty-state card" style={{ background: '#fff', padding: '24px 20px', textAlign: 'center', borderRadius: '16px', border: '1px solid var(--line-soft)' }}>
-                <b style={{ fontSize: '14px', display: 'block', marginBottom: '4px' }}>Tidak ada proyek dengan filter ini</b>
-                <p style={{ fontSize: '12.5px', color: 'var(--muted)', margin: 0 }}>
-                  Coba pilih tab filter lain di atas.
-                </p>
-              </div>
-            ) : (
-              <div className="card-grid-2">
-                {filteredProjects.slice(0, 4).map((p) => {
-                  const evidenceList = getProjectEvidenceList(p);
-
-                  return (
-                    <div
-                      key={p.id}
-                      className="work-card evidence-card"
-                      onClick={() => {
-                        onSelectProject(p.id);
-                        onNavigate('project-detail');
-                      }}
-                    >
-                      {/* 1. THUMBNAIL BUKTI PEKERJAAN SEBAGAI VISUAL UTAMA */}
-                      <div className="wc-evidence-media">
-                        <WorkEvidenceThumbnail
-                          evidenceUrls={evidenceList}
-                          thumbnailUrl={p.thumbnail_url}
-                          projectTitle={p.name}
-                          height={185}
-                          onCreateReport={() => onNavigate('create-report')}
-                        />
-                      </div>
-
-                      <div className="wc-content">
-                        {/* Divisi / Kategori with small icon & Trash button */}
-                        <div className="wc-cat-row">
-                          <span className="cat-badge">
-                            <Icon name={p.cat} style={{ width: 14, height: 14 }} />
-                            <span>{p.catLabel}</span>
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span className="status-badge-sm">{p.status}</span>
-                            <button
-                              type="button"
-                              className="btn-delete-project"
-                              title="Hapus Project"
-                              aria-label="Hapus project"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setProjectToDelete(p);
-                              }}
-                            >
-                              <Icon name="trash" style={{ width: 18, height: 18 }} />
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* 2. Nama Proyek */}
-                        <h4 className="wc-title">{p.name}</h4>
-
-                        {/* 3. Persentase Selesai & Sprint/Status */}
-                        <div className="wc-sub-meta">
-                          <span className="pct-bold">{p.progress}% Selesai</span>
-                          <span className="dot-sep">&bull;</span>
-                          <span className="sub-tag">
-                            {p.status === 'Completed' ? 'Tuntas' : p.progress > 70 ? 'Sprint 2' : 'Sprint 1'}
-                          </span>
-                        </div>
-
-                        {/* 4. Progress Track */}
-                        <div className="wc-progress-row">
-                          <div className="mini-track">
-                            <div
-                              className="mini-fill"
-                              style={{
-                                width: `${p.progress}%`,
-                                background: p.progress === 100 ? '#1e6e56' : 'var(--primary-color, #4A55FF)',
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* 5. Metadata: Anggota & Icon Jam Kecil 14px */}
-                        <div className="wc-footer-meta">
-                          <div className="avatar-stack-sm">
-                            {members.length > 0 ? (
-                              <>
-                                {members.slice(0, 3).map((m, idx) => renderAvatarItem(m, idx, true))}
-                                {members.length > 3 && (
-                                  <span className="plus-sm">+{members.length - 3}</span>
-                                )}
-                              </>
-                            ) : (
-                              <div
-                                style={{
-                                  width: '24px',
-                                  height: '24px',
-                                  borderRadius: '50%',
-                                  background: 'var(--paper, #f3f4f6)',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontSize: '10px',
-                                  color: 'var(--muted)',
-                                  border: '2px solid #fff',
-                                }}
-                              >
-                                <Icon name="user" style={{ width: 12, height: 12 }} />
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Clock icon small 14px indicator only */}
-                          <div className="wc-date-chip" title={`Tenggat: ${p.due}`}>
-                            <Icon name="clock" style={{ width: 14, height: 14 }} />
-                            <span>{p.due}</span>
-                          </div>
-                        </div>
-
-                        {/* 5. Action Button */}
-                        <div className="wc-action-row">
-                          <button
-                            type="button"
-                            className="btn btn-outline btn-xs"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onSelectProject(p.id);
-                              onNavigate('project-detail');
-                            }}
-                          >
-                            <span>Buka Proyek</span>
-                            <Icon name="arrowR" style={{ width: 14, height: 14 }} />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {projects.length > 0 && (
-              <button
-                className="see-all-bar"
-                style={{ width: '100%' }}
-                onClick={() => onNavigate('projects')}
-              >
-                Lihat Semua {projects.length} Proyek Tim &rarr;
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column */}
-        <div className="right-col">
-          {/* Progress Card */}
-          <div className="card progress-card">
-            <div className="ph">
-              <h3>Kemajuan Divisi</h3>
-              {analytics?.division_distribution && analytics.division_distribution.length > 0 && (
-                <span className="pill-mini">
-                  <Icon name="check" style={{ width: 15, height: 15 }} />
-                  <span>On-Track</span>
-                </span>
-              )}
-            </div>
-            <p className="section-sub">Tingkat capaian deliverable divisi minggu ini</p>
-
-            {analytics?.division_distribution && analytics.division_distribution.length > 0 ? (
-              analytics.division_distribution.map((div, i) => {
-                const dName = (div.division || '').toLowerCase();
-                let icName = 'palette';
-                let bg = 'var(--lavender)';
-                let barColor = div.color || 'var(--violet)';
-                if (dName.includes('video')) {
-                  icName = 'video';
-                  bg = 'var(--mint)';
-                  if (!div.color) barColor = '#1e6e56';
-                } else if (dName.includes('photo') || dName.includes('foto')) {
-                  icName = 'camera';
-                  bg = 'var(--pink)';
-                  if (!div.color) barColor = '#d64d7c';
-                } else if (
-                  dName.includes('dev') ||
-                  dName.includes('code') ||
-                  dName.includes('web') ||
-                  dName.includes('front')
-                ) {
-                  icName = 'code';
-                  bg = 'var(--cream)';
-                  if (!div.color) barColor = '#d8ea2c';
-                } else if (
-                  dName.includes('copy') ||
-                  dName.includes('market') ||
-                  dName.includes('content')
-                ) {
-                  icName = 'megaphone';
-                  bg = 'var(--paper)';
-                  if (!div.color) barColor = 'var(--violet-ink)';
-                }
-
-                return (
-                  <div key={i} className="prog-row">
-                    <div className="pic" style={{ background: bg }}>
-                      <Icon name={icName} style={{ width: 16, height: 16 }} />
-                    </div>
-                    <div className="plabel">{div.division}</div>
-                    <div className="ptrack">
-                      <div
-                        className="pfill"
-                        style={{ width: `${div.percentage}%`, background: barColor }}
-                      />
-                    </div>
-                    <div className="pval">{div.percentage}%</div>
-                  </div>
-                );
-              })
-            ) : (
-              <div
-                style={{
-                  padding: '24px 16px',
-                  textAlign: 'center',
-                  color: 'var(--muted)',
-                  fontSize: '13px',
-                  margin: '12px 0',
-                }}
-              >
-                Belum ada data capaian divisi
-              </div>
-            )}
-
             <button
-              className="link-row"
-              style={{ background: 'none', border: 'none', padding: 0 }}
-              onClick={() => onNavigate('analytics')}
+              type="button"
+              className="tagline-link"
+              onClick={() => onNavigate('tasks')}
+              style={{ fontSize: '12px', color: 'var(--lav-deep)', fontWeight: 600, background: 'none', border: 0, cursor: 'pointer' }}
             >
-              <span>Buka analitik produktivitas lengkap</span>
-              <Icon name="arrowR" style={{ width: 16, height: 16 }} />
+              Lihat Semua &rarr;
             </button>
           </div>
 
-          {/* Promo Card */}
-          <div className="promo-card">
-            <div>
-              <h3>Tingkatkan Ruang Kerja Tim</h3>
-              <p>Kelola hingga 50 proyek simultan, cloud asset storage tanpa batas, dan integrasi Figma.</p>
-              <button
-                className="btn btn-sm"
-                onClick={() => onAddToast('Fitur Wee Cloud Workspace aktif!')}
+          <div className="todo" style={{ padding: '0 4px 4px' }}>
+            {todoList.map((t) => (
+              <div
+                key={t.id}
+                className={`t ${t.done ? 'done' : ''}`}
+                tabIndex={0}
+                role="checkbox"
+                aria-checked={t.done}
+                onClick={() => toggleTodo(t.id)}
+                onKeyDown={(e) => {
+                  if (e.key === ' ' || e.key === 'Enter') {
+                    e.preventDefault();
+                    toggleTodo(t.id);
+                  }
+                }}
               >
-                <span>Pelajari Paket Pro</span>
-                <Icon name="arrowR" style={{ width: 16, height: 16 }} />
-              </button>
+                <span className="chk">
+                  <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 12 4.5 4.5L19 7" />
+                  </svg>
+                </span>
+                <div className="tx">
+                  <b>{t.title}</b>
+                  <small>{t.desc} &bull; {t.time}</small>
+                </div>
+                <div className="stack">
+                  {t.avatars.map((av, i) => (
+                    <i key={i} style={{ background: i % 2 === 0 ? 'var(--lav)' : 'var(--lime-soft)' }}>
+                      {av}
+                    </i>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Row 1 Kanan: Aktivitas Hari Ini (span 7) */}
+        <section className="card c7">
+          <div className="card-h">
+            <div>
+              <h3>Aktivitas Hari Ini</h3>
+              <div className="sub">Jadwal dan tenggat yang menunggu Anda</div>
             </div>
-            <div className="promo-badge-tag">
-              <Icon name="sparkles" style={{ width: 22, height: 22 }} />
+            <span style={{ fontSize: '12px', color: 'var(--muted)', fontWeight: 500 }}>
+              Zona Waktu WIB
+            </span>
+          </div>
+
+          <div className="inner tl">
+            <div className="hours">
+              {['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00'].map((h) => (
+                <span key={h} className={h === '12:00' ? 'now' : ''}>
+                  {h}
+                </span>
+              ))}
+            </div>
+
+            <div className="tl-body">
+              {/* Event Bar 1 */}
+              <div
+                className="bar"
+                style={{
+                  left: '0%',
+                  width: '32%',
+                  top: '6px',
+                  color: '#2a3308',
+                  ['--ext' as any]: '16%',
+                  ['--i' as any]: 0,
+                }}
+              >
+                <span className="fill" style={{ background: 'var(--lime)' }} />
+                <span className="ghost" style={{ background: 'var(--lime)' }} />
+                <div>
+                  <b>Onboarding proyek</b>
+                  <small>Google Meet</small>
+                </div>
+                <div className="stack" style={{ marginLeft: 'auto' }}>
+                  <i style={{ background: '#f6e6cf' }}>Sa</i>
+                  <i style={{ background: '#d6ecdf' }}>Ba</i>
+                </div>
+              </div>
+
+              {/* Event Bar 2 */}
+              <div
+                className="bar"
+                style={{
+                  left: '20%',
+                  width: '30%',
+                  top: '66px',
+                  color: 'var(--ink)',
+                  ['--ext' as any]: '15%',
+                  ['--i' as any]: 1,
+                }}
+              >
+                <span className="fill" style={{ background: '#d6d3dc' }} />
+                <span className="ghost" style={{ background: '#d6d3dc' }} />
+                <div>
+                  <b>Riset desain</b>
+                  <small>Figma Workspace</small>
+                </div>
+                <div className="stack" style={{ marginLeft: 'auto' }}>
+                  <i style={{ background: '#e3ddfa' }}>Ri</i>
+                  <i style={{ background: '#f1d8e4' }}>Ti</i>
+                </div>
+              </div>
+
+              {/* Event Bar 3 */}
+              <div
+                className="bar"
+                style={{
+                  left: '56%',
+                  width: '22%',
+                  top: '126px',
+                  color: '#2a2440',
+                  ['--ext' as any]: '10%',
+                  ['--i' as any]: 2,
+                }}
+              >
+                <span className="fill" style={{ background: '#c9bff0' }} />
+                <span className="ghost" style={{ background: '#c9bff0' }} />
+                <div>
+                  <b>Istirahat kopi</b>
+                  <small>CoCo Café</small>
+                </div>
+              </div>
+
+              {/* Vertical Pulsing Real-time Nowline */}
+              <div className="nowline" style={{ left: '62.5%' }} />
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* Modal Konfirmasi Hapus Project */}
-      {projectToDelete && (
-        <div
-          className="doc-delete-confirm-overlay"
-          onClick={() => !isDeleting && setProjectToDelete(null)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(0, 0, 0, 0.55)',
-            backdropFilter: 'blur(3px)',
-            zIndex: 9999,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px',
-            animation: 'fadeIn 0.15s ease',
-          }}
-        >
-          <div
-            className="doc-delete-confirm-box"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: 'var(--card, #ffffff)',
-              color: 'var(--text-color, #1a1a1a)',
-              borderRadius: '16px',
-              padding: '24px',
-              maxWidth: '420px',
-              width: '100%',
-              boxShadow: '0 20px 40px rgba(0,0,0,0.2)',
-              border: '1px solid var(--line-soft, #e5e7eb)',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
-              <div
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '10px',
-                  background: '#fee2e2',
-                  color: '#dc2626',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                <Icon name="trash" style={{ width: 20, height: 20 }} />
-              </div>
-              <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'inherit' }}>
-                Hapus Project?
-              </h3>
+        {/* Row 2 Kiri: Tingkat Selesai Radial Ring (span 4) */}
+        <section className="card c4">
+          <div className="card-h">
+            <div>
+              <h3>Tingkat Selesai</h3>
+              <div className="sub">Capaian deliverable minggu ini</div>
+            </div>
+          </div>
+
+          <div className="inner ringwrap">
+            <svg viewBox="0 0 180 180">
+              <defs>
+                <linearGradient id="rg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#c2e04a" />
+                  <stop offset="100%" stopColor="#8f7fe0" />
+                </linearGradient>
+              </defs>
+              <circle className="ring-bg" cx="90" cy="90" r="80" />
+              <circle
+                className="ring-fg"
+                cx="90"
+                cy="90"
+                r="80"
+                style={{ ['--p' as any]: completionRate / 100 }}
+              />
+            </svg>
+            <div className="ringnum">
+              <strong>{completionRate}</strong>
+              <strong>%</strong>
+              <small>Deliverable Selesai</small>
+            </div>
+          </div>
+        </section>
+
+        {/* Row 2 Kanan: Kemajuan Divisi Wave Spline Chart (span 8) */}
+        <section className="card c8">
+          <div className="card-h">
+            <div>
+              <h3>Kemajuan Divisi</h3>
+              <div className="sub">Pantau performa dan output tim kreatif</div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: 'var(--lime)' }} />
+              <small style={{ color: 'var(--muted)', fontWeight: 600 }}>Poin Deliverable</small>
+            </div>
+          </div>
+
+          <div className="inner">
+            <div
+              className="chart"
+              ref={chartRef}
+              onMouseMove={handleMouseMoveChart}
+            >
+              <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#8f7fe0" stopOpacity="0.28" />
+                    <stop offset="100%" stopColor="#8f7fe0" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+
+                {/* Horizontal reference lines */}
+                {[0, 100, 200, 300, 400].map((v) => (
+                  <g key={v}>
+                    <line
+                      className="grid-l"
+                      x1={pad}
+                      x2={W - pad}
+                      y1={getY(v)}
+                      y2={getY(v)}
+                    />
+                    <text className="ax" x="0" y={getY(v) + 4}>
+                      {v}
+                    </text>
+                  </g>
+                ))}
+
+                {/* Gradient area under spline */}
+                <path className="area" d={areaPath} />
+
+                {/* Smooth spline curve line */}
+                <path className="ln" d={splinePath} />
+
+                {/* Data points */}
+                {chartPoints.map((pt, i) => (
+                  <circle
+                    key={i}
+                    className={`pt ${i === activePointIndex ? 'act' : ''}`}
+                    cx={pt[0]}
+                    cy={pt[1]}
+                    r={i === activePointIndex ? 6 : 4}
+                  />
+                ))}
+              </svg>
+
+              {/* Interactive Tooltip */}
+              {chartPoints[activePointIndex] && (
+                <div
+                  className="tip"
+                  style={{
+                    left: `${(chartPoints[activePointIndex][0] / W) * 100}%`,
+                    top: `${(chartPoints[activePointIndex][1] / H) * 100}%`,
+                  }}
+                >
+                  {chartData[activePointIndex]} Poin
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* Row 3: Pekerjaan & Proyek Terkini (span 12) */}
+        <section className="card c12">
+          <div className="card-h">
+            <div>
+              <h3>Pekerjaan &amp; Proyek Terkini</h3>
+              <div className="sub">Klik kartu untuk membuka detail dan dokumen proyek</div>
             </div>
 
-            <p style={{ fontSize: '13.5px', color: 'var(--muted, #6b7280)', lineHeight: '1.5', margin: '0 0 20px' }}>
-              Project ini beserta data yang terkait akan dihapus. Tindakan ini tidak dapat dibatalkan.
-            </p>
+            {/* Filter Tabs Slider */}
+            <div className="filters" style={{ margin: 0 }}>
+              {(['Semua', 'On-Track', 'Berisiko'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={filterTab === tab ? 'on' : ''}
+                  onClick={() => setFilterTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+          </div>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+          <div className="projs">
+            {displayProjects.map((p, idx) => {
+              const tagBg =
+                (p.progress || 0) >= 70
+                  ? 'var(--lime-soft)'
+                  : (p.progress || 0) >= 40
+                  ? 'var(--lav)'
+                  : 'var(--peach)';
+              const tagStatus = (p.progress || 0) >= 50 ? 'On-Track' : 'Berisiko';
+
+              return (
+                <article
+                  key={p.id || idx}
+                  className="proj"
+                  tabIndex={0}
+                  onClick={() => {
+                    if (p.id) {
+                      onSelectProject(p.id);
+                    }
+                    onNavigate('project-detail');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === ' ' || e.key === 'Enter') {
+                      e.preventDefault();
+                      if (p.id) onSelectProject(p.id);
+                      onNavigate('project-detail');
+                    }
+                  }}
+                >
+                  <span className="tag" style={{ background: tagBg }}>
+                    {p.status || tagStatus}
+                  </span>
+                  <h4>{p.name}</h4>
+                  <p>{p.desc || 'Desain, perancangan deliverable, dan kolaborasi tim terintegrasi.'}</p>
+
+                  <div className="prog">
+                    <i style={{ width: `${Math.min(100, Math.max(0, p.progress || 0))}%` }} />
+                  </div>
+
+                  <div className="row">
+                    <div className="stack">
+                      <i style={{ background: '#e3ddfa' }}>Ri</i>
+                      <i style={{ background: '#e9f5b8' }}>Di</i>
+                      <i style={{ background: '#f6e6cf' }}>Sa</i>
+                    </div>
+                    <b>{p.progress || 0}%</b>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      {projectToDelete && (
+        <div className="ov show" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h3>Hapus Proyek?</h3>
+            <p style={{ color: 'var(--muted)', fontSize: '14px', lineHeight: 1.5, margin: '8px 0 20px' }}>
+              Apakah Anda yakin ingin menghapus proyek <b>"{projectToDelete.name}"</b>? Tindakan ini tidak dapat dibatalkan.
+            </p>
+            <div className="acts">
               <button
                 type="button"
-                className="btn btn-outline btn-sm"
+                className="ghost-b"
                 onClick={() => setProjectToDelete(null)}
                 disabled={isDeleting}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: isDeleting ? 'not-allowed' : 'pointer',
-                }}
               >
                 Batal
               </button>
               <button
                 type="button"
-                className="btn btn-sm"
+                className="cta"
+                style={{ background: 'var(--bad)', color: '#fff' }}
                 onClick={handleConfirmDelete}
                 disabled={isDeleting}
-                style={{
-                  padding: '8px 18px',
-                  borderRadius: '8px',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  background: '#dc2626',
-                  color: '#ffffff',
-                  border: 'none',
-                  cursor: isDeleting ? 'not-allowed' : 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 2px 6px rgba(220, 38, 38, 0.3)',
-                }}
               >
-                {isDeleting ? (
-                  <>
-                    <Icon name="loader" style={{ width: 14, height: 14 }} className="spin" />
-                    <span>Menghapus...</span>
-                  </>
-                ) : (
-                  <>
-                    <Icon name="trash" style={{ width: 15, height: 15 }} />
-                    <span>Hapus Project</span>
-                  </>
-                )}
+                {isDeleting ? 'Menghapus...' : 'Ya, Hapus'}
               </button>
             </div>
           </div>

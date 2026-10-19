@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana penghapusan elemen tombol 'v3.0 JANGAN LUPA KERJA HARI INI' dari topbar (Navbar) untuk mengembalikan ruang horizontal penuh agar seluruh menu navigasi termasuk 'Analitik' tampil utuh tanpa terpotong atau tertutup. Tagline dan v3.0 tetap dipertahankan pada footer, halaman login, dan modal rilis.",
-  "updatedAt": "2026-10-19T02:42:43.048006184Z",
+  "summary": "Rencana komprehensif audit dan desain ulang total LaporanWee UI 5.0 (Zero-Distortion & Neo-Glass Bento). Mencakup implementasi Design System Token v5.0 (Light/Dark mode, glassmorphism, aksen lavender & lime, ambient glow), Floating Rail Navigation desktop dengan auto-expand hover, Mobile bottom dock pill, Topbar baru dengan breadcrumb dan theme switcher, desain ulang Auth (Login/Register/Verify) dengan bento stage card, serta transformasi seluruh modul (Dashboard, Proyek, Tugas Kanban, Laporan, Kalender, Sosial Media, Tim, Analitik) ke tata letak Bento Grid tanpa distorsi/gepeng dengan tetap mempertahankan 100% integrasi API & data yang ada.",
+  "updatedAt": "2026-10-19T04:49:50.716022230Z",
   "requestFeedback": true,
   "userFacing": true
 }

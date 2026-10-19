@@ -1831,7 +1831,12 @@ export function App() {
 
   return (
     <div id="app-shell">
-      {/* Top and Bottom Navigation */}
+      {/* Background Ambient Drifting Blobs */}
+      <div className="ambient">
+        <i></i><i></i><i></i>
+      </div>
+
+      {/* Floating Rail Navigation (Desktop) & Bottom Dock Pill (Mobile) */}
       <Navbar
         currentView={currentView}
         onNavigate={handleNavigate}
@@ -1847,8 +1852,8 @@ export function App() {
         onOpenWhatsNew={() => setShowWhatsNewModal(true)}
       />
 
-      {/* Main Container */}
-      <main>
+      {/* Main Content Viewport */}
+      <main className="app-shell-main">
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -2076,10 +2081,10 @@ export function App() {
         <div
           className="footer-tag"
           onClick={() => setShowWhatsNewModal(true)}
-          style={{ cursor: 'pointer' }}
-          title="Klik untuk melihat Apa yang Baru di Versi 3.0"
+          style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
+          title="Klik untuk melihat Apa yang Baru di Versi 5.0"
         >
-          LaporanWee v3.0 &bull; JANGAN LUPA KERJA HARI INI
+          LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
         </div>
       </main>
 
