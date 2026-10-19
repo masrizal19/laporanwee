@@ -81,53 +81,41 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       <header className="topnav">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            className="brand"
-            onClick={() => onNavigate('dashboard')}
-            title="Kembali ke Dashboard"
-          >
-            {logoUrl && !logoError ? (
-              <img
-                src={logoUrl}
-                alt="Logo"
-                style={{ maxHeight: '32px', objectFit: 'contain' }}
-                onError={() => setLogoError(true)}
-              />
-            ) : (
-              <>
-                <span>Laporan</span>
-                <span className="wee">
-                  Wee
-                  <svg
-                    width="28"
-                    height="8"
-                    viewBox="0 0 28 8"
-                    fill="none"
-                    style={{ position: 'absolute', bottom: '-4px', left: '0' }}
-                  >
-                    <path
-                      d="M1 5.5C8 1.5 20 1.5 27 6.5"
-                      stroke="currentColor"
-                      strokeWidth="2.4"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </span>
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            className="nav-version-tagline-btn"
-            onClick={onOpenWhatsNew}
-            title="Pembaruan LaporanWee v3.0 - Klik untuk melihat apa yang baru"
-          >
-            <span className="nav-version-badge">v3.0</span>
-            <span className="nav-tagline-text">JANGAN LUPA KERJA HARI INI</span>
-          </button>
-        </div>
+        <button
+          className="brand"
+          onClick={() => onNavigate('dashboard')}
+          title="Kembali ke Dashboard"
+        >
+          {logoUrl && !logoError ? (
+            <img
+              src={logoUrl}
+              alt="Logo"
+              style={{ maxHeight: '32px', objectFit: 'contain' }}
+              onError={() => setLogoError(true)}
+            />
+          ) : (
+            <>
+              <span>Laporan</span>
+              <span className="wee">
+                Wee
+                <svg
+                  width="28"
+                  height="8"
+                  viewBox="0 0 28 8"
+                  fill="none"
+                  style={{ position: 'absolute', bottom: '-4px', left: '0' }}
+                >
+                  <path
+                    d="M1 5.5C8 1.5 20 1.5 27 6.5"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+            </>
+          )}
+        </button>
 
         <nav className="nav-links" aria-label="Navigasi Utama">
           {navItems.map((item) => {

@@ -7940,48 +7940,6 @@ input[type=range]::-webkit-slider-thumb:active {
   transform: translateY(0);
 }
 
-/* Navbar Version & Tagline Button */
-.nav-version-tagline-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(99, 102, 241, 0.08);
-  border: 1px solid rgba(99, 102, 241, 0.2);
-  border-radius: 20px;
-  padding: 4px 10px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  margin-left: 6px;
-}
-.nav-version-tagline-btn:hover {
-  background: rgba(99, 102, 241, 0.16);
-  border-color: #6366f1;
-  transform: scale(1.02);
-}
-
-.nav-version-badge {
-  font-size: 11px;
-  font-weight: 800;
-  color: #4f46e5;
-  background: #ffffff;
-  padding: 1px 6px;
-  border-radius: 12px;
-  line-height: 1.2;
-}
-
-.nav-tagline-text {
-  font-size: 11px;
-  font-weight: 800;
-  color: #312e81;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-}
-
-@media (max-width: 900px) {
-  .nav-tagline-text {
-    display: none;
-  }
-}
 
 /* Login Version Pill */
 .login-v3-pill {

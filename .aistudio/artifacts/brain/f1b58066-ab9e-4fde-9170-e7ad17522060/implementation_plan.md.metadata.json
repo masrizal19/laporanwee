@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana pembaruan web LaporanWee ke Versi 3.0 dengan penerapan tagline baru 'JANGAN LUPA KERJA HARI INI' pada footer, navbar atas, dan halaman login, serta pembuatan modal pengumuman interaktif pembaruan versi 3.0 untuk seluruh pengguna.",
-  "updatedAt": "2026-10-19T02:27:42.579195256Z",
+  "summary": "Rencana penghapusan elemen tombol 'v3.0 JANGAN LUPA KERJA HARI INI' dari topbar (Navbar) untuk mengembalikan ruang horizontal penuh agar seluruh menu navigasi termasuk 'Analitik' tampil utuh tanpa terpotong atau tertutup. Tagline dan v3.0 tetap dipertahankan pada footer, halaman login, dan modal rilis.",
+  "updatedAt": "2026-10-19T02:42:43.048006184Z",
   "requestFeedback": true,
   "userFacing": true
 }
