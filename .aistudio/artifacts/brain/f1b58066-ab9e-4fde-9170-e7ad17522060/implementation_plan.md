@@ -1,39 +1,36 @@
-# Implementation Plan - Integrasi Sinkronisasi 2 Arah Dashboard & Backend API
+# Implementation Plan - Refaktor Layout Laporan Kerja Harian ke Bento Grid (Anti-Gepeng & Full-Width)
 
-Mengintegrasikan fungsi sinkronisasi 2 arah (`syncDashboardData` dan `attachTaskToggleEvents`) ke dalam komponen `DashboardView.tsx`, lengkap dengan polling otomatis setiap 30 detik, optimistic UI saat centang tugas, rollback otomatis serta toast error jika request gagal, dan pengambilan token autentikasi dari `localStorage`.
+Merekonstruksi layout halaman Laporan Kerja Harian (`ReportsView.tsx`) dari list vertikal 1 kolom yang sempit di sebelah kiri menjadi Bento Grid responsif 3-kolom penuh (`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5`) dengan sticky sidebar kanan berlebar 320px untuk widget pendukung.
 
 ---
 
-## 1. Rencana Perubahan pada `src/views/DashboardView.tsx`
+## 1. Rencana Perubahan pada `src/views/ReportsView.tsx` & CSS
 
-1. **Fungsi `syncDashboardData` di React Hook (`useEffect`)**:
-   - Memanggil endpoint `https://api-laporanwe.mkverse.my.id/api/dashboard/index.php` menggunakan header `Authorization: Bearer <token>` dan `X-Admin-Email`.
-   - Mengambil token autentikasi dari `localStorage` (`auth_token` || `token`).
-   - Menyinkronkan data tugas berjalan (`running_tasks`), label tanggal sub-header, dan nilai KPI (`active_projects`, `ongoing_tasks`, `completion_rate`), serta animasi radial progress ring.
-   - Menjalankan interval polling otomatis setiap **30 detik** dengan pembersihan (*cleanup*) saat komponen unmount.
+1. **Struktur Grid Utama**:
+   - Membungkus kontainer laporan dalam grid induk: `grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 items-start`.
+   - Kolom kiri berisi kontainer kartu laporan dengan layout Bento Grid: `grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5`.
+   - Kolom kanan berisi widget sidebar (*Pedoman Laporan* & *Review Cepat*) dengan `sticky top-24`.
 
-2. **Fungsi Toggle Tugas 2 Arah (`toggleTodo` / `attachTaskToggleEvents`)**:
-   - Saat pengguna mencentang/membatalkan centang tugas:
-     - Melakukan **Optimistic UI Update** seketika (mengubah status `done` pada state lokal).
-     - Mengirim POST request ke `https://api-laporanwe.mkverse.my.id/api/tasks/toggle.php` dengan payload `{ id: taskId, completed: willBeDone }`.
-     - Jika server mengembalikan `success: true` dan data `stats`, memperbarui angka KPI dan persentase selesai secara langsung.
-     - Jika request gagal (network error / server 500), **melakukan rollback status centang** pada state lokal dan memunculkan toast error (`onAddToast`).
+2. **Desain Kartu Laporan Bento (`.report-card`)**:
+   - Radius sudut 24px, border glassmorphism tipis, padding 18px, dengan efek hover lembut `translateY(-4px)`.
+   - Header kartu: Thumbnail gambar dengan ukuran terkunci `w-[52px] h-[52px] rounded-2xl flex-shrink-0 object-cover` (anti-gepeng). Judul menggunakan `-webkit-line-clamp: 2` dan `min-width: 0` agar teks panjang terpotong rapi dengan ellipsis.
+   - Footer kartu: Badge status di kiri dan tombol hapus di kanan.
 
-3. **Sinkronisasi State React & DOM**:
-   - Menghubungkan state `todoList` dengan data yang diambil dari API secara real-time.
-   - Memastikan seluruh komponen tetap responsif dan bebas lag sesuai standar UI 5.0.
+3. **Integritas Fungsi**:
+   - Mempertahankan 100% data, props, fungsi pencarian (`searchQuery`), tab filter (`activeTab`), `onSelectReport`, `onDeleteReport`, dan navigasi pembuatan laporan.
 
 ---
 
 ## 2. Langkah Implementasi
 
-1. **Langkah 1**: Edit `src/views/DashboardView.tsx` untuk menyematkan logika `syncDashboardData` dan `toggleTodo` dengan polling 30 detik dan penanganan error rollback.
-2. **Langkah 2**: Jalankan `compile_applet` dan `lint_applet` untuk memverifikasi build berjalan sukses 100% tanpa error TypeScript.
+1. **Langkah 1**: Perbarui `src/views/ReportsView.tsx` untuk menerapkan struktur grid 3-kolom bento dan sticky sidebar 320px.
+2. **Langkah 2**: Tambahkan kelas CSS kustom atau Tailwind utility classes di `src/index.css` atau file styling terkait jika diperlukan.
+3. **Langkah 3**: Jalankan `compile_applet` dan `lint_applet` untuk memverifikasi build berjalan sukses 100%.
 
 ---
 
-## 3. Verifikasi & Pengujian
+## 3. Rencana Pengujian (Verification Plan)
 
-- **Uji Sinkronisasi API**: Pastikan saat Dashboard dimuat, data tugas dan KPI diambil dari `api-laporanwe.mkverse.my.id`.
-- **Uji Polling 30 Detik**: Pastikan interval polling berjalan di latar belakang dan membersihkan interval saat keluar dari halaman.
-- **Uji Toggle & Rollback**: Pastikan centang tugas langsung merespons secara instan dan mengembalikan state jika terjadi kegagalan jaringan.
+- **Uji Grid Responsif**: Pastikan di layar lebar (XL) kartu laporan tampil dalam 3 kolom penuh, berubah menjadi 2 kolom di tablet (MD), dan 1 kolom di mobile.
+- **Uji Anti-Gepeng Thumbnail**: Pastikan thumbnail laporan berukuran tetap 52x52px dengan `object-fit: cover` tanpa tertekan saat judul laporan panjang.
+- **Uji Sticky Sidebar**: Pastikan widget sidebar di sebelah kanan tetap menempel rapi saat halaman digulir (scrolling).

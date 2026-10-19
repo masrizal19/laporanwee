@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana integrasi fungsi syncDashboardData dan penanganan toggle tugas 2 arah ke backend (https://api-laporanwe.mkverse.my.id/api/dashboard/index.php & toggle.php) dengan polling otomatis setiap 30 detik, optimistic UI, rollback otomatis + toast error jika gagal, dan pengambilan token Bearer dari localStorage.",
-  "updatedAt": "2026-10-19T06:07:11.482996798Z",
+  "summary": "Rencana refaktor layout halaman Laporan Kerja Harian (ReportsView.tsx) ke Bento Grid multi-kolom penuh (grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5) dengan thumbnail 52x52px anti-gepeng, serta sticky sidebar kanan (320px) untuk widget Pedoman Laporan & Review Cepat.",
+  "updatedAt": "2026-10-19T07:06:44.489031925Z",
   "requestFeedback": true,
   "userFacing": true
 }
