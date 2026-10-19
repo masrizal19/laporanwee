@@ -8353,18 +8353,23 @@ svg {
 .app-shell-main {
   position: relative;
   z-index: 1;
-  padding: 24px 32px 56px calc(var(--rail) + 40px);
-  max-width: 1560px;
+  padding: 24px 36px 60px calc(var(--rail, 84px) + 32px);
+  max-width: 1600px;
   margin: 0 auto;
   transition: padding 0.4s var(--ease);
   min-height: 100vh;
+  box-sizing: border-box;
 }
 
 .top-bar-shell {
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 20px;
   margin-bottom: 26px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 4px 6px;
 }
 
 .top-bar-shell .crumb {
@@ -8373,6 +8378,16 @@ svg {
   color: var(--muted);
   flex: 1;
   letter-spacing: -0.01em;
+  margin-left: 10px;
+  white-space: nowrap;
+}
+
+.top-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  margin-right: 8px;
 }
 
 .top-bar-shell .theme {
@@ -8436,7 +8451,7 @@ svg {
   transition: transform 0.3s var(--ease);
   color: var(--ink);
   cursor: pointer;
-  border: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .top-bar-shell .round:hover {
@@ -8461,12 +8476,20 @@ svg {
   background: linear-gradient(135deg, var(--lav), var(--lime));
   border: 2px solid var(--glass-solid);
   cursor: pointer;
+  flex-shrink: 0;
   box-shadow: 0 4px 12px -2px rgba(60, 50, 110, 0.2);
   transition: transform 0.3s var(--ease);
+  overflow: hidden;
 }
 
 .top-bar-shell .avatar:hover {
   transform: scale(1.05);
+}
+
+.top-bar-shell .avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 /* 5. DASHBOARD GREETING & KPIS */

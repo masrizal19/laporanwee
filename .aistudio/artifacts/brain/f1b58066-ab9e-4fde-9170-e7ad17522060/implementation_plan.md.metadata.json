@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana refaktor layout halaman Laporan Kerja Harian (ReportsView.tsx) ke Bento Grid multi-kolom penuh (grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5) dengan thumbnail 52x52px anti-gepeng, serta sticky sidebar kanan (320px) untuk widget Pedoman Laporan & Review Cepat.",
-  "updatedAt": "2026-10-19T07:06:44.489031925Z",
+  "summary": "Rencana perbaikan layout header topbar (padding kiri 32px + lebar rail, breadcrumb margin-left, right utility container .top-actions) serta optimasi aksi klik profil anti-freeze (navigasi instan view 'user-profile' dengan guard cache lokal ID aktif tanpa string 'user' tak valid).",
+  "updatedAt": "2026-10-19T07:16:09.312021205Z",
   "requestFeedback": true,
   "userFacing": true
 }

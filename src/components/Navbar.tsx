@@ -167,66 +167,68 @@ export const Navbar: React.FC<NavbarProps> = ({
       <header className="top-bar-shell">
         <div className="crumb">{breadcrumbTitle}</div>
 
-        {/* Theme Switcher Sliding Pill */}
-        <div className="theme" role="group" aria-label="Tema Tampilan">
-          <div className="knob" />
+        <div className="top-actions">
+          {/* Theme Switcher Sliding Pill */}
+          <div className="theme" role="group" aria-label="Tema Tampilan">
+            <div className="knob" />
+            <button
+              type="button"
+              data-t="light"
+              onClick={() => toggleTheme('light')}
+              aria-label="Mode Terang"
+              title="Mode Terang"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              data-t="dark"
+              onClick={() => toggleTheme('dark')}
+              aria-label="Mode Gelap"
+              title="Mode Gelap"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Quick Search Round Button */}
           <button
             type="button"
-            data-t="light"
-            onClick={() => toggleTheme('light')}
-            aria-label="Mode Terang"
-            title="Mode Terang"
+            className="round"
+            onClick={() => onNavigate('tasks')}
+            aria-label="Cari Tugas & Proyek"
+            title="Cari Cepat"
           >
             <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
             </svg>
           </button>
-          <button
-            type="button"
-            data-t="dark"
-            onClick={() => toggleTheme('dark')}
-            aria-label="Mode Gelap"
-            title="Mode Gelap"
+
+          {/* User Profile Avatar with Gradient Ring */}
+          <div
+            className="avatar"
+            onClick={() => onNavigate('user-profile')}
+            title={`Profil: ${userName || userEmail || 'Pengguna'}`}
+            role="button"
+            tabIndex={0}
           >
-            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Quick Search Round Button */}
-        <button
-          type="button"
-          className="round"
-          onClick={() => onNavigate('tasks')}
-          aria-label="Cari Tugas & Proyek"
-          title="Cari Cepat"
-        >
-          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m20 20-3.5-3.5" />
-          </svg>
-        </button>
-
-        {/* User Profile Avatar with Gradient Ring */}
-        <div
-          className="avatar"
-          onClick={() => onNavigate('user-profile')}
-          title={`Profil: ${userName || userEmail || 'Pengguna'}`}
-          role="button"
-          tabIndex={0}
-        >
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={userName || 'Avatar'}
-              className="avatar-img"
-              style={{ borderRadius: '50%' }}
-            />
-          ) : (
-            <span>{userInitials}</span>
-          )}
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={userName || 'Avatar'}
+                className="avatar-img"
+                style={{ borderRadius: '50%' }}
+              />
+            ) : (
+              <span>{userInitials}</span>
+            )}
+          </div>
         </div>
       </header>
     </>

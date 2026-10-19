@@ -1,36 +1,35 @@
-# Implementation Plan - Refaktor Layout Laporan Kerja Harian ke Bento Grid (Anti-Gepeng & Full-Width)
+# Implementation Plan - Perbaikan Tata Letak Header & Aksi Profil (LaporanWee v5.0)
 
-Merekonstruksi layout halaman Laporan Kerja Harian (`ReportsView.tsx`) dari list vertikal 1 kolom yang sempit di sebelah kiri menjadi Bento Grid responsif 3-kolom penuh (`grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5`) dengan sticky sidebar kanan berlebar 320px untuk widget pendukung.
+Memperbaiki tata letak header bagian atas (`Navbar.tsx` & `index.css`) agar teks breadcrumb tidak tertutup sidebar rail, elemen kanan tidak menempel tepi layar, serta mengoptimalkan aksi klik profil agar instan, bebas lag/freeze, dan terlindung dari unhandled promise rejection.
 
 ---
 
-## 1. Rencana Perubahan pada `src/views/ReportsView.tsx` & CSS
+## 1. Rencana Perbaikan
 
-1. **Struktur Grid Utama**:
-   - Membungkus kontainer laporan dalam grid induk: `grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-6 items-start`.
-   - Kolom kiri berisi kontainer kartu laporan dengan layout Bento Grid: `grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5`.
-   - Kolom kanan berisi widget sidebar (*Pedoman Laporan* & *Review Cepat*) dengan `sticky top-24`.
+1. **Tata Letak & Spacing Header (`Navbar.tsx` & `index.css`)**:
+   - Memastikan kontainer utama `.app-shell-main` atau `.main` menggunakan padding kiri: `calc(var(--rail, 84px) + 32px)` dan padding kanan `36px`.
+   - Mengatur struktur `.top-bar-shell` (atau `.top`) menjadi flexbox: `display: flex; align-items: center; justify-content: space-between; gap: 20px; width: 100%;`.
+   - Menambahkan margin kiri (`10px`) pada teks breadcrumb (`.crumb`) agar tidak menabrak lengkungan sidebar.
+   - Mengelompokkan utilitas kanan (Theme switcher, Quick search, Avatar) ke dalam `<div className="top-actions">` dengan margin kanan `8px`.
+   - Menjaga avatar tetap berukuran 44px x 44px dengan `flex-shrink: 0` dan `object-fit: cover`.
 
-2. **Desain Kartu Laporan Bento (`.report-card`)**:
-   - Radius sudut 24px, border glassmorphism tipis, padding 18px, dengan efek hover lembut `translateY(-4px)`.
-   - Header kartu: Thumbnail gambar dengan ukuran terkunci `w-[52px] h-[52px] rounded-2xl flex-shrink-0 object-cover` (anti-gepeng). Judul menggunakan `-webkit-line-clamp: 2` dan `min-width: 0` agar teks panjang terpotong rapi dengan ellipsis.
-   - Footer kartu: Badge status di kiri dan tombol hapus di kanan.
-
-3. **Integritas Fungsi**:
-   - Mempertahankan 100% data, props, fungsi pencarian (`searchQuery`), tab filter (`activeTab`), `onSelectReport`, `onDeleteReport`, dan navigasi pembuatan laporan.
+2. **Aksi Klik Profil Anti-Freeze & Zero-Lag (`Navbar.tsx`)**:
+   - Memastikan klik pada avatar profil mengarah ke view internal SPA `'user-profile'` dengan aman.
+   - Mengambil ID pengguna aktif dari `localStorage` (`laporanwee_user` atau default ID `1`), mencegah string `'me'` atau `'user'` diteruskan ke backend.
+   - Menerapkan guard state dan fallback cache lokal agar transisi profil terjadi secara instan tanpa freeze atau pemanggilan fetch berulang (*render-loop*).
 
 ---
 
 ## 2. Langkah Implementasi
 
-1. **Langkah 1**: Perbarui `src/views/ReportsView.tsx` untuk menerapkan struktur grid 3-kolom bento dan sticky sidebar 320px.
-2. **Langkah 2**: Tambahkan kelas CSS kustom atau Tailwind utility classes di `src/index.css` atau file styling terkait jika diperlukan.
-3. **Langkah 3**: Jalankan `compile_applet` dan `lint_applet` untuk memverifikasi build berjalan sukses 100%.
+1. **Langkah 1**: Perbarui `src/components/Navbar.tsx` untuk menyempurnakan struktur top bar dan klik avatar profil yang aman.
+2. **Langkah 2**: Perbarui `src/index.css` untuk memastikan aturan `.app-shell-main`, `.top-bar-shell`, `.crumb`, dan `.top-actions` selaras dengan spesifikasi di atas.
+3. **Langkah 3**: Jalankan `compile_applet` dan `lint_applet` untuk memverifikasi build sukses 100%.
 
 ---
 
 ## 3. Rencana Pengujian (Verification Plan)
 
-- **Uji Grid Responsif**: Pastikan di layar lebar (XL) kartu laporan tampil dalam 3 kolom penuh, berubah menjadi 2 kolom di tablet (MD), dan 1 kolom di mobile.
-- **Uji Anti-Gepeng Thumbnail**: Pastikan thumbnail laporan berukuran tetap 52x52px dengan `object-fit: cover` tanpa tertekan saat judul laporan panjang.
-- **Uji Sticky Sidebar**: Pastikan widget sidebar di sebelah kanan tetap menempel rapi saat halaman digulir (scrolling).
+- **Uji Layout Header**: Pastikan teks breadcrumb di kiri memiliki jarak aman dari sidebar rail dan elemen utilitas kanan tidak menempel tepi layar.
+- **Uji Klik Profil**: Klik avatar profil dan pastikan navigasi ke halaman `'user-profile'` merespons instan tanpa error atau freeze halaman.
+- **Uji Kompilasi**: `compile_applet` dan `lint_applet` berhasil tanpa error.
