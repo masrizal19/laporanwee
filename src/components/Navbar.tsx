@@ -1,13 +1,13 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ViewType } from '../types';
 import { Icon } from './icons';
 import { getAbsoluteAvatarUrl } from '../utils/api';
 
-export interface NavbarProps {
+interface NavbarProps {
   currentView: ViewType;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
-  onLogout: () => void;
+  onLogout?: () => void;
   userEmail?: string;
   userName?: string;
   avatarUrl?: string | null;
@@ -78,73 +78,69 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'analytics', label: 'Analitik', icon: 'chart' },
   ];
 
-  const activeIndex = navItems.findIndex(
-    (item) =>
-      currentView === item.view ||
-      (item.view === 'projects' && currentView === 'project-detail') ||
-      (item.view === 'reports' &&
-        (currentView === 'report-detail' || currentView === 'create-report'))
-  );
-
-  const activeViewLabel =
-    activeIndex >= 0 ? navItems[activeIndex].label : 'Dashboard';
-
-  const userInitial = (userName || userEmail || 'U').trim().charAt(0).toUpperCase();
-  const finalAvatar = getAbsoluteAvatarUrl(avatarUrl, userName || userEmail);
-
   return (
     <>
-      {/* ========================================================
-          LEFT GLASS SIDEBAR RAIL (Desktop) & BOTTOM DOCK (Mobile)
-          ======================================================== */}
-      <aside className="lw-rail" aria-label="Navigasi Utama">
-        <button
-          type="button"
-          className="lw-rail-logo"
-          onClick={() => onNavigate('dashboard')}
-          title="LaporanWee - Dashboard"
-        >
-          <b>
+      <header className="topnav">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            className="brand"
+            onClick={() => onNavigate('dashboard')}
+            title="Kembali ke Dashboard"
+          >
             {logoUrl && !logoError ? (
               <img
                 src={logoUrl}
                 alt="Logo"
-                style={{ width: '24px', height: '24px', objectFit: 'contain' }}
+                style={{ maxHeight: '32px', objectFit: 'contain' }}
                 onError={() => setLogoError(true)}
               />
             ) : (
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
-                <path d="M5 13c3-6 11-6 14 0M8 17c2-3 6-3 8 0" />
-              </svg>
+              <>
+                <span>Laporan</span>
+                <span className="wee">
+                  Wee
+                  <svg
+                    width="28"
+                    height="8"
+                    viewBox="0 0 28 8"
+                    fill="none"
+                    style={{ position: 'absolute', bottom: '-4px', left: '0' }}
+                  >
+                    <path
+                      d="M1 5.5C8 1.5 20 1.5 27 6.5"
+                      stroke="currentColor"
+                      strokeWidth="2.4"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </span>
+              </>
             )}
-          </b>
-          <em>
-            Laporan<span>Wee</span>
-          </em>
-        </button>
+          </button>
 
-        <nav className="lw-rail-nav">
-          {activeIndex >= 0 && (
-            <div
-              className="lw-pill"
-              style={{ transform: `translateY(${activeIndex * 53}px)` }}
-            />
-          )}
+          <button
+            type="button"
+            className="nav-version-tagline-btn"
+            onClick={onOpenWhatsNew}
+            title="Pembaruan LaporanWee v3.0 - Klik untuk melihat apa yang baru"
+          >
+            <span className="nav-version-badge">v3.0</span>
+            <span className="nav-tagline-text">JANGAN LUPA KERJA HARI INI</span>
+          </button>
+        </div>
 
+        <nav className="nav-links" aria-label="Navigasi Utama">
           {navItems.map((item) => {
             const isActive =
               currentView === item.view ||
               (item.view === 'projects' && currentView === 'project-detail') ||
-              (item.view === 'reports' &&
-                (currentView === 'report-detail' || currentView === 'create-report'));
+              (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report'));
 
             return (
               <button
                 key={item.view}
-                type="button"
-                className={isActive ? 'on' : ''}
+                className={`nav-item ${isActive ? 'active' : ''}`}
                 onClick={() => onNavigate(item.view)}
-                title={item.label}
               >
                 <Icon name={item.icon} />
                 <span>{item.label}</span>
@@ -153,46 +149,11 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
 
-        <div className="lw-rail-foot">
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => onNavigate('ui-settings')}
-              title="Pengaturan Tampilan UI (Admin)"
-            >
-              <Icon name="palette" />
-              <span>Tema &amp; UI</span>
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="danger"
-            onClick={onLogout}
-            title="Keluar dari Akun"
-          >
-            <Icon name="logout" />
-            <span>Keluar</span>
-          </button>
-        </div>
-      </aside>
-
-      {/* ========================================================
-          TOPBAR INSIDE MAIN (Breadcrumb, Notif & Profile Dropdowns)
-          ======================================================== */}
-      <header className="lw-topbar">
-        <div className="lw-crumb">
-          <span>Halaman</span>
-          <span>/</span>
-          <strong>{activeViewLabel}</strong>
-        </div>
-
-        <div className="lw-top-actions">
-          {/* Notifications Dropdown */}
+        <div className="nav-right">
+          {/* Notifications */}
           <div ref={notifRef} style={{ position: 'relative' }}>
             <button
-              type="button"
-              className="lw-round-btn"
+              className={`icon-btn ${showNotifs ? 'open' : ''}`}
               onClick={() => {
                 setShowNotifs(!showNotifs);
                 setShowProfile(false);
@@ -202,275 +163,262 @@ export const Navbar: React.FC<NavbarProps> = ({
               aria-label="Notifikasi"
             >
               <Icon name="bell" />
-              {unreadCount > 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '9px',
-                    right: '9px',
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: 'var(--bad, #d9534f)',
-                    boxShadow: '0 0 0 2px #fff',
-                  }}
-                />
-              )}
+              {unreadCount > 0 && <span className="dot-badge" />}
             </button>
 
-            {showNotifs && (
+            <div className={`dropdown-panel notif-panel ${showNotifs ? 'show' : ''}`}>
+              <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Notifikasi</span>
+                <span style={{ fontSize: '11.5px', color: 'var(--muted)', fontWeight: 600 }}>Terbaru</span>
+              </div>
               <div
-                className="dropdown-panel notif-panel show"
-                style={{
-                  position: 'absolute',
-                  top: '52px',
-                  right: '0',
-                  zIndex: 80,
-                  width: '320px',
-                  background: 'var(--glass-solid, #ffffff)',
-                  border: '1px solid var(--line)',
-                  borderRadius: '24px',
-                  boxShadow: 'var(--shadow)',
-                  padding: '16px',
-                  animation: 'modalPop 0.25s var(--ease)',
+                className="notif-row"
+                onClick={() => {
+                  setShowNotifs(false);
+                  onNavigate('reports');
                 }}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '12px',
-                    paddingBottom: '8px',
-                    borderBottom: '1px solid var(--line)',
-                  }}
-                >
-                  <strong style={{ fontSize: '14px', color: 'var(--ink)' }}>Notifikasi Tim</strong>
-                  <span style={{ fontSize: '11px', color: 'var(--muted)', fontWeight: 600 }}>Terbaru</span>
-                </div>
-                <div
-                  className="notif-row"
-                  style={{ padding: '8px', borderRadius: '12px', cursor: 'pointer', transition: 'background 0.2s' }}
-                  onClick={() => {
-                    setShowNotifs(false);
-                    onNavigate('reports');
-                  }}
-                >
-                  <b style={{ fontSize: '13px', color: 'var(--ink)', display: 'block' }}>Laporan Disetujui</b>
-                  <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '2px 0 0' }}>
-                    Laporan kerja harian kamu telah direview oleh tim.
-                  </p>
-                </div>
-                <div
-                  className="notif-row"
-                  style={{ padding: '8px', borderRadius: '12px', cursor: 'pointer', transition: 'background 0.2s' }}
-                  onClick={() => {
-                    setShowNotifs(false);
-                    onNavigate('tasks');
-                  }}
-                >
-                  <b style={{ fontSize: '13px', color: 'var(--ink)', display: 'block' }}>Tugas Baru Ditugaskan</b>
-                  <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '2px 0 0' }}>
-                    Kamu ditugaskan pada deliverable sprint kreatif hari ini.
-                  </p>
+                <span className="n-dot" />
+                <div>
+                  <b>Laporan Disetujui</b>
+                  <p>Laporan mockup homepage kamu telah disetujui Pak Budi.</p>
                 </div>
               </div>
-            )}
+              <div
+                className="notif-row"
+                onClick={() => {
+                  setShowNotifs(false);
+                  onNavigate('tasks');
+                }}
+              >
+                <span className="n-dot" />
+                <div>
+                  <b>Tugas Baru Diberikan</b>
+                  <p>Dimas menugaskan kamu di &ldquo;Website Redesign Wee&rdquo;.</p>
+                </div>
+              </div>
+              <div
+                className="notif-row"
+                onClick={() => {
+                  setShowNotifs(false);
+                  onNavigate('team');
+                }}
+              >
+                <span className="n-dot" style={{ background: 'var(--lime-deep)' }} />
+                <div>
+                  <b>Alvaro mengunggah video</b>
+                  <p>4 b-roll footage take sunset telah selesai di-render.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* User Profile Pill & Dropdown */}
+          {/* Profile pill */}
           <div ref={profileRef} style={{ position: 'relative' }}>
             <button
-              type="button"
-              className="lw-avatar-badge"
+              className={`profile-pill ${showProfile ? 'open' : ''}`}
               onClick={() => {
                 setShowProfile(!showProfile);
                 setShowNotifs(false);
               }}
               aria-label="Menu Pengguna"
-              title={userName || userEmail || 'Profil'}
             >
-              {finalAvatar ? (
-                <img
-                  src={finalAvatar}
-                  alt="Avatar"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                  }}
-                />
-              ) : (
-                userInitial
-              )}
-            </button>
-
-            {showProfile && (
               <div
-                className="dropdown-panel show"
                 style={{
-                  position: 'absolute',
-                  top: '52px',
-                  right: '0',
-                  zIndex: 80,
-                  width: '240px',
-                  background: 'var(--glass-solid, #ffffff)',
-                  border: '1px solid var(--line)',
-                  borderRadius: '24px',
-                  boxShadow: 'var(--shadow)',
-                  padding: '12px',
-                  animation: 'modalPop 0.25s var(--ease)',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  background: 'var(--primary-color, #4A55FF)',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  flexShrink: 0,
                 }}
               >
-                <div style={{ padding: '8px 10px 12px', borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ fontWeight: 600, fontSize: '14px', color: 'var(--ink)' }}>
-                    {userName || userEmail?.split('@')[0] || 'Anggota Tim'}
-                  </div>
-                  <div style={{ fontSize: '11.5px', color: 'var(--muted)', marginTop: '2px' }}>
-                    {userEmail || 'user@laporanwee.agency'}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
-                  <button
-                    type="button"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '10px 12px',
-                      borderRadius: '12px',
-                      border: 'none',
-                      background: 'none',
-                      color: 'var(--ink)',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'background 0.2s',
-                    }}
-                    onClick={() => {
-                      setShowProfile(false);
-                      onNavigate('profile');
-                    }}
-                  >
-                    <Icon name="palette" style={{ width: 16, height: 16 }} />
-                    <span>Lihat Profil Saya</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '10px 12px',
-                      borderRadius: '12px',
-                      border: 'none',
-                      background: 'none',
-                      color: 'var(--ink)',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'background 0.2s',
-                    }}
-                    onClick={() => {
-                      setShowProfile(false);
-                      onNavigate('analytics');
-                    }}
-                  >
-                    <Icon name="chart" style={{ width: 16, height: 16 }} />
-                    <span>Analitik &amp; Statistik</span>
-                  </button>
-
-                  {isAdmin && (
-                    <button
-                      type="button"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '10px 12px',
-                        borderRadius: '12px',
-                        border: 'none',
-                        background: 'none',
-                        color: 'var(--ink)',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'background 0.2s',
+                {(() => {
+                  const finalAvatar = getAbsoluteAvatarUrl(avatarUrl, userName || userEmail);
+                  return finalAvatar ? (
+                    <img
+                      src={finalAvatar}
+                      alt="Avatar"
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      onError={(e) => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
                       }}
-                      onClick={() => {
-                        setShowProfile(false);
-                        onNavigate('ui-settings');
-                      }}
-                    >
-                      <Icon name="sliders" style={{ width: 16, height: 16 }} />
-                      <span>Pengaturan UI Admin</span>
-                    </button>
-                  )}
-
-                  {onOpenWhatsNew && (
-                    <button
-                      type="button"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '10px 12px',
-                        borderRadius: '12px',
-                        border: 'none',
-                        background: 'none',
-                        color: 'var(--ink)',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'background 0.2s',
-                      }}
-                      onClick={() => {
-                        setShowProfile(false);
-                        onOpenWhatsNew();
-                      }}
-                    >
-                      <Icon name="checksq" style={{ width: 16, height: 16 }} />
-                      <span>Apa yang Baru di v3.0</span>
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      padding: '10px 12px',
-                      borderRadius: '12px',
-                      border: 'none',
-                      background: 'none',
-                      color: 'var(--bad, #d9534f)',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      cursor: 'pointer',
-                      textAlign: 'left',
-                      transition: 'background 0.2s',
-                      marginTop: '4px',
-                      borderTop: '1px solid var(--line)',
-                    }}
-                    onClick={() => {
-                      setShowProfile(false);
-                      onLogout();
-                    }}
-                  >
-                    <Icon name="logout" style={{ width: 16, height: 16 }} />
-                    <span>Keluar</span>
-                  </button>
-                </div>
+                    />
+                  ) : (
+                    (userName || userEmail || 'U').trim().charAt(0).toUpperCase()
+                  );
+                })()}
               </div>
-            )}
+              <div className="meta">
+                <div className="hi">{userName || userEmail?.split('@')[0] || 'Anggota Tim'}</div>
+                <div className="mail">{userEmail || 'user@laporanwee.agency'}</div>
+              </div>
+              <span className="chev">
+                <Icon name="chevdown" />
+              </span>
+            </button>
+
+            <div className={`dropdown-panel ${showProfile ? 'show' : ''}`}>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setShowProfile(false);
+                  onNavigate('profile');
+                }}
+              >
+                <div className="icon-wrapper">
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="palette" className="profile-menu-icon" />
+                  )}
+                </div>
+                <span>Lihat Profil Saya</span>
+              </div>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setShowProfile(false);
+                  onNavigate('analytics');
+                }}
+              >
+                <div className="icon-wrapper">
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="chart" className="profile-menu-icon" />
+                  )}
+                </div>
+                <span>Statistik & Analitik</span>
+              </div>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setShowProfile(false);
+                  onNavigate('social-media');
+                }}
+              >
+                <div className="icon-wrapper">
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="share" className="profile-menu-icon" />
+                  )}
+                </div>
+                <span>Sosial Media Sekolah</span>
+              </div>
+              <div
+                className="dropdown-item"
+                onClick={() => {
+                  setShowProfile(false);
+                  onAddToast('Tautan workspace disalin!');
+                }}
+              >
+                <div className="icon-wrapper">
+                  {menuIconUrl ? (
+                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="laptop" className="profile-menu-icon" />
+                  )}
+                </div>
+                <span>Salin Tautan Tim</span>
+              </div>
+              {isAdmin && (
+                <div
+                  className="dropdown-item admin-ui-btn"
+                  style={{ color: 'var(--primary-color, #4A55FF)' }}
+                  onClick={() => {
+                    setShowProfile(false);
+                    onNavigate('ui-settings');
+                  }}
+                >
+                  <div className="icon-wrapper">
+                    {menuIconUrl ? (
+                      <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
+                    ) : (
+                      <Icon name="sliders" className="profile-menu-icon" />
+                    )}
+                  </div>
+                  <span>UI Settings (Admin)</span>
+                </div>
+              )}
+              <div
+                className="dropdown-item"
+                style={{ color: 'var(--danger)', borderTop: '1px solid var(--line-soft)', marginTop: '4px', paddingTop: '10px' }}
+                onClick={() => {
+                  setShowProfile(false);
+                  if (onLogout) {
+                    onLogout();
+                  } else {
+                    onAddToast('Berhasil keluar dari sesi.');
+                  }
+                }}
+              >
+                <div className="icon-wrapper">
+                  {signoutIconUrl ? (
+                    <img src={signoutIconUrl} alt="Sign Out" className="signout-icon custom-icon-img" />
+                  ) : (
+                    <Icon name="x" className="signout-icon" />
+                  )}
+                </div>
+                <span>Keluar (Sign Out)</span>
+              </div>
+            </div>
           </div>
         </div>
       </header>
+
+      {/* Mobile bottom nav */}
+      <nav className="bottom-nav" aria-label="Navigasi Bawah Mobile">
+        <button
+          className={currentView === 'dashboard' ? 'active' : ''}
+          onClick={() => onNavigate('dashboard')}
+        >
+          <Icon name="home" />
+          <span>Dashboard</span>
+        </button>
+        <button
+          className={currentView === 'projects' || currentView === 'project-detail' ? 'active' : ''}
+          onClick={() => onNavigate('projects')}
+        >
+          <Icon name="folder" />
+          <span>Proyek</span>
+        </button>
+        <button
+          className={currentView === 'reports' || currentView === 'report-detail' || currentView === 'create-report' ? 'active' : ''}
+          onClick={() => onNavigate('reports')}
+        >
+          <Icon name="doc" />
+          <span>Laporan</span>
+        </button>
+        <button
+          className={currentView === 'tasks' ? 'active' : ''}
+          onClick={() => onNavigate('tasks')}
+        >
+          <Icon name="checksq" />
+          <span>Tugas</span>
+        </button>
+        <button
+          className={currentView === 'calendar' ? 'active' : ''}
+          onClick={() => onNavigate('calendar')}
+        >
+          <Icon name="calendar" />
+          <span>Kalender</span>
+        </button>
+        <button
+          className={currentView === 'profile' ? 'active' : ''}
+          onClick={() => onNavigate('profile')}
+        >
+          <Icon name="palette" />
+          <span>Profil</span>
+        </button>
+      </nav>
     </>
   );
 };
