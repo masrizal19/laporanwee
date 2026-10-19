@@ -125,21 +125,33 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return `${splinePath} L${last[0]},${H - 24} L${first[0]},${H - 24} Z`;
   }, [splinePath, chartPoints]);
 
+  const rafRef = useRef<number | null>(null);
   const handleMouseMoveChart = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!chartRef.current) return;
-    const rect = chartRef.current.getBoundingClientRect();
-    const xCoord = ((e.clientX - rect.left) / rect.width) * W;
-    let closestIndex = 0;
-    let minDist = Infinity;
-    chartPoints.forEach((pt, idx) => {
-      const dist = Math.abs(pt[0] - xCoord);
-      if (dist < minDist) {
-        minDist = dist;
-        closestIndex = idx;
-      }
+    const clientX = e.clientX;
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      if (!chartRef.current) return;
+      const rect = chartRef.current.getBoundingClientRect();
+      const xCoord = ((clientX - rect.left) / rect.width) * W;
+      let closestIndex = 0;
+      let minDist = Infinity;
+      chartPoints.forEach((pt, idx) => {
+        const dist = Math.abs(pt[0] - xCoord);
+        if (dist < minDist) {
+          minDist = dist;
+          closestIndex = idx;
+        }
+      });
+      setActivePointIndex(closestIndex);
     });
-    setActivePointIndex(closestIndex);
   };
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
 
   const handleConfirmDelete = async () => {
     if (!projectToDelete) return;
