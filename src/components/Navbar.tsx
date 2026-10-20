@@ -82,6 +82,8 @@ export const Navbar: React.FC<NavbarProps> = ({
       ? 'Detail Laporan'
       : currentView === 'project-detail'
       ? 'Detail Proyek'
+      : currentView === 'profile'
+      ? 'Pengaturan Profil'
       : currentNav?.label || 'Dashboard';
 
   // Compute User Initials

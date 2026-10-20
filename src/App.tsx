@@ -1995,8 +1995,8 @@ export function App() {
             projects={projects}
             reports={reports}
             onNavigate={handleNavigate}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-            onSelectReport={(id) => setSelectedReportId(id)}
+            onSelectProject={(id: string) => setSelectedProjectId(id)}
+            onSelectReport={(id: string) => setSelectedReportId(id)}
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}
