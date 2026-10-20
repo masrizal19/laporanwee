@@ -1,8 +1,7 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Project, ProjectDocument, Report, ViewType, DailyReportFile } from '../types';
 import { Icon } from '../components/icons';
 import { ImageLightbox } from '../components/ImageLightbox';
-import { ProjectAttachmentsGallery } from './ProjectAttachmentsGallery';
 import { getUserDisplayName } from '../utils/userUtils';
 import {
   api,
@@ -177,9 +176,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
 
   const [taskErr, setTaskErr] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [uploadStage, setUploadStage] = useState<'idle' | 'evidence' | 'attachments' | 'saving'>('idle');
-  const [uploadProgressPercent, setUploadProgressPercent] = useState<number>(0);
-  const [isEvidenceProcessing, setIsEvidenceProcessing] = useState<boolean>(false);
 
   // Evidence Files State
   const [evidenceItems, setEvidenceItems] = useState<EvidenceFileItem[]>(() => {
@@ -326,14 +322,9 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     // In Edit mode with backend report ID, upload directly to MySQL API
     if (isEdit && initialReport?.id) {
       setIsSubmitting(true);
-      setIsEvidenceProcessing(true);
-      setUploadStage('evidence');
-      setUploadProgressPercent(20);
       try {
-        for (let i = 0; i < validFiles.length; i++) {
-          const file = validFiles[i];
+        for (const file of validFiles) {
           await dailyReportService.uploadReportFile(initialReport.id, file, 'proof');
-          setUploadProgressPercent(Math.round(((i + 1) / validFiles.length) * 100));
         }
         // Re-fetch freshest proof files from backend
         const files = await dailyReportService.fetchReportFiles(initialReport.id, 'proof');
@@ -356,9 +347,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
         onAddToast(formatApiErrorMessage(err));
       } finally {
         setIsSubmitting(false);
-        setIsEvidenceProcessing(false);
-        setUploadStage('idle');
-        setUploadProgressPercent(0);
       }
       return;
     }
@@ -665,103 +653,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     }
   };
 
-  // Combine pending files, project documents, and report attachment files without duplicate entries
-  const combinedGalleryDocs = useMemo(() => {
-    const pendingMapped = pendingDocs.map((p) => ({
-      id: p.id,
-      name: p.name,
-      original_name: p.name,
-      filename: p.name,
-      file_name: p.name,
-      file_size: p.size,
-      mime_type: p.type,
-      file_url: URL.createObjectURL(p.file),
-      url: URL.createObjectURL(p.file),
-      is_pending: true,
-    }));
-
-    const uniqueReportFiles = reportAttachmentFiles.filter(
-      (rf) =>
-        !projectDocs.some(
-          (pd) => String(pd.id) === String(rf.id) || pd.original_name === rf.original_name
-        )
-    );
-
-    return [...pendingMapped, ...projectDocs, ...uniqueReportFiles];
-  }, [pendingDocs, projectDocs, reportAttachmentFiles]);
-
-  const handleUploadGalleryFile = async (file: File) => {
-    if (isEdit && initialReport?.id) {
-      const reportNumId = Number(initialReport.id);
-      if (!isNaN(reportNumId) && reportNumId > 0) {
-        try {
-          const uploadRes = await dailyReportService.uploadReportFile(reportNumId, file, 'attachment');
-          if (uploadRes) {
-            const matchedProject = projects.find(
-              (p) => p.name === selectedProject || p.title === selectedProject
-            );
-            const projId = matchedProject?.id || (selectedProject.toLowerCase().includes('job fair') ? 8 : undefined);
-            const newDoc: ProjectDocument = {
-              id: uploadRes.id ?? Date.now(),
-              project_id: projId ? Number(projId) : 0,
-              original_name: file.name,
-              file_name: (uploadRes as any).filename || uploadRes.file_name || file.name,
-              file_url: uploadRes.file_url || (uploadRes as any).url || '',
-              mime_type: file.type || 'application/octet-stream',
-              file_size: file.size,
-              file_type: file.type.startsWith('image/')
-                ? 'image'
-                : file.type.startsWith('video/')
-                ? 'video'
-                : 'document',
-              created_at: new Date().toISOString(),
-            };
-            setProjectDocs((prev) => [newDoc, ...prev]);
-            return uploadRes;
-          }
-        } catch (err: any) {
-          console.warn('Direct upload error:', err);
-          throw err;
-        }
-      }
-    }
-
-    // In create mode or when no reportId yet:
-    const newPendingId = `pending_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const pendingItem: PendingAttachmentFile = {
-      id: newPendingId,
-      file,
-      name: file.name,
-      size: file.size,
-      sizeFormatted: formatFileSize(file.size),
-      type: file.type || 'application/octet-stream',
-    };
-    setPendingDocs((prev) => [...prev, pendingItem]);
-    return {
-      id: newPendingId,
-      file_url: URL.createObjectURL(file),
-      name: file.name,
-      original_name: file.name,
-    };
-  };
-
-  const handleDeleteGalleryFile = async (fileItem: {
-    id: string | number;
-    name: string;
-    filename?: string;
-  }) => {
-    const idStr = String(fileItem.id);
-    if (idStr.startsWith('pending_')) {
-      handleRemovePendingDoc(idStr, fileItem.name);
-      return;
-    }
-    await handleDeleteAttachmentDoc({
-      id: fileItem.id,
-      name: fileItem.name,
-      filename: fileItem.filename,
-    });
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!task.trim()) {
@@ -770,43 +661,30 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
     }
 
     setIsSubmitting(true);
-    setUploadProgressPercent(15);
     try {
       if (isEdit && initialReport) {
         // Upload any newly selected proof files to /api/daily-reports/upload.php
-        const newProofs = evidenceItems.filter((item) => item.file);
-        if (newProofs.length > 0) {
-          setUploadStage('evidence');
-          for (let i = 0; i < newProofs.length; i++) {
-            const item = newProofs[i];
-            if (item.file) {
-              try {
-                await dailyReportService.uploadReportFile(initialReport.id, item.file, 'proof');
-                setUploadProgressPercent(15 + Math.round(((i + 1) / newProofs.length) * 35));
-              } catch (uploadErr) {
-                console.warn('Gagal upload bukti pekerjaan:', uploadErr);
-              }
+        for (const item of evidenceItems) {
+          if (item.file) {
+            try {
+              await dailyReportService.uploadReportFile(initialReport.id, item.file, 'proof');
+            } catch (uploadErr) {
+              console.warn('Gagal upload bukti pekerjaan:', uploadErr);
             }
           }
         }
 
         // Upload any newly selected attachments to /api/daily-reports/upload.php
         if (pendingDocs.length > 0) {
-          setUploadStage('attachments');
-          for (let i = 0; i < pendingDocs.length; i++) {
-            const item = pendingDocs[i];
+          for (const item of pendingDocs) {
             try {
               await dailyReportService.uploadReportFile(initialReport.id, item.file, 'attachment');
-              setUploadProgressPercent(50 + Math.round(((i + 1) / pendingDocs.length) * 35));
             } catch (uploadDocErr) {
               console.warn(`Gagal upload berkas lampiran "${item.name}":`, uploadDocErr);
             }
           }
           setPendingDocs([]);
         }
-
-        setUploadStage('saving');
-        setUploadProgressPercent(90);
 
         // Re-fetch freshest proof files from backend
         let freshProofUrls: string[] = [];
@@ -928,31 +806,22 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           const cleanId = String(newId).trim();
 
           // 1. Upload actual proof files directly to MySQL API /api/daily-reports/upload.php
-          const newProofs = evidenceItems.filter((item) => item.file);
-          if (newProofs.length > 0) {
-            setUploadStage('evidence');
-            for (let i = 0; i < newProofs.length; i++) {
-              const item = newProofs[i];
-              if (item.file) {
-                try {
-                  await dailyReportService.uploadReportFile(cleanId, item.file, 'proof');
-                  setUploadProgressPercent(30 + Math.round(((i + 1) / newProofs.length) * 35));
-                } catch (uploadErr) {
-                  console.warn('Gagal upload bukti pekerjaan:', uploadErr);
-                }
+          for (const item of evidenceItems) {
+            if (item.file) {
+              try {
+                await dailyReportService.uploadReportFile(cleanId, item.file, 'proof');
+              } catch (uploadErr) {
+                console.warn('Gagal upload bukti pekerjaan:', uploadErr);
               }
             }
           }
 
           // 2. Upload actual attachment files directly to MySQL API /api/daily-reports/upload.php
           if (pendingDocs.length > 0) {
-            setUploadStage('attachments');
-            for (let i = 0; i < pendingDocs.length; i++) {
-              const doc = pendingDocs[i];
+            for (const doc of pendingDocs) {
               if (doc.file) {
                 try {
                   await dailyReportService.uploadReportFile(cleanId, doc.file, 'attachment');
-                  setUploadProgressPercent(65 + Math.round(((i + 1) / pendingDocs.length) * 30));
                 } catch (uploadDocErr) {
                   console.warn(`Gagal upload berkas lampiran "${doc.name}":`, uploadDocErr);
                 }
@@ -960,9 +829,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
             }
             setPendingDocs([]);
           }
-
-          setUploadStage('saving');
-          setUploadProgressPercent(95);
 
           // 3. Re-fetch freshest report detail so proof files & attachments are cached & linked
           await dailyReportService.fetchDailyReportDetail(cleanId).catch(() => null);
@@ -1000,8 +866,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
       onAddToast(errorMsg);
     } finally {
       setIsSubmitting(false);
-      setUploadStage('idle');
-      setUploadProgressPercent(0);
     }
   };
 
@@ -1183,35 +1047,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
           </div>
 
           <form onSubmit={handleSubmit}>
-            {/* Global Form Upload Loader Banner */}
-            {isSubmitting && (
-              <div className="report-upload-loader-banner" role="status" aria-live="polite">
-                <div className="report-upload-spinner-ring" />
-                <div className="report-upload-banner-content">
-                  <div className="report-upload-banner-title">
-                    {uploadStage === 'evidence'
-                      ? 'Mengunggah Foto Bukti Pekerjaan ke Server…'
-                      : uploadStage === 'attachments'
-                      ? 'Mengunggah Berkas Lampiran Proyek ke Server…'
-                      : uploadStage === 'saving'
-                      ? 'Menyimpan Perubahan Data Laporan ke Database Server…'
-                      : isEdit
-                      ? 'Memproses Penyimpanan Perubahan Laporan…'
-                      : 'Mengirim Laporan Harian ke Database Server…'}
-                  </div>
-                  <div className="report-upload-banner-desc">
-                    Mohon tunggu beberapa detik, berkas dan data sedang disinkronkan ke server ({uploadProgressPercent}%).
-                  </div>
-                  <div className="report-upload-banner-bar">
-                    <div
-                      className="report-upload-banner-bar-inner"
-                      style={{ width: `${Math.max(10, uploadProgressPercent)}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Field: Project Terkait & Kategori */}
             <div className="form-2col">
               <div className="field">
@@ -1327,14 +1162,6 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
                       : 'Pilih satu atau beberapa screenshot/foto pekerjaan Anda'}
                   </span>
                 </div>
-
-                {/* Inline Evidence Uploading Loader */}
-                {isEvidenceProcessing && (
-                  <div className="evidence-upload-inline-loader">
-                    <div className="btn-spinner" style={{ borderColor: '#818cf8', borderTopColor: '#4338ca' }} />
-                    <span>Sedang mengunggah foto bukti ke server ({uploadProgressPercent}%)…</span>
-                  </div>
-                )}
 
                 {/* Thumbnails Gallery with Action buttons */}
                 {evidenceItems.length > 0 && (
@@ -1485,18 +1312,323 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
               />
             </div>
 
-            {/* Field: Bento Gallery Lampiran & Berkas Proyek */}
+            {/* Field: Lampiran & Berkas Proyek (Maksimal 2 GB per file) */}
             <div className="field" style={{ marginTop: '24px' }}>
-              <ProjectAttachmentsGallery
-                documents={combinedGalleryDocs}
-                title="Lampiran & Berkas Proyek"
-                subtitle="Foto, video, dan dokumen pendukung laporan kerja. Ukuran maksimal 2 GB per file."
-                pillText={isEdit ? 'Edit Lampiran' : 'Lampiran Berkas'}
-                editable={!isSubmitting}
-                onUploadFile={handleUploadGalleryFile}
-                onDeleteFile={handleDeleteGalleryFile}
-                onAddToast={onAddToast}
-              />
+              <div
+                className="field-label-row"
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  gap: '12px',
+                  marginBottom: '8px',
+                }}
+              >
+                <div>
+                  <label style={{ margin: 0, fontWeight: 700, fontSize: '14px', color: 'var(--ink)' }}>
+                    Lampiran &amp; Berkas Proyek ({projectDocs.length + pendingDocs.length})
+                  </label>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '2px' }}>
+                    Ukuran maksimal 2 GB per file. Format: JPG, PNG, WEBP, PDF, DOCX, XLSX, PPTX, ZIP, RAR, MP4, MOV, dll.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-xs"
+                  onClick={() => docFileInputRef.current?.click()}
+                  disabled={isSubmitting}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '5px',
+                    fontWeight: 700,
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Icon name="plus" size={13} />
+                  <span>+ Tambah File</span>
+                </button>
+              </div>
+
+              {/* Drag and Drop Container & File Cards List */}
+              <div
+                className="attachment-dropzone-box"
+                onDrop={handleAttachmentDrop}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                style={{
+                  border: '1.5px dashed var(--line-soft)',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  background: 'var(--paper)',
+                  marginTop: '6px',
+                }}
+              >
+                {projectDocs.length === 0 && pendingDocs.length === 0 ? (
+                  <div
+                    onClick={() => docFileInputRef.current?.click()}
+                    style={{
+                      padding: '28px 16px',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'inline-flex',
+                        padding: '10px',
+                        borderRadius: '50%',
+                        background: 'var(--card, #fff)',
+                        border: '1px solid var(--line-soft)',
+                        marginBottom: '10px',
+                        color: 'var(--ink)',
+                      }}
+                    >
+                      <Icon name="upload" size={22} />
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: '14px', color: 'var(--ink)' }}>
+                      + Tambah File Lampiran Proyek
+                    </div>
+                    <div style={{ fontSize: '12.5px', color: 'var(--muted)', marginTop: '4px' }}>
+                      Pilih atau seret berkas ke area ini (Maks. 2 GB per file)
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {/* 1. Pending Files (ready to be uploaded on submit) */}
+                    {pendingDocs.map((item) => {
+                      const isImg = item.type.startsWith('image/');
+                      const isVid = item.type.startsWith('video/');
+                      return (
+                        <div
+                          key={item.id}
+                          className="attachment-file-row pending"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            background: 'var(--card, #fff)',
+                            border: '1.5px solid var(--line-soft)',
+                            borderRadius: '8px',
+                            gap: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '6px',
+                                background: 'var(--paper)',
+                                border: '1px solid var(--line-soft)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Icon name={isImg ? 'image' : isVid ? 'video' : 'doc'} size={18} />
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div
+                                style={{
+                                  fontWeight: 700,
+                                  fontSize: '13px',
+                                  color: 'var(--ink)',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                                title={item.name}
+                              >
+                                {item.name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: '11.5px',
+                                  color: 'var(--muted)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginTop: '2px',
+                                }}
+                              >
+                                <span>{item.sizeFormatted}</span>
+                                <span>&bull;</span>
+                                <span style={{ color: 'var(--violet)', fontWeight: 600 }}>
+                                  File Baru (Menunggu Unggah)
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemovePendingDoc(item.id, item.name)}
+                            disabled={isSubmitting}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: '#ef4444',
+                              fontSize: '12px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              padding: '4px 6px',
+                              flexShrink: 0,
+                            }}
+                            title="Batalkan berkas ini"
+                          >
+                            <Icon name="x" size={13} />
+                            <span>Hapus X</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+
+                    {/* 2. Stored Files (already in MySQL database) */}
+                    {projectDocs.map((doc) => {
+                      const isImg = doc.file_type === 'image';
+                      const isVid = doc.file_type === 'video';
+                      const fileNameDisplay = doc.original_name || (doc as any).filename || (doc as any).name || 'Berkas';
+                      const isDeletingThis = deletingDocId !== null && String(deletingDocId) === String(doc.id);
+                      return (
+                        <div
+                          key={doc.id}
+                          className="attachment-file-row stored"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            padding: '10px 14px',
+                            background: 'var(--card, #fff)',
+                            border: '1.5px solid var(--line-soft)',
+                            borderRadius: '8px',
+                            gap: '12px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                width: '36px',
+                                height: '36px',
+                                borderRadius: '6px',
+                                background: 'rgba(167, 139, 250, 0.15)',
+                                border: '1px solid var(--line-soft)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <Icon name={isImg ? 'image' : isVid ? 'video' : 'doc'} size={18} />
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <a
+                                href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontWeight: 700,
+                                  fontSize: '13px',
+                                  color: 'var(--ink)',
+                                  textDecoration: 'none',
+                                  display: 'block',
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                }}
+                                title={`Buka berkas ${fileNameDisplay}`}
+                              >
+                                {fileNameDisplay}
+                              </a>
+                              <div
+                                style={{
+                                  fontSize: '11.5px',
+                                  color: 'var(--muted)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  marginTop: '2px',
+                                }}
+                              >
+                                <span>
+                                  {doc.file_size_formatted ||
+                                    (doc.file_size ? `${Math.round(doc.file_size / 1024)} KB` : 'Berkas')}
+                                </span>
+                                <span>&bull;</span>
+                                <span style={{ color: '#16a34a', fontWeight: 600 }}>Tersimpan di Server</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            <a
+                              href={`${API_BASE_URL}/project-documents/original.php?id=${doc.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-outline btn-xs"
+                              style={{
+                                textDecoration: 'none',
+                                fontSize: '11px',
+                                fontWeight: 700,
+                                padding: '4px 8px',
+                                borderRadius: '5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                color: 'inherit',
+                              }}
+                              title="Buka atau unduh berkas asli"
+                            >
+                              <span>Buka</span>
+                              <span style={{ fontSize: '11px' }}>↗</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleDeleteAttachmentDoc({
+                                  id: doc.id,
+                                  name: fileNameDisplay,
+                                  original_name: doc.original_name,
+                                  filename: (doc as any).filename || doc.original_name,
+                                })
+                              }
+                              disabled={isDeletingThis || isSubmitting}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: '#ef4444',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                cursor: isDeletingThis ? 'wait' : 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                padding: '4px 6px',
+                                opacity: isDeletingThis ? 0.6 : 1,
+                              }}
+                              title="Hapus berkas ini dari server"
+                            >
+                              <Icon name="x" size={13} />
+                              <span>{isDeletingThis ? 'Menghapus...' : 'Hapus X'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Action Buttons: [BATAL] & [SIMPAN PERUBAHAN] / [Kirim Laporan] */}
@@ -1509,18 +1641,8 @@ export const DailyReportForm: React.FC<DailyReportFormProps> = ({
               >
                 {isSubmitting ? (
                   <>
-                    <div className="btn-spinner" style={{ marginRight: '8px' }} />
-                    <span>
-                      {uploadStage === 'evidence'
-                        ? 'Mengunggah Bukti Pekerjaan…'
-                        : uploadStage === 'attachments'
-                        ? 'Mengunggah Berkas Lampiran…'
-                        : uploadStage === 'saving'
-                        ? 'Menyimpan ke Server…'
-                        : isEdit
-                        ? 'Menyimpan Perubahan…'
-                        : 'Mengirim Laporan…'}
-                    </span>
+                    <div className="btn-spinner" style={{ marginRight: '6px' }} />
+                    <span>{isEdit ? 'Menyimpan...' : 'Mengirim Laporan...'}</span>
                   </>
                 ) : (
                   <>

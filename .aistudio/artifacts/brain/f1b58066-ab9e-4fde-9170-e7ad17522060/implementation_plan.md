@@ -1,39 +1,27 @@
-# Rencana Penyelarasan Pengaturan Profil Sesuai Gambar Referensi
+# Implementation Plan - Main Domain Report Export & Edit Views
 
-Berdasarkan jawaban klarifikasi dan gambar referensi yang dilampirkan (`image_b1c16dc8.png`):
-1. **Tampilan di Layout Utama**: Halaman profil tetap berada di dalam tata letak dashboard utama bersama navigasi rail/sidebar.
-2. **Top Bar Header Profil**: Mengaktifkan toggle switch tema (Light/Dark dengan sliding knob) dan tombol *Simpan Profil* di bagian header atas profil persis seperti di gambar.
+## User Requirements & Architecture
+1. **Export/Preview Route (`/analitik/exporlaporan`)**:
+   - Component: `src/views/ExportLaporanView.tsx`
+   - Fullscreen dark UI with seamless iframe embedding `https://api-laporanwe.mkverse.my.id/api/analytics/export/index.php?month=${month}&year=${year}`.
+   - Query parameters `month` and `year` parsed from URL search params (defaulting to current month/year if omitted).
 
----
+2. **Admin Edit Design Route (`/analitik/editlaporan`)**:
+   - Component: `src/views/EditLaporanView.tsx`
+   - Admin-only protection: Checks authentication and admin role (`user.role === 'admin'` or `isAdmin`).
+   - If unauthorized, displays an access denied message with a button back to `/analitik`.
+   - If authorized, embeds backend editor iframe with active token: `https://api-laporanwe.mkverse.my.id/api/analytics/export/edit-export/index.php?month=${month}&year=${year}&token=${token}`.
 
-### Tahapan Pengerjaan
+3. **App Router (`src/App.tsx`)**:
+   - Register route handlers for `currentView === 'export-laporan'` (matching `/analitik/exporlaporan`) and `currentView === 'edit-laporan'` (matching `/analitik/editlaporan`), as well as supporting URL hash / history pathname parsing so direct URL access works seamlessly.
 
-#### 1. Header Profil & Toggle Tema (Sesuai Gambar)
-- Memperbarui komponen header pada `ProfileView.tsx` agar memiliki:
-  - Brand logo `LaporanWee` dengan ikon dan aksen warna lavender.
-  - Komponen switch tema `.theme` (tombol *Terang* dan *Gelap* dengan animasi geser `.knob`).
-  - Tombol `.btn.dark` bertuliskan **Simpan Profil** dengan ikon centang dan status *loading spinner*.
-- Menghubungkan switch tema dengan pengaturan tema sistem (`document.documentElement.dataset.theme`) dan penyimpanan `localStorage` (*zero-flash*).
+4. **AnalyticsView Navigation**:
+   - Update "Cetak / Export PDF" button to open `window.open('/analitik/exporlaporan', '_blank')`.
+   - Update "🎨 Edit Desain Laporan" (admin only) button to open `window.open('/analitik/editlaporan', '_blank')`.
 
-#### 2. Penyelarasan Kartu Profil (Zero-Distortion)
-- **Kartu Kiri (Foto Profil)**:
-  - Lingkaran ring gradien SVG dengan label persentase (misal `40%`).
-  - Inisial avatar bergradasi pastel (jika belum ada foto custom) atau foto custom tersimpan.
-  - Tombol pena edit foto berwarna *lime green* (`.pen`).
-  - Judul `Foto Profil`, nama pengguna, teks deskripsi sub, serta *chips* ringkasan (`Profil 40% lengkap`, pekerjaan, status).
-  - Tombol `Ubah Foto` untuk membuka modal editor crop.
-- **Kartu Kanan (Informasi Profil)**:
-  - Header *Pengaturan*, judul *Informasi Profil*, subjudul, dan indikator *dirty state* jika ada perubahan.
-  - Input field *Name* dan *Email* dengan floating label dan validasi error.
-  - Input *Pekerjaan* beserta baris chip pilihan cepat: `Art Director`, `Desainer Grafis`, `Videografer`, `Copywriter`, `Social Media`.
-  - Grup *STATUS* dengan radio chip pilihan: `KARYAWAN`, `MAGANG`, `PKL SISWA`, `PKL MAHASISWA`.
-  - Tombol aksi bawah: `Batalkan` dan `Simpan Profil`.
-
-#### 3. Sinkronisasi Data & Backend API
-- Mengirim pembaruan nama, email, pekerjaan, dan status ke backend riil: `https://api-laporanwe.mkverse.my.id/api/profile/save.php` dan `update.php`.
-- Sinkronisasi instan ke state pengguna di `App.tsx` dan `localStorage` (*zero visual lag*).
-- Modal crop foto profil tetap berjalan penuh dengan dukungan geser/drag, zoom slider, tombol putar & balik, serta upload ke `upload.php`.
-
-#### 4. Verifikasi & Pengujian
-- Menjalankan `compile_applet` dan `lint_applet` untuk memastikan kode bebas dari kesalahan tipe data atau error sintaks.
-- Memastikan transisi tema berjalan lancar (60 FPS) tanpa merusak tampilan halaman lainnya.
+## Step-by-Step Implementation Steps
+1. Create `src/views/ExportLaporanView.tsx`.
+2. Create `src/views/EditLaporanView.tsx`.
+3. Update `src/App.tsx` to handle route matching for `/analitik/exporlaporan` and `/analitik/editlaporan`.
+4. Update `src/views/AnalyticsView.tsx` dropdown actions.
+5. Compile and lint test.

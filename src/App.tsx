@@ -38,9 +38,7 @@ import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 // Auth views
 import { LoginView } from './views/LoginView';
 import { RegisterView } from './views/RegisterView';
-import { isUserAdmin } from './utils/userUtils';
 import { VerifyEmailView } from './views/VerifyEmailView';
-import { VersionUpdateModal } from './components/VersionUpdateModal';
 import {
   api,
   profileService,
@@ -462,17 +460,12 @@ export function App() {
     type: '401' | '403' | '404' | '500' | 'network' | 'error';
   } | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
-  const [showWhatsNewModal, setShowWhatsNewModal] = useState<boolean>(() => {
-    try {
-      const seen = localStorage.getItem('laporanwee_v3_seen');
-      return seen !== 'true';
-    } catch (_) {
-      return false;
-    }
-  });
 
-  // Determine if current logged in user has Administrator privileges (ID 1, ID 13, admin role, or is_admin)
-  const isAdmin = Boolean(isUserAdmin(user));
+  // Determine if current logged in user has Administrator privileges strictly from database users.role (Rule 4)
+  const isAdmin = Boolean(
+    user?.role?.toLowerCase() === 'admin' ||
+    (user as any)?.is_admin === true
+  );
 
   // Synchronize Tasks and Daily Reports with Backend PHP/MySQL API — Single Source of Truth
   const refreshTasksFromApi = useCallback(async (reportListOverride?: Report[]) => {
@@ -1831,12 +1824,7 @@ export function App() {
 
   return (
     <div id="app-shell">
-      {/* Background Ambient Drifting Blobs */}
-      <div className="ambient">
-        <i></i><i></i><i></i>
-      </div>
-
-      {/* Floating Rail Navigation (Desktop) & Bottom Dock Pill (Mobile) */}
+      {/* Top and Bottom Navigation */}
       <Navbar
         currentView={currentView}
         onNavigate={handleNavigate}
@@ -1848,12 +1836,10 @@ export function App() {
         logoUrl={uiSettings?.logo_url}
         menuIconUrl={uiSettings?.menu_icon_url}
         signoutIconUrl={uiSettings?.signout_icon_url}
-        isAdmin={isAdmin}
-        onOpenWhatsNew={() => setShowWhatsNewModal(true)}
       />
 
-      {/* Main Content Viewport */}
-      <main className="app-shell-main main-container">
+      {/* Main Container */}
+      <main>
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -1995,8 +1981,8 @@ export function App() {
             projects={projects}
             reports={reports}
             onNavigate={handleNavigate}
-            onSelectProject={(id: string) => setSelectedProjectId(id)}
-            onSelectReport={(id: string) => setSelectedReportId(id)}
+            onSelectProject={(id) => setSelectedProjectId(id)}
+            onSelectReport={(id) => setSelectedReportId(id)}
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}
@@ -2078,21 +2064,10 @@ export function App() {
           />
         )}
 
-        <div
-          className="footer-tag"
-          onClick={() => setShowWhatsNewModal(true)}
-          style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
-          title="Klik untuk melihat Apa yang Baru di Versi 5.0"
-        >
-          LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
+        <div className="footer-tag">
+          LaporanWee v2.4 &bull; Creative Team Workspace &amp; Daily Reporting System
         </div>
       </main>
-
-      {/* Version 3.0 Release & Announcements Modal */}
-      <VersionUpdateModal
-        isOpen={showWhatsNewModal}
-        onClose={() => setShowWhatsNewModal(false)}
-      />
 
       {/* Global Toast Stack */}
       <ToastContainer toasts={toasts} />

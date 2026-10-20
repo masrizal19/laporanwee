@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import '../auth.css';
-import { buildApiUrl, setStoredToken, setStoredUser, extractAvatarFromResponse, withAvatarCacheBust } from '../utils/api';
+import { API_BASE_URL, buildApiUrl, setStoredToken, setStoredUser, extractAvatarFromResponse, withAvatarCacheBust } from '../utils/api';
 import { resendVerificationEmail } from '../utils/authService';
 
 interface LoginViewProps {
@@ -18,11 +18,12 @@ export const LoginView: React.FC<LoginViewProps> = ({
     return localStorage.getItem('laporanwee_registered_email') || '';
   });
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [rememberMe, setRememberMe] = useState(true);
+  const [isFocusEmail, setIsFocusEmail] = useState(false);
+  const [isFocusPass, setIsFocusPass] = useState(false);
 
   // Email Unverified States
   const [isUnverified, setIsUnverified] = useState(false);
@@ -62,8 +63,19 @@ export const LoginView: React.FC<LoginViewProps> = ({
     setResendErrorMsg('');
 
     const loginUrl = buildApiUrl('/login.php');
+    console.log('[Login] URL Request:', loginUrl);
+    // Safe debugging log (never log plain password)
+    console.log('[Login] Mengirim permintaan login ke server:', {
+      url: loginUrl,
+      payload: {
+        email: trimmedEmail,
+        password: '***',
+      },
+    });
 
     try {
+      // Direct POST request to PHP MySQL backend using VITE_API_URL base
+      console.log('[API REQUEST]', { method: 'POST', url: loginUrl });
       const response = await fetch(loginUrl, {
         method: 'POST',
         headers: {
@@ -76,6 +88,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         }),
       });
 
+      // Safe text-then-parse response pattern
       const text = await response.text();
       let data: any = {};
       try {
@@ -89,6 +102,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
       const lowerMsg = rawMsg.toLowerCase();
       const isEmailVerified = data.email_verified !== false && data.user?.email_verified !== false;
 
+      // Check if backend returned EMAIL_NOT_VERIFIED or email_verified === false or HTTP 403
       const isEmailNotVerified =
         code === 'EMAIL_NOT_VERIFIED' ||
         data.email_verified === false ||
@@ -112,6 +126,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
 
       setIsLoading(false);
 
+      // Extract real Bearer token returned by backend
       const token =
         data.token ||
         data.access_token ||
@@ -128,6 +143,7 @@ export const LoginView: React.FC<LoginViewProps> = ({
         '';
 
       if (!token || token === 'session-active-token') {
+        console.error('[AUTH ERROR] Login response did not contain a valid token:', data);
         throw new Error(data.message || 'Server tidak mengembalikan token autentikasi yang valid.');
       }
 
@@ -154,9 +170,12 @@ export const LoginView: React.FC<LoginViewProps> = ({
       };
 
       setStoredUser(userObj);
-      if (rememberMe) {
-        localStorage.setItem('laporanwee_registered_email', trimmedEmail);
-      }
+
+      console.log('[AUTH] Current user:', {
+        id: userObj.id,
+        email: userObj.email,
+        role: userObj.role,
+      });
 
       setIsSuccess(true);
     } catch (err: any) {
@@ -197,299 +216,214 @@ export const LoginView: React.FC<LoginViewProps> = ({
     onLoginSuccess(trimmedEmail, trimmedEmail.split('@')[0] || 'User');
   };
 
-  const handleDemoFill = () => {
-    setEmail('admin@gmail.com');
-    setPassword('rizal12345');
-    setErrorMsg('');
-    passInputRef.current?.focus();
-  };
-
   return (
     <div className="auth-body">
-      {/* Ambient Drifting Blobs */}
-      <div className="ambient">
-        <i></i><i></i><i></i>
-      </div>
-
-      <main className="stage" id="stage">
-        {/* Left Mini Side Tab */}
-        <aside className="side">
-          <div className="logo-box">
-            {logoUrl ? (
+      <div className={`stage ${isSuccess ? 'success' : ''}`} id="stage">
+        {/* Left Sidebar */}
+        <div className="sidebar">
+          {logoUrl ? (
+            <div style={{ width: '38px', height: '38px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <img
                 src={logoUrl}
                 alt="Logo"
-                style={{ width: '28px', height: '28px', objectFit: 'contain' }}
+                style={{ maxWidth: '38px', maxHeight: '38px', objectFit: 'contain' }}
               />
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M5 13c3-6 11-6 14 0M8 17c2-3 6-3 8 0" />
-              </svg>
-            )}
-          </div>
-
-          <div className="tabs" role="tablist">
-            <div className="pill" style={{ transform: 'translateY(0px)' }} />
-            <button className="tab on" role="tab" type="button" aria-selected="true">
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6z" />
-                <path d="m9 12 2 2 4-4" />
-              </svg>
-              Masuk
+            </div>
+          ) : (
+            <div className="logo-auth"></div>
+          )}
+          <div className="side-nav">
+            <button className="nav-item-auth active" type="button" aria-label="Sign In">
+              <span className="icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#4a5cf5" strokeWidth="1.8">
+                  <path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+              </span>
+              <span>Sign In</span>
             </button>
             <button
-              className="tab"
-              role="tab"
+              className="nav-item-auth"
               type="button"
               onClick={onNavigateToRegister}
-              aria-selected="false"
+              aria-label="Sign Up"
             >
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="10" cy="8" r="3.5" />
-                <path d="M3 20a7 7 0 0 1 14 0M19 8v6M16 11h6" />
-              </svg>
-              Daftar
+              <span className="icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#8b8fb3" strokeWidth="1.8">
+                  <circle cx="9" cy="8" r="3.2" />
+                  <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+                  <path d="M16 11l2 2 3.5-3.5" />
+                </svg>
+              </span>
+              <span>Sign Up</span>
             </button>
           </div>
+        </div>
 
-          <div className="by">LaporanWee v5.0</div>
-        </aside>
-
-        {/* Art Panel Illustration */}
-        <section className="art" aria-hidden="true">
-          <span className="badge-tag">
-            <i /> LaporanWee v5.0
-          </span>
-          <div className="copy">
-            <h2>Jangan lupa kerja hari ini</h2>
-            <p>Catat progres kreatif tim dalam satu tempat terpusat setiap hari.</p>
-          </div>
-          <div className="scene">
-            <div className="fc fc1">
-              <small>Rebranding Kopi Nusa</small>
-              <b>Progres desain</b>
-              <div className="bar-fill">
-                <i style={{ width: '78%' }} />
-              </div>
-            </div>
-            <div className="fc fc2">
-              <small>Laporan hari ini</small>
-              <b>Terkirim</b>
-              <div className="av">
-                <i style={{ background: '#e3ddfa' }}>Ri</i>
-                <i style={{ background: '#e9f5b8' }}>Di</i>
-                <i style={{ background: '#f6e6cf' }}>Sa</i>
-                <i style={{ background: '#d6ecdf' }}>+5</i>
-              </div>
-            </div>
-            <div className="fc fc3">
-              <svg className="mini-ring" viewBox="0 0 48 48">
-                <circle className="a" cx="24" cy="24" r="20" />
-                <circle className="b" cx="24" cy="24" r="20" />
+        {/* Middle Illustration Column */}
+        <div className="illustration">
+          <h1>Start Your<br />Journey.</h1>
+          <p>Catat progres kreatif tim terpusat harian.</p>
+          <div className="art">
+            <div className="badge-auth">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#4a5cf5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 12l5 5L20 6" />
               </svg>
-              <div>
-                <small>Tingkat selesai</small>
-                <b style={{ margin: 0 }}>82%</b>
+            </div>
+            <svg viewBox="0 0 300 230" fill="none">
+              <rect x="30" y="70" width="200" height="140" rx="8" fill="#ffffff" opacity="0.95" />
+              <path d="M30 78 L130 150 L230 78" stroke="#3b4ff0" strokeWidth="3" fill="none" />
+            </svg>
+          </div>
+        </div>
+
+        {/* Right Form Column */}
+        <div className="form-panel">
+          <div className="top-line">
+            Don't have an account?
+            <a href="#register" onClick={(e) => { e.preventDefault(); onNavigateToRegister(); }}>Sign Up.</a>
+          </div>
+
+          <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'center' }}>
+            <div className={`field-auth field-email`}>
+              <label htmlFor="emailInput">E-Mail</label>
+              <div className={`input-wrap ${isFocusEmail ? 'focus' : ''}`} id="emailWrap">
+                <input
+                  type="text"
+                  id="emailInput"
+                  ref={emailInputRef}
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  onFocus={() => setIsFocusEmail(true)}
+                  onBlur={() => setIsFocusEmail(false)}
+                  placeholder="admin@laporanwee.agency"
+                />
+                <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <path d="M3 7l9 6 9-6" />
+                </svg>
               </div>
             </div>
-          </div>
-        </section>
 
-        {/* Form Panel */}
-        <section className="formp">
-          <div className="switch-top">
-            Belum punya akun?
-            <a onClick={onNavigateToRegister}>Daftar</a>
-          </div>
-
-          <div className="screens">
-            {isSuccess ? (
-              <div className="scr">
-                <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                  <svg className="okc-box" viewBox="0 0 104 104" style={{ margin: '0 auto 20px' }}>
-                    <circle cx="52" cy="52" r="48" />
-                    <path d="m32 54 14 14 27-30" />
-                  </svg>
-                  <h1 style={{ fontSize: '28px', marginBottom: '8px' }}>Berhasil Masuk!</h1>
-                  <p className="lead" style={{ marginBottom: '24px' }}>
-                    Selamat datang kembali di LaporanWee Studio.
-                  </p>
-                  <button
-                    className="btn-auth-main"
-                    type="button"
-                    onClick={handleProceed}
-                  >
-                    <span>Masuk ke Dashboard</span>
-                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 12h14M13 6l6 6-6 6" />
+            <div className={`field-auth field-pass`}>
+              <label htmlFor="passInput">Password</label>
+              <div className={`input-wrap ${isFocusPass ? 'focus' : ''}`} id="passWrap">
+                <input
+                  type={showLoginPassword ? 'text' : 'password'}
+                  id="passInput"
+                  ref={passInputRef}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onFocus={() => setIsFocusPass(true)}
+                  onBlur={() => setIsFocusPass(false)}
+                  placeholder="••••••••••••"
+                />
+                <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7">
+                  <rect x="5" y="11" width="14" height="9" rx="2" />
+                  <path d="M8 11V8a4 4 0 018 0v3" />
+                </svg>
+                <button
+                  type="button"
+                  className="toggle-password-btn"
+                  onClick={() => setShowLoginPassword((prev) => !prev)}
+                  aria-label={showLoginPassword ? 'Sembunyikan password' : 'Lihat password'}
+                  title={showLoginPassword ? 'Sembunyikan password' : 'Lihat password'}
+                >
+                  {showLoginPassword ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                      <circle cx="12" cy="12" r="3" />
                     </svg>
-                  </button>
-                </div>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  )}
+                </button>
               </div>
-            ) : isUnverified ? (
-              <div className="scr">
-                <div className="env-box">
-                  <div className="ring-breathe" />
-                  <svg viewBox="0 0 24 24">
-                    <rect x="3" y="5" width="18" height="14" rx="3" />
-                    <path d="m4 8 8 6 8-6" />
+            </div>
+
+            {/* Email Unverified Warning Box */}
+            {isUnverified && (
+              <div className="login-unverified-box">
+                <div className="login-unverified-header">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
+                  <span>Email Belum Diverifikasi</span>
                 </div>
-                <h1>Periksa email Anda</h1>
-                <p className="lead" style={{ marginBottom: '6px' }}>
-                  Akun Anda belum diverifikasi. Link aktivasi telah dikirim ke:
+                <p className="login-unverified-desc">
+                  Silakan verifikasi email Anda terlebih dahulu sebelum masuk ke LaporanWee.
                 </p>
-                <div>
-                  <span className="mailto-box">{unverifiedEmail || email}</span>
-                </div>
 
                 {resendSuccessMsg && (
-                  <div style={{ color: 'var(--ok)', fontSize: '13px', marginBottom: '12px', fontWeight: 600 }}>
-                    ✓ {resendSuccessMsg}
+                  <div className="login-unverified-success">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                      <path d="M20 6L9 17l-5-5" />
+                    </svg>
+                    <span>{resendSuccessMsg}</span>
                   </div>
                 )}
+
                 {resendErrorMsg && (
-                  <div style={{ color: 'var(--bad)', fontSize: '13px', marginBottom: '12px', fontWeight: 600 }}>
+                  <div className="auth-error" style={{ marginBottom: 10 }}>
                     {resendErrorMsg}
                   </div>
                 )}
 
                 <button
-                  className="btn-auth-main"
                   type="button"
+                  className="login-unverified-btn"
                   onClick={handleResendVerification}
-                  disabled={resendCooldown > 0 || isResending}
+                  disabled={isResending || resendCooldown > 0}
+                  style={{ marginTop: resendSuccessMsg ? '10px' : '0' }}
                 >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 14, height: 14 }}>
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
                   <span>
                     {isResending
                       ? 'Mengirim ulang...'
                       : resendCooldown > 0
-                      ? `Kirim ulang dalam ${resendCooldown}s`
-                      : 'Kirim Ulang Link Verifikasi'}
+                      ? `Kirim ulang dalam ${resendCooldown} detik`
+                      : 'Kirim Ulang Email Verifikasi'}
                   </span>
-                  <i className="sp" />
                 </button>
-
-                <div className="resend-box">
-                  Sudah verifikasi?{' '}
-                  <button type="button" onClick={() => setIsUnverified(false)}>
-                    Coba Masuk Lagi
-                  </button>
-                </div>
               </div>
-            ) : (
-              <form className="scr" onSubmit={handleSignIn} noValidate>
-                <h1>Masuk</h1>
-                <p className="lead">Selamat datang kembali. Lanjutkan pekerjaan Anda.</p>
-
-                <div className={`fld ${errorMsg && !email ? 'bad' : ''}`}>
-                  <label htmlFor="login-email">E-Mail</label>
-                  <div className="inp">
-                    <input
-                      id="login-email"
-                      ref={emailInputRef}
-                      type="email"
-                      placeholder="admin@laporanwee.agency"
-                      autoComplete="email"
-                      value={email}
-                      onChange={(e) => {
-                        setEmail(e.target.value);
-                        setErrorMsg('');
-                      }}
-                    />
-                    <span className="ic">
-                      <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="5" width="18" height="14" rx="3" />
-                        <path d="m4 8 8 6 8-6" />
-                      </svg>
-                    </span>
-                  </div>
-                </div>
-
-                <div className={`fld ${errorMsg ? 'bad' : ''}`}>
-                  <label htmlFor="login-pass">Password</label>
-                  <div className="inp">
-                    <input
-                      id="login-pass"
-                      ref={passInputRef}
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••••••"
-                      autoComplete="current-password"
-                      value={password}
-                      onChange={(e) => {
-                        setPassword(e.target.value);
-                        setErrorMsg('');
-                      }}
-                    />
-                    <button
-                      type="button"
-                      className="ic eye"
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
-                    >
-                      {showPassword ? (
-                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 3l18 18M10.6 6.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.5 9.5 0 0 0 4-.9M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-                        </svg>
-                      ) : (
-                        <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" />
-                          <circle cx="12" cy="12" r="3" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
-                  {errorMsg && <div className="err" style={{ maxHeight: '30px', opacity: 1, marginTop: '6px' }}>{errorMsg}</div>}
-                </div>
-
-                <div className="opts">
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={rememberMe}
-                      onChange={(e) => setRememberMe(e.target.checked)}
-                    />
-                    <span className="box">
-                      <svg viewBox="0 0 24 24" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="m5 12 4.5 4.5L19 7" />
-                      </svg>
-                    </span>
-                    Ingat saya
-                  </label>
-                  <a>Lupa password?</a>
-                </div>
-
-                <button
-                  className={`btn-auth-main ${isLoading ? 'load' : ''}`}
-                  type="submit"
-                >
-                  <span>Masuk</span>
-                  <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                  <i className="sp" />
-                </button>
-
-                <p className="terms-auth">
-                  Dengan masuk, Anda menyetujui Kebijakan Privasi LaporanWee.
-                </p>
-
-                <div className="demo-auth-box">
-                  <div>
-                    <b>Akun demo</b>
-                    <span>admin@gmail.com · rizal12345</span>
-                  </div>
-                  <button type="button" onClick={handleDemoFill}>
-                    Isi otomatis
-                  </button>
-                </div>
-              </form>
             )}
-          </div>
 
-          <p className="foot-auth">LaporanWee v5.0 • Jangan lupa kerja hari ini</p>
-        </section>
-      </main>
+            {errorMsg && <div className="auth-error">{errorMsg}</div>}
+
+            <button className={`btn-auth ${isLoading ? 'loading' : ''}`} id="signInBtn" type="submit">
+              Sign In
+              <span className="spinner-auth"></span>
+            </button>
+          </form>
+
+          <p className="terms">
+            By clicking the Sign In Button, you therefore agree to the Privacy Policy. For more information, read about our privacy here.
+          </p>
+        </div>
+
+        {/* Success Overlay View */}
+        <div className="success-panel">
+          <h2>Success!</h2>
+          <svg className="check" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 12l5 5L20 6" />
+          </svg>
+          <p>
+            Welcome to LaporanWee! Click proceed to enter your creative dashboard.
+            <strong id="emailEcho">{email}</strong>
+          </p>
+          <button className="proceed" type="button" onClick={handleProceed}>
+            Proceed
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
