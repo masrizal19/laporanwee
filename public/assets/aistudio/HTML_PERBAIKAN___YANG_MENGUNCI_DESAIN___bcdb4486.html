@@ -1,0 +1,102 @@
+<div class="flex min-h-screen w-full bg-[#f4f3f8] text-[#1e1e2f]">
+
+  <!-- SIDEBAR (Kontras Diperbaiki) -->
+  <aside class="w-64 bg-white/70 backdrop-blur-md border-r border-white/60 p-6 flex flex-col justify-between">
+    <div class="space-y-6">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-black text-white flex items-center justify-center font-bold">LW</div>
+        <span class="font-bold text-lg tracking-tight">LaporanWee</span>
+      </div>
+      
+      <nav class="space-y-2 text-sm font-medium">
+        <a href="#" class="flex items-center gap-3 px-3 py-2 text-gray-700 hover:text-black hover:bg-black/5 rounded-xl transition-all">Dashboard</a>
+        <a href="#" class="flex items-center gap-3 px-3 py-2 text-gray-700 hover:text-black hover:bg-black/5 rounded-xl transition-all">Proyek</a>
+        <a href="#" class="flex items-center gap-3 px-3 py-2 text-gray-700 hover:text-black hover:bg-black/5 rounded-xl transition-all">Laporan</a>
+        <a href="#" class="flex items-center gap-3 px-3 py-2 text-gray-700 hover:text-black hover:bg-black/5 rounded-xl transition-all">Tugas</a>
+        <a href="#" class="flex items-center gap-3 px-3 py-2 text-gray-700 hover:text-black hover:bg-black/5 rounded-xl transition-all">Tim</a>
+      </nav>
+    </div>
+    
+    <button class="text-sm text-red-500 font-medium px-3 py-2 hover:bg-red-50 rounded-xl transition-all text-left">Keluar</button>
+  </aside>
+
+  <!-- KONTEN UTAMA -->
+  <main class="flex-1 p-10 overflow-y-auto">
+    <!-- Header Atas -->
+    <header class="flex justify-between items-center mb-8">
+      <h1 class="text-xl font-bold">Pengaturan Akun</h1>
+      <div class="flex items-center gap-3 bg-white px-3 py-1.5 rounded-full shadow-sm">
+        <span class="text-xs font-semibold text-gray-500">Mode</span>
+        <button class="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-xs">☀️</button>
+      </div>
+    </header>
+
+    <!-- Grid Profil & Form Pengaturan -->
+    <div class="grid grid-cols-1 lg:grid-cols-[340px_1fr] gap-8 items-start">
+      
+      <!-- Kartu Kiri: Foto & Ringkasan Profil -->
+      <section class="bg-white rounded-3xl p-6 shadow-sm border border-white/80 flex flex-col items-center text-center relative">
+        <div class="relative w-36 h-36 mb-4">
+          <!-- Lingkaran Progress -->
+          <svg class="w-full h-full -rotate-90" viewBox="0 0 36 36">
+            <path class="text-gray-100" stroke-width="3" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+            <path class="text-purple-600" stroke-width="3" stroke-dasharray="100, 100" stroke-linecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+          </svg>
+          <img src="https://via.placeholder.com/150" alt="Foto Profil" class="absolute inset-2 w-32 h-32 rounded-full object-cover border-4 border-white" />
+          <button class="absolute bottom-1 right-1 bg-lime-400 p-2 rounded-full shadow hover:scale-105 transition-transform" title="Ubah Foto">✏️</button>
+        </div>
+
+        <span class="text-xs uppercase tracking-widest text-gray-400 font-semibold mb-1">Foto Profil</span>
+        <h2 class="text-lg font-bold text-gray-800 uppercase tracking-tight">Rizal Fadhilah Saragih</h2>
+        <p class="text-xs text-gray-500 mt-1 mb-4 leading-relaxed">
+          Foto diedit langsung dari pratinjau utama dan tersimpan otomatis.
+        </p>
+
+        <div class="flex flex-wrap gap-2 justify-center">
+          <span class="bg-lime-100 text-lime-800 text-xs px-3 py-1 rounded-full font-medium">Profil 100% lengkap</span>
+          <span class="bg-gray-100 text-gray-700 text-xs px-3 py-1 rounded-full font-medium">VIDEO EDITOR</span>
+          <span class="bg-purple-100 text-purple-700 text-xs px-3 py-1 rounded-full font-medium">Karyawan</span>
+        </div>
+      </section>
+
+      <!-- Kartu Kanan: Form Input Pengaturan (Mengisi Ruang Kosong) -->
+      <section class="bg-white rounded-3xl p-8 shadow-sm border border-white/80">
+        <header class="mb-6">
+          <span class="text-xs uppercase tracking-wider text-gray-400 font-semibold block mb-1">Pengaturan</span>
+          <h3 class="text-2xl font-bold text-gray-800">Informasi Profil</h3>
+          <p class="text-sm text-gray-500 mt-1">Ubah rincian profil publik dan informasi akun Anda di sini.</p>
+        </header>
+
+        <form class="space-y-5">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-2">Nama Lengkap</label>
+              <input type="text" value="Rizal Fadhilah Saragih" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all text-sm" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-600 mb-2">Peran / Jabatan</label>
+              <input type="text" value="Video Editor" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all text-sm" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-2">Email Akun</label>
+            <input type="email" value="rizal@mkverse.my.id" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all text-sm" />
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-gray-600 mb-2">Bio Singkat</label>
+            <textarea rows="3" class="w-full px-4 py-2.5 rounded-xl border border-gray-200 bg-gray-50/50 focus:bg-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 outline-none transition-all text-sm">Tim Kreatif LaporanWee.</textarea>
+          </div>
+
+          <div class="pt-4 flex justify-end gap-3">
+            <button type="button" class="px-5 py-2.5 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-100 transition-colors">Batal</button>
+            <button type="submit" class="px-6 py-2.5 rounded-xl text-sm font-semibold text-white bg-black hover:bg-gray-800 shadow-sm active:scale-95 transition-all">Simpan Perubahan</button>
+          </div>
+        </form>
+      </section>
+
+    </div>
+  </main>
+
+</div>

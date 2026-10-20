@@ -1,13 +1,12 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ViewType } from '../types';
 import { Icon } from './icons';
-import { getAbsoluteAvatarUrl } from '../utils/api';
 
-interface NavbarProps {
+export interface NavbarProps {
   currentView: ViewType;
   onNavigate: (view: ViewType) => void;
   onAddToast: (text: string) => void;
-  onLogout?: () => void;
+  onLogout: () => void;
   userEmail?: string;
   userName?: string;
   avatarUrl?: string | null;
@@ -27,45 +26,28 @@ export const Navbar: React.FC<NavbarProps> = ({
   userName,
   avatarUrl,
   logoUrl,
-  menuIconUrl,
-  signoutIconUrl,
   isAdmin: isAdminProp,
   onOpenWhatsNew,
 }) => {
-  const [showNotifs, setShowNotifs] = useState(false);
-  const [showProfile, setShowProfile] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(3);
-  const [logoError, setLogoError] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_theme');
+      return saved === 'dark' ? 'dark' : 'light';
+    } catch (_) {
+      return 'light';
+    }
+  });
 
   useEffect(() => {
-    setLogoError(false);
-  }, [logoUrl]);
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem('laporanwee_theme', theme);
+    } catch (_) {}
+  }, [theme]);
 
-  const notifRef = useRef<HTMLDivElement>(null);
-  const profileRef = useRef<HTMLDivElement>(null);
-
-  const isAdmin =
-    isAdminProp !== undefined
-      ? isAdminProp
-      : Boolean(
-          userEmail &&
-            (userEmail.trim().toLowerCase() === 'rizalsaragih498@gmail.com' ||
-              userEmail.toLowerCase().includes('rizal') ||
-              userEmail.toLowerCase().includes('rizqy'))
-        );
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
-        setShowNotifs(false);
-      }
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setShowProfile(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  const toggleTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+  };
 
   const navItems: { view: ViewType; label: string; icon: string }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: 'home' },
@@ -78,58 +60,76 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'analytics', label: 'Analitik', icon: 'chart' },
   ];
 
+  // Compute active nav index for the sliding pill
+  const activeNavIndex = navItems.findIndex((item) => {
+    if (currentView === item.view) return true;
+    if (item.view === 'projects' && currentView === 'project-detail') return true;
+    if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
+    return false;
+  });
+
+  // Current active view label for topbar breadcrumb
+  const currentNav = navItems.find((item) => {
+    if (currentView === item.view) return true;
+    if (item.view === 'projects' && currentView === 'project-detail') return true;
+    if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
+    return false;
+  });
+  const breadcrumbTitle =
+    currentView === 'create-report'
+      ? 'Buat Laporan Harian'
+      : currentView === 'report-detail'
+      ? 'Detail Laporan'
+      : currentView === 'project-detail'
+      ? 'Detail Proyek'
+      : currentView === 'profile'
+      ? 'Pengaturan Profil'
+      : currentNav?.label || 'Dashboard';
+
+  // Compute User Initials
+  const userInitials = (userName || userEmail || 'AD')
+    .split(' ')
+    .map((n) => n[0])
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+
   return (
     <>
-      <header className="topnav">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            className="brand"
-            onClick={() => onNavigate('dashboard')}
-            title="Kembali ke Dashboard"
-          >
-            {logoUrl && !logoError ? (
+      {/* Floating Rail Navigation (Desktop) & Bottom Dock Pill (Mobile) */}
+      <aside className="rail" aria-label="Navigasi Utama">
+        <button
+          type="button"
+          className="logo"
+          onClick={() => onNavigate('dashboard')}
+          title="Ke Dashboard"
+        >
+          <b>
+            {logoUrl ? (
               <img
                 src={logoUrl}
                 alt="Logo"
-                style={{ maxHeight: '32px', objectFit: 'contain' }}
-                onError={() => setLogoError(true)}
+                style={{ width: '22px', height: '22px', objectFit: 'contain' }}
               />
             ) : (
-              <>
-                <span>Laporan</span>
-                <span className="wee">
-                  Wee
-                  <svg
-                    width="28"
-                    height="8"
-                    viewBox="0 0 28 8"
-                    fill="none"
-                    style={{ position: 'absolute', bottom: '-4px', left: '0' }}
-                  >
-                    <path
-                      d="M1 5.5C8 1.5 20 1.5 27 6.5"
-                      stroke="currentColor"
-                      strokeWidth="2.4"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </span>
-              </>
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 13c3-6 11-6 14 0M8 17c2-3 6-3 8 0" />
+              </svg>
             )}
-          </button>
+          </b>
+          <em>
+            Laporan<span>Wee</span>
+          </em>
+        </button>
 
-          <button
-            type="button"
-            className="nav-version-tagline-btn"
-            onClick={onOpenWhatsNew}
-            title="Pembaruan LaporanWee v3.0 - Klik untuk melihat apa yang baru"
-          >
-            <span className="nav-version-badge">v3.0</span>
-            <span className="nav-tagline-text">JANGAN LUPA KERJA HARI INI</span>
-          </button>
-        </div>
+        <nav className="nav" id="nav-rail">
+          {activeNavIndex >= 0 && (
+            <div
+              className="pill"
+              style={{ transform: `translateY(${activeNavIndex * 54}px)` }}
+            />
+          )}
 
-        <nav className="nav-links" aria-label="Navigasi Utama">
           {navItems.map((item) => {
             const isActive =
               currentView === item.view ||
@@ -139,8 +139,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             return (
               <button
                 key={item.view}
-                className={`nav-item ${isActive ? 'active' : ''}`}
+                type="button"
+                className={isActive ? 'on' : ''}
                 onClick={() => onNavigate(item.view)}
+                title={item.label}
               >
                 <Icon name={item.icon} />
                 <span>{item.label}</span>
@@ -149,276 +151,90 @@ export const Navbar: React.FC<NavbarProps> = ({
           })}
         </nav>
 
-        <div className="nav-right">
-          {/* Notifications */}
-          <div ref={notifRef} style={{ position: 'relative' }}>
-            <button
-              className={`icon-btn ${showNotifs ? 'open' : ''}`}
-              onClick={() => {
-                setShowNotifs(!showNotifs);
-                setShowProfile(false);
-                if (!showNotifs) setUnreadCount(0);
-              }}
-              title="Notifikasi"
-              aria-label="Notifikasi"
-            >
-              <Icon name="bell" />
-              {unreadCount > 0 && <span className="dot-badge" />}
-            </button>
+        <div className="rail-foot">
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Keluar dari akun"
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 4H5v16h4M16 8l4 4-4 4M20 12H9" />
+            </svg>
+            <span>Keluar</span>
+          </button>
+        </div>
+      </aside>
 
-            <div className={`dropdown-panel notif-panel ${showNotifs ? 'show' : ''}`}>
-              <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Notifikasi</span>
-                <span style={{ fontSize: '11.5px', color: 'var(--muted)', fontWeight: 600 }}>Terbaru</span>
-              </div>
-              <div
-                className="notif-row"
-                onClick={() => {
-                  setShowNotifs(false);
-                  onNavigate('reports');
-                }}
-              >
-                <span className="n-dot" />
-                <div>
-                  <b>Laporan Disetujui</b>
-                  <p>Laporan mockup homepage kamu telah disetujui Pak Budi.</p>
-                </div>
-              </div>
-              <div
-                className="notif-row"
-                onClick={() => {
-                  setShowNotifs(false);
-                  onNavigate('tasks');
-                }}
-              >
-                <span className="n-dot" />
-                <div>
-                  <b>Tugas Baru Diberikan</b>
-                  <p>Dimas menugaskan kamu di &ldquo;Website Redesign Wee&rdquo;.</p>
-                </div>
-              </div>
-              <div
-                className="notif-row"
-                onClick={() => {
-                  setShowNotifs(false);
-                  onNavigate('team');
-                }}
-              >
-                <span className="n-dot" style={{ background: 'var(--lime-deep)' }} />
-                <div>
-                  <b>Alvaro mengunggah video</b>
-                  <p>4 b-roll footage take sunset telah selesai di-render.</p>
-                </div>
-              </div>
-            </div>
+      {/* Top Bar Header with Breadcrumb, Theme Toggle, Quick Search, User Profile (Hidden on profile view to use dedicated Profile Bar) */}
+      {currentView !== 'profile' && (
+        <header className="top-bar-shell">
+          <div className="crumb">{breadcrumbTitle}</div>
+
+        <div className="top-actions">
+          {/* Theme Switcher Sliding Pill */}
+          <div className="theme" role="group" aria-label="Tema Tampilan">
+            <div className="knob" />
+            <button
+              type="button"
+              data-t="light"
+              onClick={() => toggleTheme('light')}
+              aria-label="Mode Terang"
+              title="Mode Terang"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              data-t="dark"
+              onClick={() => toggleTheme('dark')}
+              aria-label="Mode Gelap"
+              title="Mode Gelap"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" />
+              </svg>
+            </button>
           </div>
 
-          {/* Profile pill */}
-          <div ref={profileRef} style={{ position: 'relative' }}>
-            <button
-              className={`profile-pill ${showProfile ? 'open' : ''}`}
-              onClick={() => {
-                setShowProfile(!showProfile);
-                setShowNotifs(false);
-              }}
-              aria-label="Menu Pengguna"
-            >
-              <div
-                style={{
-                  width: '32px',
-                  height: '32px',
-                  borderRadius: '50%',
-                  overflow: 'hidden',
-                  background: 'var(--primary-color, #4A55FF)',
-                  color: '#fff',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  flexShrink: 0,
-                }}
-              >
-                {(() => {
-                  const finalAvatar = getAbsoluteAvatarUrl(avatarUrl, userName || userEmail);
-                  return finalAvatar ? (
-                    <img
-                      src={finalAvatar}
-                      alt="Avatar"
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                      onError={(e) => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    (userName || userEmail || 'U').trim().charAt(0).toUpperCase()
-                  );
-                })()}
-              </div>
-              <div className="meta">
-                <div className="hi">{userName || userEmail?.split('@')[0] || 'Anggota Tim'}</div>
-                <div className="mail">{userEmail || 'user@laporanwee.agency'}</div>
-              </div>
-              <span className="chev">
-                <Icon name="chevdown" />
-              </span>
-            </button>
+          {/* Quick Search Round Button */}
+          <button
+            type="button"
+            className="round"
+            onClick={() => onNavigate('tasks')}
+            aria-label="Cari Tugas & Proyek"
+            title="Cari Cepat"
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+          </button>
 
-            <div className={`dropdown-panel ${showProfile ? 'show' : ''}`}>
-              <div
-                className="dropdown-item"
-                onClick={() => {
-                  setShowProfile(false);
-                  onNavigate('profile');
-                }}
-              >
-                <div className="icon-wrapper">
-                  {menuIconUrl ? (
-                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
-                  ) : (
-                    <Icon name="palette" className="profile-menu-icon" />
-                  )}
-                </div>
-                <span>Lihat Profil Saya</span>
-              </div>
-              <div
-                className="dropdown-item"
-                onClick={() => {
-                  setShowProfile(false);
-                  onNavigate('analytics');
-                }}
-              >
-                <div className="icon-wrapper">
-                  {menuIconUrl ? (
-                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
-                  ) : (
-                    <Icon name="chart" className="profile-menu-icon" />
-                  )}
-                </div>
-                <span>Statistik & Analitik</span>
-              </div>
-              <div
-                className="dropdown-item"
-                onClick={() => {
-                  setShowProfile(false);
-                  onNavigate('social-media');
-                }}
-              >
-                <div className="icon-wrapper">
-                  {menuIconUrl ? (
-                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
-                  ) : (
-                    <Icon name="share" className="profile-menu-icon" />
-                  )}
-                </div>
-                <span>Sosial Media Sekolah</span>
-              </div>
-              <div
-                className="dropdown-item"
-                onClick={() => {
-                  setShowProfile(false);
-                  onAddToast('Tautan workspace disalin!');
-                }}
-              >
-                <div className="icon-wrapper">
-                  {menuIconUrl ? (
-                    <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
-                  ) : (
-                    <Icon name="laptop" className="profile-menu-icon" />
-                  )}
-                </div>
-                <span>Salin Tautan Tim</span>
-              </div>
-              {isAdmin && (
-                <div
-                  className="dropdown-item admin-ui-btn"
-                  style={{ color: 'var(--primary-color, #4A55FF)' }}
-                  onClick={() => {
-                    setShowProfile(false);
-                    onNavigate('ui-settings');
-                  }}
-                >
-                  <div className="icon-wrapper">
-                    {menuIconUrl ? (
-                      <img src={menuIconUrl} alt="Icon" className="profile-menu-icon custom-icon-img" />
-                    ) : (
-                      <Icon name="sliders" className="profile-menu-icon" />
-                    )}
-                  </div>
-                  <span>UI Settings (Admin)</span>
-                </div>
-              )}
-              <div
-                className="dropdown-item"
-                style={{ color: 'var(--danger)', borderTop: '1px solid var(--line-soft)', marginTop: '4px', paddingTop: '10px' }}
-                onClick={() => {
-                  setShowProfile(false);
-                  if (onLogout) {
-                    onLogout();
-                  } else {
-                    onAddToast('Berhasil keluar dari sesi.');
-                  }
-                }}
-              >
-                <div className="icon-wrapper">
-                  {signoutIconUrl ? (
-                    <img src={signoutIconUrl} alt="Sign Out" className="signout-icon custom-icon-img" />
-                  ) : (
-                    <Icon name="x" className="signout-icon" />
-                  )}
-                </div>
-                <span>Keluar (Sign Out)</span>
-              </div>
-            </div>
+          {/* User Profile Avatar with Gradient Ring */}
+          <div
+            className="avatar"
+            onClick={() => onNavigate('profile')}
+            title={`Pengaturan Profil: ${userName || userEmail || 'Pengguna'}`}
+            role="button"
+            tabIndex={0}
+          >
+            {avatarUrl ? (
+              <img
+                src={avatarUrl}
+                alt={userName || 'Avatar'}
+                className="avatar-img"
+                style={{ borderRadius: '50%' }}
+              />
+            ) : (
+              <span>{userInitials}</span>
+            )}
           </div>
         </div>
       </header>
-
-      {/* Mobile bottom nav */}
-      <nav className="bottom-nav" aria-label="Navigasi Bawah Mobile">
-        <button
-          className={currentView === 'dashboard' ? 'active' : ''}
-          onClick={() => onNavigate('dashboard')}
-        >
-          <Icon name="home" />
-          <span>Dashboard</span>
-        </button>
-        <button
-          className={currentView === 'projects' || currentView === 'project-detail' ? 'active' : ''}
-          onClick={() => onNavigate('projects')}
-        >
-          <Icon name="folder" />
-          <span>Proyek</span>
-        </button>
-        <button
-          className={currentView === 'reports' || currentView === 'report-detail' || currentView === 'create-report' ? 'active' : ''}
-          onClick={() => onNavigate('reports')}
-        >
-          <Icon name="doc" />
-          <span>Laporan</span>
-        </button>
-        <button
-          className={currentView === 'tasks' ? 'active' : ''}
-          onClick={() => onNavigate('tasks')}
-        >
-          <Icon name="checksq" />
-          <span>Tugas</span>
-        </button>
-        <button
-          className={currentView === 'calendar' ? 'active' : ''}
-          onClick={() => onNavigate('calendar')}
-        >
-          <Icon name="calendar" />
-          <span>Kalender</span>
-        </button>
-        <button
-          className={currentView === 'profile' ? 'active' : ''}
-          onClick={() => onNavigate('profile')}
-        >
-          <Icon name="palette" />
-          <span>Profil</span>
-        </button>
-      </nav>
+      )}
     </>
   );
 };

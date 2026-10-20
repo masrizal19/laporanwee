@@ -1,22 +1,20 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Project, Report, ViewType } from '../types';
 import {
   profileService,
   extractAvatarFromResponse,
   getAbsoluteAvatarUrl,
   withAvatarCacheBust,
-  getLatestProfileSaveTimestamp,
-  recordProfileSaveTimestamp,
   syncAuthenticatedUser,
 } from '../utils/api';
 import '../profile-edit.css';
 
 interface ProfileViewProps {
-  projects: Project[];
-  reports: Report[];
+  projects?: Project[];
+  reports?: Report[];
   onNavigate: (view: ViewType) => void;
-  onSelectProject: (projectId: string) => void;
-  onSelectReport: (reportId: string) => void;
+  onSelectProject?: (projectId: string) => void;
+  onSelectReport?: (reportId: string) => void;
   onAddToast: (text: string) => void;
   userEmail: string;
   userName: string;
@@ -38,495 +36,843 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   avatarUrl: initialAvatarUrl,
   onUpdateUser,
 }) => {
-  // Profile State (Committed State)
-  const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Pengguna');
-  const [email, setEmail] = useState(userEmail || 'user@laporanwee.agency');
-  const [profileTitle, setProfileTitle] = useState('');
-  const [profileStatus, setProfileStatus] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
-  const [imageError, setImageError] = useState(false);
+  // Saved / Committed State
+  const [name, setName] = useState(userName || userEmail?.split('@')[0] || 'Admin');
+  const [email, setEmail] = useState(userEmail || 'admin@gmail.com');
+  const [job, setJob] = useState('');
+  const [status, setStatus] = useState('');
+  const [avatar, setAvatar] = useState<string | null>(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
 
-  // Active editing state: 'name' | 'job' | 'status' | null
-  const [editingField, setEditingField] = useState<'name' | 'job' | 'status' | null>(null);
-  const [tempName, setTempName] = useState(name);
-  const [tempJob, setTempJob] = useState(profileTitle);
-  const [tempStatus, setTempStatus] = useState(profileStatus);
+  // Active Expandable Row State
+  const [openRow, setOpenRow] = useState<'name' | 'email' | 'job' | 'status' | null>(null);
 
+  // Form Inputs
+  const [inputName, setInputName] = useState(name);
+  const [inputEmail, setInputEmail] = useState(email);
+  const [inputJob, setInputJob] = useState(job);
+  const [inputStatus, setInputStatus] = useState(status);
+  const [formError, setFormError] = useState('');
+
+  // Loading States
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  // Ref to hold current props & state for event listeners without triggering useEffect re-runs
-  const stateRef = useRef({ name, email, profileTitle, profileStatus, avatarUrl });
-  useEffect(() => {
-    stateRef.current = { name, email, profileTitle, profileStatus, avatarUrl };
-  }, [name, email, profileTitle, profileStatus, avatarUrl]);
+  // Crop / Edit Avatar Modal States
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalImageSrc, setModalImageSrc] = useState<string>('');
+  const [zoom, setZoom] = useState(1);
+  const [panX, setPanX] = useState(0);
+  const [panY, setPanY] = useState(0);
+  const [imgNaturalWidth, setImgNaturalWidth] = useState(0);
+  const [imgNaturalHeight, setImgNaturalHeight] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragRef = useRef<{ startX: number; startY: number; initPanX: number; initPanY: number } | null>(null);
 
-  useEffect(() => {
-    setImageError(false);
-  }, [avatarUrl]);
+  const CROP_SIZE = 260;
 
+  // Options arrays
+  const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'Videografer', 'Copywriter', 'Social Media'];
+  const STATUS_OPTIONS = ['Tersedia', 'Sedang bekerja', 'Dalam rapat', 'Cuti'];
+
+  // Check if there are unsaved changes (Dirty status)
+  const isDirty = useMemo(() => {
+    return (
+      inputName !== name ||
+      inputEmail !== email ||
+      inputJob !== job ||
+      inputStatus !== status
+    );
+  }, [inputName, inputEmail, inputJob, inputStatus, name, email, job, status]);
+
+  // Compute completion percentage
+  const completionPercentage = useMemo(() => {
+    let count = 0;
+    if (avatar) count++;
+    if (name.trim()) count++;
+    if (email.trim()) count++;
+    if (job.trim()) count++;
+    if (status.trim()) count++;
+    return count * 20;
+  }, [avatar, name, email, job, status]);
+
+  // Sync with initial props
   useEffect(() => {
-    if (initialAvatarUrl !== undefined) {
-      setAvatarUrl(initialAvatarUrl ? withAvatarCacheBust(initialAvatarUrl) : null);
+    if (initialAvatarUrl) {
+      setAvatar(withAvatarCacheBust(initialAvatarUrl));
     }
   }, [initialAvatarUrl]);
 
-  // Apply Theme from Profile API to CSS Variables
-  const applyTheme = useCallback((themeObj?: any) => {
-    if (!themeObj || typeof themeObj !== 'object') return;
-    const targetEl = rootRef.current || document.documentElement;
-
-    if (themeObj.accent_color) targetEl.style.setProperty('--profile-accent', themeObj.accent_color);
-    if (themeObj.primary_color) targetEl.style.setProperty('--profile-primary', themeObj.primary_color);
-    if (themeObj.text_color) targetEl.style.setProperty('--profile-text', themeObj.text_color);
-    if (themeObj.muted_color) targetEl.style.setProperty('--profile-muted', themeObj.muted_color);
-    if (themeObj.background_color) targetEl.style.setProperty('--profile-bg', themeObj.background_color);
-    if (themeObj.surface_color) targetEl.style.setProperty('--profile-surface', themeObj.surface_color);
-  }, []);
-
-  // Load Profile once on mount (no dependency loop!)
+  // Load initial profile data from backend API
   useEffect(() => {
     let isMounted = true;
-    const requestInitiatedAt = Date.now();
-
-    const fetchInitialProfile = async () => {
+    const fetchProfileData = async () => {
+      setIsRefreshing(true);
       try {
         const res = await profileService.getProfile();
         if (!isMounted) return;
-        if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
-
         if (res && res.success && res.data) {
           const d = res.data;
           const freshName = d.full_name || d.name || userName;
           const freshEmail = d.email || userEmail;
-          const freshTitle = d.profile_title !== undefined ? d.profile_title : (d.title || '');
-          const rawStatus = d.profile_location !== undefined ? d.profile_location : (d.status || d.location || '');
-          const freshStatus = ['Karyawan', 'Anak Magang', 'Anak PKL'].includes(rawStatus) ? rawStatus : '';
+          const freshJob = d.profile_title || d.title || '';
+          const freshStatus = d.profile_location || d.status || d.location || '';
 
           setName(freshName);
-          setTempName(freshName);
+          setInputName(freshName);
           setEmail(freshEmail);
-          setProfileTitle(freshTitle);
-          setTempJob(freshTitle);
-          setProfileStatus(freshStatus);
-          setTempStatus(freshStatus);
+          setInputEmail(freshEmail);
+          setJob(freshJob);
+          setInputJob(freshJob);
+          setStatus(freshStatus);
+          setInputStatus(freshStatus);
 
           const rawAvatar = extractAvatarFromResponse(res);
-          let freshAvatar: string | null = null;
-          if (rawAvatar !== undefined) {
-            freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : null;
-            setAvatarUrl(freshAvatar);
+          let freshAvatarUrl: string | null = null;
+          if (rawAvatar) {
+            freshAvatarUrl = withAvatarCacheBust(rawAvatar, d.updated_at || Date.now());
+            setAvatar(freshAvatarUrl);
           }
 
           syncAuthenticatedUser({
             name: freshName,
             email: freshEmail,
-            profile_title: freshTitle,
+            profile_title: freshJob,
             profile_location: freshStatus,
-            avatar_url: freshAvatar,
+            avatar_url: freshAvatarUrl,
           });
 
           if (onUpdateUser) {
             onUpdateUser({
               name: freshName,
               email: freshEmail,
-              profile_title: freshTitle,
+              profile_title: freshJob,
               profile_location: freshStatus,
-              avatar_url: freshAvatar,
+              avatar_url: freshAvatarUrl,
             });
-          }
-
-          if (d.theme) {
-            applyTheme(d.theme);
           }
         }
       } catch (err) {
-        console.warn('[PROFILE] Initial load notice:', err);
+        console.warn('[ProfileView] Could not load from backend, using local session:', err);
+      } finally {
+        if (isMounted) setIsRefreshing(false);
       }
     };
 
-    fetchInitialProfile();
-
-    // Listen to custom profile update event
-    const handleProfileUpdated = (e: any) => {
-      const detail = e.detail;
-      if (!detail) return;
-      if (detail.name || detail.full_name) {
-        const n = detail.name || detail.full_name;
-        setName(n);
-        setTempName(n);
-      }
-      if (detail.profile_title !== undefined) {
-        setProfileTitle(detail.profile_title);
-        setTempJob(detail.profile_title);
-      }
-      if (detail.profile_location !== undefined) {
-        const validStatus = ['Karyawan', 'Anak Magang', 'Anak PKL'].includes(detail.profile_location) ? detail.profile_location : '';
-        setProfileStatus(validStatus);
-        setTempStatus(validStatus);
-      }
-      if (detail.avatar_url !== undefined) {
-        setAvatarUrl(detail.avatar_url ? withAvatarCacheBust(detail.avatar_url) : null);
-      }
-    };
-
-    window.addEventListener('laporanwee-profile-updated', handleProfileUpdated);
+    fetchProfileData();
     return () => {
       isMounted = false;
-      window.removeEventListener('laporanwee-profile-updated', handleProfileUpdated);
     };
-  }, []); // Run only on mount!
+  }, []);
 
-  // Commit any active inline edit before saving or switching fields
-  const commitActiveEdit = () => {
-    if (editingField === 'name') {
-      const trimmed = tempName.trim();
-      if (trimmed) setName(trimmed);
-      else setTempName(name);
-    } else if (editingField === 'job') {
-      const trimmed = tempJob.trim();
-      setProfileTitle(trimmed);
-    } else if (editingField === 'status') {
-      if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(tempStatus)) {
-        setProfileStatus(tempStatus);
-      }
-    }
-    setEditingField(null);
-  };
-
-  // Save Full Profile via POST /profile/save.php (Single Request)
+  // Save profile text fields to backend API
   const handleSaveProfile = async () => {
-    if (isSaving) return;
-    commitActiveEdit();
-
-    const finalName = (editingField === 'name' ? tempName : name).trim();
-    if (!finalName) {
-      onAddToast('Nama profil tidak boleh kosong.');
+    if (!inputName.trim()) {
+      onAddToast('Nama lengkap wajib diisi.');
       return;
     }
-
-    const finalJob = (editingField === 'job' ? tempJob : profileTitle).trim();
-    const finalStatus = (editingField === 'status' ? tempStatus : profileStatus).trim();
-
-    if (finalStatus && !['Karyawan', 'Anak Magang', 'Anak PKL'].includes(finalStatus)) {
-      onAddToast('Status harus bernilai: Karyawan, Anak Magang, atau Anak PKL.');
+    if (!inputEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inputEmail.trim())) {
+      onAddToast('Masukkan alamat email yang valid.');
       return;
     }
 
     setIsSaving(true);
     try {
-      const res = await profileService.saveProfile({
-        full_name: finalName,
-        profile_title: finalJob,
-        profile_location: finalStatus,
-      });
-      recordProfileSaveTimestamp();
+      const payload = {
+        full_name: inputName.trim(),
+        name: inputName.trim(),
+        email: inputEmail.trim(),
+        profile_title: inputJob.trim(),
+        profile_location: inputStatus.trim(),
+        avatar_url: avatar,
+      };
 
+      const res = await profileService.saveProfile(payload);
       if (res && res.success) {
-        onAddToast('Profil berhasil disimpan.');
-        const d = res.data || res;
-        const freshName = d.full_name || d.name || finalName;
-        const freshJob = d.profile_title !== undefined ? d.profile_title : finalJob;
-        const rawStatus = d.profile_location !== undefined ? d.profile_location : finalStatus;
-        const freshStatus = ['Karyawan', 'Anak Magang', 'Anak PKL'].includes(rawStatus) ? rawStatus : '';
+        setName(inputName.trim());
+        setEmail(inputEmail.trim());
+        setJob(inputJob.trim());
+        setStatus(inputStatus.trim());
+        setOpenRow(null);
 
-        setName(freshName);
-        setTempName(freshName);
-        setProfileTitle(freshJob);
-        setTempJob(freshJob);
-        setProfileStatus(freshStatus);
-        setTempStatus(freshStatus);
-
-        let freshAvatar = avatarUrl;
-        if (d.avatar_url !== undefined) {
-          freshAvatar = d.avatar_url ? withAvatarCacheBust(d.avatar_url, d.updated_at || Date.now()) : null;
-          setAvatarUrl(freshAvatar);
-        }
+        localStorage.setItem('lw_user_profile', JSON.stringify(payload));
 
         syncAuthenticatedUser({
-          id: d.id,
-          name: freshName,
-          full_name: freshName,
-          email,
-          profile_title: freshJob,
-          profile_location: freshStatus,
-          avatar_url: freshAvatar,
+          name: inputName.trim(),
+          email: inputEmail.trim(),
+          profile_title: inputJob.trim(),
+          profile_location: inputStatus.trim(),
+          avatar_url: avatar,
         });
 
         if (onUpdateUser) {
           onUpdateUser({
-            name: freshName,
-            email,
-            profile_title: freshJob,
-            profile_location: freshStatus,
-            avatar_url: freshAvatar,
+            name: inputName.trim(),
+            email: inputEmail.trim(),
+            profile_title: inputJob.trim(),
+            profile_location: inputStatus.trim(),
+            avatar_url: avatar,
           });
         }
+
+        const toastMsg =
+          res.message === 'Tersimpan di preview lokal' ||
+          res.message?.includes('preview') ||
+          res.message?.includes('sandbox')
+            ? 'Tersimpan di preview lokal'
+            : res.message || 'Profil berhasil disimpan.';
+        onAddToast(toastMsg);
       } else {
-        const errorMsg = res?.message || 'Gagal menyimpan profil.';
-        onAddToast(`Profil gagal disimpan: ${errorMsg}`);
+        throw new Error(res?.message || 'Gagal menyimpan profil');
       }
     } catch (err: any) {
-      const errorMsg = err?.message || 'Kesalahan server';
-      onAddToast(`Profil gagal disimpan: ${errorMsg}`);
+      console.warn('[ProfileView] Save error fallback to local storage:', err);
+      const payload = {
+        full_name: inputName.trim(),
+        name: inputName.trim(),
+        email: inputEmail.trim(),
+        profile_title: inputJob.trim(),
+        profile_location: inputStatus.trim(),
+        avatar_url: avatar,
+      };
+      localStorage.setItem('lw_user_profile', JSON.stringify(payload));
+      setName(inputName.trim());
+      setEmail(inputEmail.trim());
+      setJob(inputJob.trim());
+      setStatus(inputStatus.trim());
+      setOpenRow(null);
+
+      syncAuthenticatedUser(payload);
+      if (onUpdateUser) onUpdateUser(payload);
+      onAddToast('Tersimpan di preview lokal');
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleGoToCrop = () => {
-    onNavigate('profile-crop');
+  // Base scale calculation for image cropping
+  const baseScale = useMemo(() => {
+    if (!imgNaturalWidth || !imgNaturalHeight) return 1;
+    return CROP_SIZE / Math.min(imgNaturalWidth, imgNaturalHeight);
+  }, [imgNaturalWidth, imgNaturalHeight]);
+
+  // Clamp crop pan position
+  const clampPan = (x: number, y: number, currentZoom: number) => {
+    const scaledW = imgNaturalWidth * baseScale * currentZoom;
+    const scaledH = imgNaturalHeight * baseScale * currentZoom;
+    const clampedX = Math.min(0, Math.max(CROP_SIZE - scaledW, x));
+    const clampedY = Math.min(0, Math.max(CROP_SIZE - scaledH, y));
+    return { clampedX, clampedY };
   };
 
-  const getInitialsAvatar = () => {
-    const initials = (name || email || 'U')
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .slice(0, 2)
-      .toUpperCase();
+  const handleOpenCropModal = () => {
+    const currentPhoto = avatar || getAbsoluteAvatarUrl(avatar, name);
+    setModalImageSrc(currentPhoto);
+    setIsModalOpen(true);
+  };
 
-    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="220" height="220" viewBox="0 0 220 220"><rect width="220" height="220" fill="%23222222"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="64" font-weight="bold" fill="%23ffffff">${initials}</text></svg>`;
+  const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const nw = img.naturalWidth || CROP_SIZE;
+    const nh = img.naturalHeight || CROP_SIZE;
+    setImgNaturalWidth(nw);
+    setImgNaturalHeight(nh);
+
+    const bScale = CROP_SIZE / Math.min(nw, nh);
+    setZoom(1);
+    setPanX((CROP_SIZE - nw * bScale) / 2);
+    setPanY((CROP_SIZE - nh * bScale) / 2);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      initPanX: panX,
+      initPanY: panY,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging || !dragRef.current) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    const newX = dragRef.current.initPanX + dx;
+    const newY = dragRef.current.initPanY + dy;
+    const { clampedX, clampedY } = clampPan(newX, newY, zoom);
+    setPanX(clampedX);
+    setPanY(clampedY);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsDragging(false);
+    dragRef.current = null;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch (_) {}
+  };
+
+  const handleWheelZoom = (e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 0.08 : -0.08;
+    const newZoom = Math.min(3, Math.max(1, zoom + delta));
+    setZoom(newZoom);
+    const { clampedX, clampedY } = clampPan(panX, panY, newZoom);
+    setPanX(clampedX);
+    setPanY(clampedY);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onAddToast('File harus berupa gambar.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setModalImageSrc(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Crop canvas & upload photo to backend API
+  const handleSavePhoto = async () => {
+    setIsUploadingPhoto(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 480;
+      canvas.height = 480;
+      const ctx = canvas.getContext('2d');
+
+      if (ctx && modalImageSrc) {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve) => {
+          img.onload = resolve;
+          img.src = modalImageSrc;
+        });
+
+        const scaleMultiplier = 480 / CROP_SIZE;
+        ctx.drawImage(
+          img,
+          0,
+          0,
+          imgNaturalWidth,
+          imgNaturalHeight,
+          panX * scaleMultiplier,
+          panY * scaleMultiplier,
+          imgNaturalWidth * baseScale * zoom * scaleMultiplier,
+          imgNaturalHeight * baseScale * zoom * scaleMultiplier
+        );
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+
+        // Convert DataURL to Blob for FormData upload
+        const blob = await (await fetch(dataUrl)).blob();
+        const file = new File([blob], 'profile-avatar.jpg', { type: 'image/jpeg' });
+
+        let finalAvatarUrl = dataUrl;
+        let isLocalPreview = false;
+
+        try {
+          const uploadRes = await profileService.uploadPhoto(file);
+          if (uploadRes && uploadRes.success) {
+            if (uploadRes.data?.url && !uploadRes.data.url.startsWith('data:')) {
+              finalAvatarUrl = withAvatarCacheBust(uploadRes.data.url);
+            }
+            if (
+              uploadRes.message === 'Tersimpan di preview lokal' ||
+              uploadRes.message?.includes('preview') ||
+              uploadRes.message?.includes('sandbox')
+            ) {
+              isLocalPreview = true;
+            }
+          }
+        } catch (uploadErr) {
+          console.warn('[ProfileView] Upload failed, falling back to local base64:', uploadErr);
+          isLocalPreview = true;
+        }
+
+        // Simpan base64 foto langsung ke localStorage
+        localStorage.setItem('lw_user_avatar', finalAvatarUrl);
+        const existingProfile = localStorage.getItem('lw_user_profile');
+        if (existingProfile) {
+          try {
+            const p = JSON.parse(existingProfile);
+            p.avatar_url = finalAvatarUrl;
+            localStorage.setItem('lw_user_profile', JSON.stringify(p));
+          } catch (_) {}
+        }
+
+        // Perbarui tampilan UI seketika
+        setAvatar(finalAvatarUrl);
+        setIsModalOpen(false);
+
+        syncAuthenticatedUser({
+          name,
+          email,
+          profile_title: job,
+          profile_location: status,
+          avatar_url: finalAvatarUrl,
+        });
+
+        if (onUpdateUser) {
+          onUpdateUser({
+            name,
+            email,
+            profile_title: job,
+            profile_location: status,
+            avatar_url: finalAvatarUrl,
+          });
+        }
+
+        // Tampilkan notifikasi: 'Tersimpan di preview lokal'
+        onAddToast(isLocalPreview ? 'Tersimpan di preview lokal' : 'Foto profil berhasil diperbarui.');
+      }
+    } catch (err: any) {
+      console.error('[ProfileView] Photo save error:', err);
+      if (modalImageSrc) {
+        localStorage.setItem('lw_user_avatar', modalImageSrc);
+        setAvatar(modalImageSrc);
+        setIsModalOpen(false);
+        onAddToast('Tersimpan di preview lokal');
+      } else {
+        onAddToast('Gagal memproses foto profil.');
+      }
+    } finally {
+      setIsUploadingPhoto(false);
+    }
   };
 
   return (
-    <div className="profile-page-root" ref={rootRef}>
-      {/* Top Bar Header */}
-      <header className="profile-top-bar">
-        <div className="profile-top-left">
-          <button
-            type="button"
-            className="profile-back-circle"
-            onClick={() => onNavigate('dashboard')}
-            aria-label="Kembali ke dashboard"
-            title="Kembali ke Dashboard"
-          >
-            ←
-          </button>
-          <span className="profile-brand-title">Edit Profile</span>
+    <div className="view">
+      {/* Top Controls Bar */}
+      <div className="top">
+        <div className="crumb">
+          Pengaturan / <b>Profil</b>
         </div>
-        <div>
-          <button
-            type="button"
-            className="profile-top-save-btn"
-            id="topSaveBtn"
-            onClick={handleSaveProfile}
-            disabled={isSaving}
-          >
-            {isSaving ? 'Menyimpan...' : 'Simpan'}
-          </button>
-        </div>
-      </header>
 
-      {/* Main Content Area */}
-      <main className="profile-shell-main">
-        <h1 className="profile-main-title">Profile</h1>
+        <span className={`dirty ${isDirty ? 'on' : ''}`}>
+          <i /> Perubahan belum disimpan
+        </span>
 
-        {/* Hero Section: Photo and Intro */}
-        <section className="profile-hero-section">
-          <div className="profile-hero-copy">
-            <div className="profile-hero-kicker">PROFILE PHOTO</div>
-            <h2>Foto Akun &amp; Identitas</h2>
-            <p>
-              Sesuaikan foto profil Anda. Klik tombol edit pada foto untuk membuka halaman pemotongan foto (crop).
-            </p>
-          </div>
+        <button
+          type="button"
+          className={`btn soft ${isRefreshing ? 'load' : ''}`}
+          onClick={async () => {
+            setIsRefreshing(true);
+            try {
+              const res = await profileService.getProfile();
+              if (res && res.data) {
+                const d = res.data;
+                setName(d.full_name || d.name || name);
+                setInputName(d.full_name || d.name || name);
+                setEmail(d.email || email);
+                setInputEmail(d.email || email);
+                setJob(d.profile_title || job);
+                setInputJob(d.profile_title || job);
+                setStatus(d.profile_location || status);
+                setInputStatus(d.profile_location || status);
+              }
+              onAddToast('Data profil dimuat ulang dari backend.');
+            } catch (_) {
+              onAddToast('Menggunakan data cache profil.');
+            } finally {
+              setIsRefreshing(false);
+            }
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 11a8 8 0 0 0-14.5-3.5M4 4v4h4M4 13a8 8 0 0 0 14.5 3.5M20 20v-4h-4" />
+          </svg>
+          <span>Refresh Backend</span>
+          <i className="sp" />
+        </button>
 
-          <div className="profile-avatar-stage">
-            <div className="profile-avatar-wrap-box">
-              <img
-                id="avatar"
-                src={!imageError && avatarUrl ? getAbsoluteAvatarUrl(avatarUrl) : getInitialsAvatar()}
-                alt="Profile Avatar"
-                className="profile-avatar-element"
-                onError={() => {
-                  setImageError(true);
-                }}
-              />
+        <button
+          type="button"
+          className={`btn dark ${isSaving ? 'load' : ''}`}
+          onClick={handleSaveProfile}
+          disabled={isSaving}
+        >
+          <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12.5 10 17.5 19 7" />
+          </svg>
+          <span>Simpan Profil</span>
+          <i className="sp" />
+        </button>
+      </div>
+
+      {/* Main Grid Section */}
+      <div className="grid">
+        {/* Hero Card */}
+        <section className="card c12">
+          <div className="hero">
+            <div className="txt">
+              <div className="eyebrow">Foto Profil</div>
+              <h1>{name}</h1>
+              <p>
+                Atur identitas Anda. Foto diedit langsung dari pratinjau utama, lalu disimpan ke backend tanpa kartu pratinjau tambahan.
+              </p>
+              <div className="chips">
+                <span className="chip lime">Profil {completionPercentage}% lengkap</span>
+                <span className="chip">{job || 'Pekerjaan belum diatur'}</span>
+                <span className="chip lav">{status || 'Status belum dipilih'}</span>
+              </div>
+            </div>
+
+            <div className="pwrap">
+              <svg className="pr" viewBox="0 0 176 176">
+                <defs>
+                  <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stopColor="#c2e04a" />
+                    <stop offset="100%" stopColor="#8f7fe0" />
+                  </linearGradient>
+                </defs>
+                <circle className="a" cx="88" cy="88" r="82" />
+                <circle
+                  className="b"
+                  cx="88"
+                  cy="88"
+                  r="82"
+                  style={{ strokeDashoffset: 515 * (1 - completionPercentage / 100) }}
+                />
+              </svg>
+
+              <div
+                className="pimg"
+                onClick={handleOpenCropModal}
+                role="button"
+                tabIndex={0}
+                aria-label="Ubah foto profil"
+              >
+                <img src={getAbsoluteAvatarUrl(avatar, name)} alt={name} />
+              </div>
+
               <button
                 type="button"
-                className="profile-avatar-edit-button"
-                id="openPhotoCropBtn"
-                onClick={handleGoToCrop}
-                title="Atur Crop Foto"
-                aria-label="Atur Crop Foto"
+                className="pen"
+                onClick={handleOpenCropModal}
+                aria-label="Edit foto profil"
+                title="Edit foto profil"
               >
-                <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z"
-                    stroke="currentColor"
-                    strokeWidth="1.8"
-                    strokeLinejoin="round"
-                  />
-                  <path d="m14.5 7.5 2 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4" />
                 </svg>
               </button>
+
+              <span className="pct">{completionPercentage}%</span>
             </div>
           </div>
         </section>
 
-        {/* Rows Information List */}
-        <section className="profile-rows-list">
-          {/* Row 1: Name */}
-          <div
-            className={`profile-detail-row ${editingField === 'name' ? 'is-active-edit' : 'is-clickable'}`}
-            id="nameRow"
-            onClick={() => {
-              if (editingField !== 'name') {
-                if (editingField) commitActiveEdit();
-                setTempName(name);
-                setEditingField('name');
-              }
-            }}
-          >
-            <div className="profile-row-label-text">NAME</div>
-            {editingField === 'name' ? (
-              <input
-                id="nameEdit"
-                type="text"
-                className="profile-name-edit-input"
-                value={tempName}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setTempName(e.target.value)}
-                onBlur={() => {
-                  const trimmed = tempName.trim();
-                  if (trimmed) {
-                    setName(trimmed);
-                  } else {
-                    setTempName(name);
-                  }
-                  if (editingField === 'name') setEditingField(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.currentTarget.blur();
-                  } else if (e.key === 'Escape') {
-                    setTempName(name);
-                    setEditingField(null);
-                  }
-                }}
-                autoFocus
-              />
-            ) : (
-              <div className="profile-row-value-text" id="name">
-                {name || '—'}
-              </div>
-            )}
-            <div className="profile-row-arrow-icon">›</div>
+        {/* Information List Rows Card */}
+        <section className="card c12">
+          <div className="card-h">
+            <h3>Informasi Profil</h3>
+            <div className="sub">Klik baris untuk mengubah isinya</div>
           </div>
 
-          {/* Row 2: Email (Readonly) */}
-          <div className="profile-detail-row">
-            <div className="profile-row-label-text">EMAIL</div>
-            <div className="profile-row-value-text is-muted" id="email">
-              {email || '—'}
-            </div>
-            <div className="profile-row-arrow-icon">›</div>
-          </div>
-
-          {/* Row 3: PEKERJAAN */}
-          <div
-            className={`profile-detail-row ${editingField === 'job' ? 'is-active-edit' : 'is-clickable'}`}
-            id="jobRow"
-            onClick={() => {
-              if (editingField !== 'job') {
-                if (editingField) commitActiveEdit();
-                setTempJob(profileTitle);
-                setEditingField('job');
-              }
-            }}
-          >
-            <div className="profile-row-label-text">PEKERJAAN</div>
-            {editingField === 'job' ? (
-              <input
-                id="jobEdit"
-                type="text"
-                className="profile-name-edit-input"
-                value={tempJob}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => setTempJob(e.target.value)}
-                onBlur={() => {
-                  const trimmed = tempJob.trim();
-                  setProfileTitle(trimmed);
-                  if (editingField === 'job') setEditingField(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.currentTarget.blur();
-                  } else if (e.key === 'Escape') {
-                    setTempJob(profileTitle);
-                    setEditingField(null);
-                  }
-                }}
-                placeholder="Contoh: EDITOR, Designer..."
-                autoFocus
-              />
-            ) : (
-              <div className="profile-row-value-text" id="profileTitle">
-                {profileTitle ? profileTitle : <span className="is-muted">Belum diatur</span>}
-              </div>
-            )}
-            <div className="profile-row-arrow-icon">›</div>
-          </div>
-
-          {/* Row 4: STATUS */}
-          <div
-            className={`profile-detail-row ${editingField === 'status' ? 'is-active-edit' : 'is-clickable'}`}
-            id="statusRow"
-            onClick={() => {
-              if (editingField !== 'status') {
-                if (editingField) commitActiveEdit();
-                const initialChoice = profileStatus || 'Karyawan';
-                setTempStatus(initialChoice);
-                setProfileStatus(initialChoice);
-                setEditingField('status');
-              }
-            }}
-          >
-            <div className="profile-row-label-text">STATUS</div>
-            {editingField === 'status' ? (
-              <div
-                style={{ width: '100%', maxWidth: '420px' }}
-                onClick={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
+          <div className="inner">
+            {/* Row 1: Name */}
+            <div className={`prow ${openRow === 'name' ? 'open' : ''}`}>
+              <button
+                type="button"
+                className="ph"
+                onClick={() => setOpenRow(openRow === 'name' ? null : 'name')}
+                aria-expanded={openRow === 'name'}
               >
-                <select
-                  id="statusSelect"
-                  className="profile-name-edit-input"
-                  value={tempStatus || profileStatus || 'Karyawan'}
-                  onClick={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (['Karyawan', 'Anak Magang', 'Anak PKL'].includes(val)) {
-                      setTempStatus(val);
-                      setProfileStatus(val);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      commitActiveEdit();
-                    } else if (e.key === 'Escape') {
-                      setTempStatus(profileStatus);
-                      setEditingField(null);
-                    }
-                  }}
-                  autoFocus
-                >
-                  <option value="Karyawan">Karyawan</option>
-                  <option value="Anak Magang">Anak Magang</option>
-                  <option value="Anak PKL">Anak PKL</option>
-                </select>
+                <span className="l">NAME</span>
+                <span className={`v ${inputName ? '' : 'empty'}`}>{inputName || '—'}</span>
+                <svg className="ch" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </button>
+              <div className="pe">
+                <div>
+                  <div className="box">
+                    <div className="fld">
+                      <div className="inp">
+                        <input
+                          type="text"
+                          value={inputName}
+                          onChange={(e) => setInputName(e.target.value)}
+                          placeholder="Nama Lengkap"
+                        />
+                      </div>
+                    </div>
+                    <div className="acts">
+                      <button type="button" className="btn soft sm" onClick={() => setOpenRow(null)}>
+                        Selesai
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            ) : (
-              <div className="profile-row-value-text" id="profileStatus">
-                {profileStatus ? profileStatus : <span className="is-muted">Belum dipilih</span>}
+            </div>
+
+            {/* Row 2: Email */}
+            <div className={`prow ${openRow === 'email' ? 'open' : ''}`}>
+              <button
+                type="button"
+                className="ph"
+                onClick={() => setOpenRow(openRow === 'email' ? null : 'email')}
+                aria-expanded={openRow === 'email'}
+              >
+                <span className="l">EMAIL</span>
+                <span className={`v ${inputEmail ? '' : 'empty'}`}>{inputEmail || '—'}</span>
+                <svg className="ch" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </button>
+              <div className="pe">
+                <div>
+                  <div className="box">
+                    <div className="fld">
+                      <div className="inp">
+                        <input
+                          type="email"
+                          value={inputEmail}
+                          onChange={(e) => setInputEmail(e.target.value)}
+                          placeholder="Alamat Email"
+                        />
+                      </div>
+                    </div>
+                    <div className="acts">
+                      <button type="button" className="btn soft sm" onClick={() => setOpenRow(null)}>
+                        Selesai
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
-            <div className="profile-row-arrow-icon">›</div>
+            </div>
+
+            {/* Row 3: Pekerjaan */}
+            <div className={`prow ${openRow === 'job' ? 'open' : ''}`}>
+              <button
+                type="button"
+                className="ph"
+                onClick={() => setOpenRow(openRow === 'job' ? null : 'job')}
+                aria-expanded={openRow === 'job'}
+              >
+                <span className="l">PEKERJAAN</span>
+                <span className={`v ${inputJob ? '' : 'empty'}`}>{inputJob || 'Belum diatur'}</span>
+                <svg className="ch" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </button>
+              <div className="pe">
+                <div>
+                  <div className="box">
+                    <div className="fld">
+                      <div className="inp">
+                        <input
+                          type="text"
+                          value={inputJob}
+                          onChange={(e) => setInputJob(e.target.value)}
+                          placeholder="Pekerjaan / Profile Title"
+                        />
+                      </div>
+                    </div>
+                    <div className="opts">
+                      {JOB_OPTIONS.map((j) => (
+                        <button
+                          key={j}
+                          type="button"
+                          className={`opt ${inputJob === j ? 'on' : ''}`}
+                          onClick={() => setInputJob(j)}
+                        >
+                          {j}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="acts">
+                      <button type="button" className="btn soft sm" onClick={() => setOpenRow(null)}>
+                        Selesai
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Row 4: Status */}
+            <div className={`prow ${openRow === 'status' ? 'open' : ''}`}>
+              <button
+                type="button"
+                className="ph"
+                onClick={() => setOpenRow(openRow === 'status' ? null : 'status')}
+                aria-expanded={openRow === 'status'}
+              >
+                <span className="l">STATUS</span>
+                <span className={`v ${inputStatus ? '' : 'empty'}`}>{inputStatus || 'Belum dipilih'}</span>
+                <svg className="ch" viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </button>
+              <div className="pe">
+                <div>
+                  <div className="box">
+                    <div className="opts">
+                      {STATUS_OPTIONS.map((s) => (
+                        <button
+                          key={s}
+                          type="button"
+                          className={`opt ${inputStatus === s ? 'on' : ''}`}
+                          onClick={() => setInputStatus(s)}
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="acts">
+                      <button type="button" className="btn soft sm" onClick={() => setOpenRow(null)}>
+                        Selesai
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
-      </main>
+      </div>
+
+      {/* Crop & Edit Avatar Modal */}
+      <div className={`ov ${isModalOpen ? 'show' : ''}`} role="dialog" aria-modal="true">
+        <div className="modal">
+          <div className="mh">
+            <h3>Edit Foto Profil</h3>
+            <button
+              type="button"
+              className="x"
+              onClick={() => setIsModalOpen(false)}
+              aria-label="Tutup"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6 6 18" />
+              </svg>
+            </button>
+          </div>
+
+          <p className="hint">
+            Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.
+          </p>
+
+          <div
+            className={`crop ${isDragging ? 'drag' : ''}`}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onWheel={handleWheelZoom}
+          >
+            <img
+              src={modalImageSrc}
+              alt="Pratinjau Crop"
+              onLoad={handleImageLoad}
+              style={{
+                transform: `translate(${panX}px, ${panY}px) scale(${baseScale * zoom})`,
+              }}
+            />
+          </div>
+
+          <div className="zoom">
+            <button
+              type="button"
+              className="z"
+              onClick={() => {
+                const newZoom = Math.max(1, zoom - 0.15);
+                setZoom(newZoom);
+                const { clampedX, clampedY } = clampPan(panX, panY, newZoom);
+                setPanX(clampedX);
+                setPanY(clampedY);
+              }}
+              aria-label="Perkecil"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
+                <path d="M5 12h14" />
+              </svg>
+            </button>
+
+            <input
+              type="range"
+              min="100"
+              max="300"
+              value={Math.round(zoom * 100)}
+              onChange={(e) => {
+                const newZoom = Number(e.target.value) / 100;
+                setZoom(newZoom);
+                const { clampedX, clampedY } = clampPan(panX, panY, newZoom);
+                setPanX(clampedX);
+                setPanY(clampedY);
+              }}
+              aria-label="Zoom"
+            />
+
+            <button
+              type="button"
+              className="z"
+              onClick={() => {
+                const newZoom = Math.min(3, zoom + 0.15);
+                setZoom(newZoom);
+                const { clampedX, clampedY } = clampPan(panX, panY, newZoom);
+                setPanX(clampedX);
+                setPanY(clampedY);
+              }}
+              aria-label="Perbesar"
+            >
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+
+            <output>{Math.round(zoom * 100)}%</output>
+          </div>
+
+          <div className="mact">
+            <label className="btn soft" htmlFor="file-upload-input" style={{ cursor: 'pointer' }}>
+              Pilih Foto Baru
+            </label>
+            <input
+              id="file-upload-input"
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={handleFileChange}
+            />
+
+            <button
+              type="button"
+              className="btn soft"
+              onClick={() => {
+                setZoom(1);
+                const bScale = CROP_SIZE / Math.min(imgNaturalWidth || CROP_SIZE, imgNaturalHeight || CROP_SIZE);
+                setPanX((CROP_SIZE - (imgNaturalWidth || CROP_SIZE) * bScale) / 2);
+                setPanY((CROP_SIZE - (imgNaturalHeight || CROP_SIZE) * bScale) / 2);
+              }}
+            >
+              Reset
+            </button>
+
+            <button
+              type="button"
+              className={`btn dark ${isUploadingPhoto ? 'load' : ''}`}
+              onClick={handleSavePhoto}
+              disabled={isUploadingPhoto}
+            >
+              <span>Simpan Foto</span>
+              <i className="sp" />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

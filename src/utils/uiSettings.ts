@@ -217,13 +217,17 @@ export const fetchUISettings = async (adminEmailParam?: string): Promise<UISetti
   // 1. Primary request: public GET /api/ui-settings.php without authentication restriction (Rule 5, 9, 10)
   try {
     const url = `${GLOBAL_UI_SETTINGS_API}?_t=${Date.now()}`;
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), 3000);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
+      signal: ctrl.signal,
       cache: 'no-store',
     });
+    clearTimeout(tid);
 
     if (response.ok) {
       const res = await response.json().catch(() => null);
@@ -444,3 +448,128 @@ export const saveUISettings = async (
 
   return data;
 };
+
+/**
+ * UI SETTINGS & THEME ENGINE (Anti-Pending & Instant Render)
+ */
+export const UISettingsEngine = {
+  defaults: {
+    primary_color: '#8f7fe0',
+    secondary_color: '#23212e',
+    text_color: '#1f1d2b',
+    background_color: '#f1f0f5',
+    card_bg: 'rgba(255, 255, 255, 0.92)',
+    border_color: 'rgba(31, 29, 43, 0.08)',
+    theme_mode: 'light',
+  },
+
+  apiUrl: 'https://api-laporanwe.mkverse.my.id/api/ui-settings.php',
+
+  init() {
+    this.applyCachedSettings();
+    this.bindThemeButtons();
+    this.fetchSettings();
+  },
+
+  applyCachedSettings() {
+    try {
+      const cached = localStorage.getItem('app_ui_settings');
+      const settings = cached ? JSON.parse(cached) : this.defaults;
+      this.applyToDOM(settings);
+    } catch (_) {
+      this.applyToDOM(this.defaults);
+    }
+  },
+
+  applyToDOM(s: any) {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+
+    const currentTheme =
+      s.theme_mode ||
+      localStorage.getItem('laporanwee_theme') ||
+      localStorage.getItem('theme') ||
+      'light';
+    root.dataset.theme = currentTheme;
+
+    const knob = document.querySelector('.theme .knob') as HTMLElement | null;
+    if (knob) {
+      knob.style.transform = currentTheme === 'dark' ? 'translateX(36px)' : 'translateX(0)';
+    }
+
+    if (s.primary_color) root.style.setProperty('--primary', s.primary_color);
+    if (s.background_color && currentTheme === 'light') {
+      root.style.setProperty('--bg1', s.background_color);
+    }
+    if (s.card_bg) root.style.setProperty('--glass-solid', s.card_bg);
+    if (s.border_color) root.style.setProperty('--line', s.border_color);
+  },
+
+  async fetchSettings() {
+    try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('laporanwee_token') || '';
+      const res = await fetch(this.apiUrl, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+      });
+
+      if (!res.ok) throw new Error('HTTP status ' + res.status);
+      const text = await res.text();
+      const resData = text ? JSON.parse(text) : {};
+      const settings = resData.data || resData;
+
+      if (settings && typeof settings === 'object') {
+        localStorage.setItem('app_ui_settings', JSON.stringify(settings));
+        this.applyToDOM(settings);
+      }
+    } catch (err: any) {
+      console.warn('[UISettingsEngine] Using local settings (network bypass):', err.message);
+    }
+  },
+
+  bindThemeButtons() {
+    if (typeof document === 'undefined') return;
+    document.querySelectorAll('.theme button, [data-t]').forEach((btn) => {
+      (btn as HTMLElement).onclick = (e) => {
+        e.preventDefault();
+        const targetTheme =
+          (btn as HTMLElement).dataset.t ||
+          (document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+        this.setTheme(targetTheme);
+      };
+    });
+  },
+
+  setTheme(theme: string) {
+    if (typeof document === 'undefined') return;
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('laporanwee_theme', theme);
+    localStorage.setItem('theme', theme);
+
+    const knob = document.querySelector('.theme .knob') as HTMLElement | null;
+    if (knob) {
+      knob.style.transform = theme === 'dark' ? 'translateX(36px)' : 'translateX(0)';
+    }
+
+    let currentSettings = this.defaults;
+    try {
+      currentSettings = JSON.parse(localStorage.getItem('app_ui_settings') || '') || this.defaults;
+    } catch (_) {}
+    currentSettings.theme_mode = theme;
+    localStorage.setItem('app_ui_settings', JSON.stringify(currentSettings));
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('laporanwee_token') || '';
+    fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+      },
+      body: JSON.stringify({ theme_mode: theme }),
+    }).catch(() => {});
+  },
+};
+
