@@ -1,4 +1,4 @@
-import { API_BASE_URL, buildApiUrl } from './api';
+import { API_BASE_URL, buildApiUrl, smartApiCall } from './api';
 
 /**
  * Mask email address for privacy (e.g. riza****@gmail.com)
@@ -53,33 +53,15 @@ export const resendVerificationEmail = async (
   const url = buildApiUrl('/email/resend-verification.php');
   console.log('[API REQUEST]', { method: 'POST', url, email: maskEmail(email) });
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({ email: email.trim().toLowerCase() }),
-  });
-
-  const text = await response.text();
-  let data: any = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    throw new Error(`Server mengembalikan response tidak valid (${response.status})`);
+  const data = await smartApiCall(url, 'POST', { email: email.trim().toLowerCase() });
+  if (data && data.success !== false) {
+    return {
+      success: true,
+      message: data.message || 'Email verifikasi berhasil dikirim ulang.',
+    };
   }
 
-  if (!response.ok || data.success === false) {
-    throw new Error(
-      data.message || data.error || 'Gagal mengirim ulang email verifikasi.'
-    );
-  }
-
-  return {
-    success: true,
-    message: data.message || 'Email verifikasi berhasil dikirim ulang.',
-  };
+  throw new Error(data?.message || data?.error || 'Gagal mengirim ulang email verifikasi.');
 };
 
 export type VerifyEmailStatus =
@@ -138,6 +120,9 @@ export const verifyEmailToken = async (
   const url = buildApiUrl('/email/verify-email.php');
   console.log('[API REQUEST]', { method: 'POST', url, email: cleanEmail, tokenLength: cleanToken.length });
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 3000);
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -146,12 +131,15 @@ export const verifyEmailToken = async (
         'Content-Type': 'application/json',
         Accept: 'application/json',
       },
+      signal: controller.signal,
       body: JSON.stringify({
         email: cleanEmail,
         token: cleanToken,
       }),
     });
+    clearTimeout(timeout);
   } catch (err: any) {
+    clearTimeout(timeout);
     return {
       status: 'error',
       message: 'Tidak dapat terhubung ke server verifikasi. Periksa koneksi internet Anda.',

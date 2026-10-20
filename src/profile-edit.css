@@ -102,16 +102,17 @@ body, .main-container {
 }
 
 .profile-layout,
-.profile-wrap {
+.profile-wrap,
+.wrap {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 360px 1fr; /* Kolom profil fixed, kolom pengaturan mengisi sisa ruang */
-  gap: 2rem;
-  width: 100%;
-  max-width: 1440px;
+  grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  gap: 20px;
+  width: min(1120px, 100% - 40px);
   margin: 10px auto 70px;
   align-items: start;
+  min-width: 0;
 }
 
 .card {
