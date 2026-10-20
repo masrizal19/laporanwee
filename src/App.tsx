@@ -1853,7 +1853,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className="app-shell-main">
+      <main className="app-shell-main main-container">
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}

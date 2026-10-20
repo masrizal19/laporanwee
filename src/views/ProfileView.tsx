@@ -779,7 +779,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       </header>
 
       {/* Main Wrap Layout */}
-      <main className="profile-wrap">
+      <main className="profile-layout profile-wrap" id="profileMain">
         {/* Left Aside Card: Foto Profil */}
         <aside className="card rv" style={{ '--i': 0 } as React.CSSProperties}>
           <div className="inner pc">
