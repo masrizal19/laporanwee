@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana implementasi penyelarasan tampilan Pengaturan Profil sesuai gambar referensi: mengintegrasikan top bar profil dengan toggle tema Light/Dark & tombol Simpan Profil, menyelaraskan layout kartu informasi profil dan foto profil di dalam dashboard utama dengan sidebar, serta menjaga sinkronisasi backend dan interaksi crop.",
-  "updatedAt": "2026-10-20T01:18:56.455414634Z",
+  "summary": "Implementation plan for polishing LaporanWee SPA layout to precisely match reference design and screenshots with sidebar rail, bento cards, and responsive web sizing.",
+  "updatedAt": "2026-10-20T07:15:11.498946179Z",
   "requestFeedback": true,
   "userFacing": true
 }
