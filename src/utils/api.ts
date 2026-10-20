@@ -363,373 +363,80 @@ export const formatApiErrorMessage = (err: any): string => {
   return err.message || 'Terjadi kesalahan pada sistem.';
 };
 
-// ==========================================
-// DUAL-MODE NETWORK HANDLER (AUTO PREVIEW FALLBACK)
-// ==========================================
-
-export const isPreviewEnvironment = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  const host = window.location.hostname || '';
-  const proto = window.location.protocol || '';
-  return (
-    host.includes('google') ||
-    host.includes('usercontent') ||
-    host.includes('run.app') ||
-    host.includes('localhost') ||
-    host.includes('127.0.0.1') ||
-    proto === 'blob:' ||
-    !host
-  );
-};
-
-// Adapter API Cerdas: Nyata di Server, Aman di Preview Google AI Studio
-export async function smartApiCall(
-  url: string,
-  method: string = 'GET',
-  data: any = null,
-  customOptions?: { signal?: AbortSignal; headers?: Record<string, string> }
-): Promise<any> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
-
-  if (customOptions?.signal) {
-    if (customOptions.signal.aborted) {
-      controller.abort();
-    } else {
-      customOptions.signal.addEventListener('abort', () => controller.abort());
-    }
-  }
-
-  try {
-    const opts: RequestInit = {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...getHeaders(),
-        ...(customOptions?.headers || {}),
-      },
-      signal: controller.signal,
-    };
-
-    if (data && !(data instanceof FormData)) {
-      opts.body = typeof data === 'string' ? data : JSON.stringify(data);
-    }
-    if (data instanceof FormData) {
-      if (opts.headers && typeof opts.headers === 'object') {
-        delete (opts.headers as any)['Content-Type'];
-      }
-      opts.body = data;
-    }
-
-    const res = await fetch(url, opts);
-    clearTimeout(timeout);
-    if (!res.ok) throw new Error('Status ' + res.status);
-    const parsedJson = await res.json();
-    return parsedJson;
-  } catch (err: any) {
-    clearTimeout(timeout);
-    // Tangani otomatis error fetch di sandbox AI Studio
-    console.info('[LaporanWee] Mengaktifkan penanganan offline sandbox:', err?.message || err);
-    return await handlePreviewFallback(url, method, data);
-  }
-}
-
-// Mesin Penampung Data Sementara di Preview AI Studio
-export async function handlePreviewFallback(
-  url: string,
-  method: string = 'GET',
-  data: any = null
-): Promise<any> {
-  const cleanUrl = String(url || '').toLowerCase();
-
-  // 1. LOGIN SANDBOX FALLBACK
-  if (cleanUrl.includes('/auth/login') || cleanUrl.includes('/login.php')) {
-    let email = '';
-    let password = '';
-    if (data) {
-      if (typeof data === 'string') {
-        try {
-          const parsed = JSON.parse(data);
-          email = (parsed.email || '').trim().toLowerCase();
-          password = parsed.password || '';
-        } catch (_) {}
-      } else {
-        email = (data.email || '').trim().toLowerCase();
-        password = data.password || '';
-      }
-    }
-
-    // Validasi kredensial lokal (akun demo admin@gmail.com / rizal12345)
-    const isDemoMatch = email === 'admin@gmail.com' && password === 'rizal12345';
-    const isDefaultFallback = (!email || email === 'admin@gmail.com') && (!password || password === 'rizal12345');
-
-    if (isDemoMatch || isDefaultFallback) {
-      const savedUserRaw = localStorage.getItem('lw_user_profile') || localStorage.getItem('laporanwee_user');
-      let savedUser: any = null;
-      try {
-        savedUser = savedUserRaw ? JSON.parse(savedUserRaw) : null;
-      } catch (_) {}
-
-      const user = {
-        id: savedUser?.id || 1,
-        user_id: savedUser?.id || 1,
-        name: savedUser?.name || savedUser?.full_name || 'Rizal Fadhilah Saragih',
-        full_name: savedUser?.full_name || savedUser?.name || 'Rizal Fadhilah Saragih',
-        email: email || savedUser?.email || 'admin@gmail.com',
-        role: savedUser?.role || 'Video Editor',
-        profile_title: savedUser?.profile_title || 'Video Editor',
-        profile_location: savedUser?.profile_location || 'Tersedia',
-        status: 'active',
-        avatar_url: savedUser?.avatar_url || localStorage.getItem('lw_user_avatar') || null,
-        email_verified: true,
-      };
-
-      const token = 'sandbox-preview-token-' + Date.now();
-      localStorage.setItem('laporanwee_token', token);
-      localStorage.setItem('auth_token', token);
-      localStorage.setItem('token', token);
-      localStorage.setItem('laporanwee_user', JSON.stringify(user));
-      localStorage.setItem('lw_user_profile', JSON.stringify(user));
-
-      return {
-        success: true,
-        message: 'Login sandbox berhasil',
-        token,
-        user,
-        data: { token, user },
-      };
-    } else {
-      return {
-        success: false,
-        message: 'Email atau password tidak sesuai.',
-      };
-    }
-  }
-
-  // 2. AMBIL PROFIL
-  if (cleanUrl.includes('/profile/get') || cleanUrl.includes('/get.php')) {
-    const saved = localStorage.getItem('lw_user_profile') || localStorage.getItem('laporanwee_user');
-    let userProfile: any = null;
-    try {
-      userProfile = saved ? JSON.parse(saved) : null;
-    } catch (_) {}
-
-    if (!userProfile) {
-      userProfile = {
-        id: 1,
-        full_name: 'Rizal Fadhilah Saragih',
-        name: 'Rizal Fadhilah Saragih',
-        email: 'admin@gmail.com',
-        role: 'Video Editor',
-        profile_title: 'Video Editor',
-        profile_location: 'Tersedia',
-        status: 'active',
-        avatar_url: localStorage.getItem('lw_user_avatar') || null,
-        updated_at: new Date().toISOString(),
-      };
-    }
-
-    if (!userProfile.avatar_url) {
-      userProfile.avatar_url = localStorage.getItem('lw_user_avatar') || null;
-    }
-
-    return {
-      success: true,
-      message: 'Data profil preview lokal',
-      data: userProfile,
-      user: userProfile,
-    };
-  }
-
-  // 3. SIMPAN PROFIL
-  if (
-    cleanUrl.includes('/profile/save') ||
-    cleanUrl.includes('/save.php') ||
-    cleanUrl.includes('/profile/update') ||
-    cleanUrl.includes('/update.php')
-  ) {
-    let payload: Record<string, any> = {};
-    if (data instanceof FormData) {
-      data.forEach((val, key) => {
-        if (key !== 'avatar' && key !== 'crop_file') {
-          payload[key] = typeof val === 'string' ? val : '';
-        }
-      });
-    } else if (data && typeof data === 'object') {
-      payload = { ...data };
-    } else if (typeof data === 'string') {
-      try {
-        payload = JSON.parse(data);
-      } catch (_) {}
-    }
-
-    const savedRaw = localStorage.getItem('lw_user_profile') || localStorage.getItem('laporanwee_user');
-    let existing: any = {};
-    try {
-      existing = savedRaw ? JSON.parse(savedRaw) : {};
-    } catch (_) {}
-
-    const merged = {
-      ...existing,
-      ...payload,
-      id: existing.id || payload.id || 1,
-      full_name: payload.full_name || payload.name || existing.full_name || 'Rizal Fadhilah Saragih',
-      name: payload.name || payload.full_name || existing.name || 'Rizal Fadhilah Saragih',
-      email: payload.email || existing.email || 'admin@gmail.com',
-      role: payload.role || existing.role || 'Video Editor',
-      profile_title: payload.profile_title !== undefined ? payload.profile_title : (existing.profile_title || 'Video Editor'),
-      profile_location: payload.profile_location !== undefined ? payload.profile_location : (existing.profile_location || 'Tersedia'),
-      avatar_url: payload.avatar_url || payload.crop_url || existing.avatar_url || localStorage.getItem('lw_user_avatar') || null,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (merged.avatar_url) {
-      localStorage.setItem('lw_user_avatar', merged.avatar_url);
-    }
-
-    localStorage.setItem('lw_user_profile', JSON.stringify(merged));
-    localStorage.setItem('laporanwee_user', JSON.stringify(merged));
-
-    return {
-      success: true,
-      message: 'Tersimpan di preview lokal',
-      data: merged,
-      user: merged,
-    };
-  }
-
-  // 4. UPLOAD / POTONG FOTO
-  if (
-    cleanUrl.includes('/upload.php') ||
-    cleanUrl.includes('/crop.php') ||
-    cleanUrl.includes('/replace.php')
-  ) {
-    let base64Url: string = '';
-
-    if (data instanceof FormData) {
-      const fileEntry = data.get('avatar') || data.get('crop_file') || data.get('file');
-      if (fileEntry instanceof Blob) {
-        base64Url = await new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result as string);
-          reader.onerror = () => resolve('');
-          reader.readAsDataURL(fileEntry);
-        });
-      }
-    } else if (data && typeof data === 'object') {
-      if (typeof data.avatar === 'string' && (data.avatar.startsWith('data:') || data.avatar.startsWith('blob:'))) {
-        base64Url = data.avatar;
-      } else if (typeof data.avatar_url === 'string' && (data.avatar_url.startsWith('data:') || data.avatar_url.startsWith('blob:'))) {
-        base64Url = data.avatar_url;
-      } else if (typeof data.crop_url === 'string') {
-        base64Url = data.crop_url;
-      }
-    }
-
-    if (!base64Url) {
-      base64Url = localStorage.getItem('lw_user_avatar') || '';
-    }
-
-    if (base64Url) {
-      localStorage.setItem('lw_user_avatar', base64Url);
-
-      const savedRaw = localStorage.getItem('lw_user_profile') || localStorage.getItem('laporanwee_user');
-      if (savedRaw) {
-        try {
-          const p = JSON.parse(savedRaw);
-          p.avatar_url = base64Url;
-          localStorage.setItem('lw_user_profile', JSON.stringify(p));
-          localStorage.setItem('laporanwee_user', JSON.stringify(p));
-        } catch (_) {}
-      }
-    }
-
-    return {
-      success: true,
-      message: 'Tersimpan di preview lokal',
-      data: {
-        url: base64Url,
-        avatar_url: base64Url,
-        crop_url: base64Url,
-        file_url: base64Url,
-        crop_file: 'profile-avatar-preview.jpg',
-        file_name: 'profile-avatar-preview.jpg',
-      },
-    };
-  }
-
-  // 5. SETTINGS
-  if (cleanUrl.includes('/profile/settings.php')) {
-    if (method === 'POST') {
-      if (data) localStorage.setItem('lw_profile_settings', JSON.stringify(data));
-      return { success: true, message: 'Tersimpan di preview lokal', data };
-    }
-    const saved = localStorage.getItem('lw_profile_settings');
-    return {
-      success: true,
-      data: saved ? JSON.parse(saved) : { crop_zoom: 1, crop_x: 0, crop_y: 0 },
-    };
-  }
-
-  // 6. GENERAL FALLBACK FOR OTHER ENTITIES
-  if (cleanUrl.includes('/projects')) {
-    return { success: true, data: [] };
-  }
-  if (cleanUrl.includes('/reports')) {
-    const cached = localStorage.getItem('laporanwee_daily_reports_cache');
-    return { success: true, data: cached ? JSON.parse(cached) : [] };
-  }
-  if (cleanUrl.includes('/tasks')) {
-    return { success: true, data: [] };
-  }
-  if (cleanUrl.includes('/calendar')) {
-    return { success: true, data: [] };
-  }
-  if (cleanUrl.includes('/activities')) {
-    return { success: true, data: [] };
-  }
-  if (cleanUrl.includes('/presence') || cleanUrl.includes('/team')) {
-    return { success: true, online_count: 1, total_users: 1, data: [] };
-  }
-
-  return { success: true, message: 'Tersimpan di preview lokal', data };
-}
-
-if (typeof window !== 'undefined') {
-  (window as any).smartApiCall = smartApiCall;
-  (window as any).handlePreviewFallback = handlePreviewFallback;
-}
-
 export const api = {
   get: async (endpoint: string, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'GET', url });
-    return smartApiCall(url, 'GET', null, options);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: getHeaders(),
+      cache: 'no-store',
+      signal: options?.signal,
+    });
+    return handleResponse(response, url, 'GET');
   },
 
   post: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'POST', url });
-    return smartApiCall(url, 'POST', body, options);
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    });
+    return handleResponse(response, url, 'POST');
   },
 
   put: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'PUT', url });
-    return smartApiCall(url, 'PUT', body, options);
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+      signal: options?.signal,
+    });
+    return handleResponse(response, url, 'PUT');
   },
 
   delete: async (endpoint: string, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'DELETE', url });
-    return smartApiCall(url, 'DELETE', null, options);
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: getHeaders(),
+      signal: options?.signal,
+    });
+    return handleResponse(response, url, 'DELETE');
   },
 
-  upload: async (endpoint: string, formData: FormData, options?: { signal?: AbortSignal }) => {
+  upload: async (endpoint: string, formData: FormData) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url });
-    return smartApiCall(url, 'POST', formData, options);
+    const token = localStorage.getItem('laporanwee_token');
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+    };
+    if (token && token !== 'undefined' && token !== 'null') {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    try {
+      const storedUser = localStorage.getItem('laporanwee_user');
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed?.email) {
+          headers['X-Admin-Email'] = parsed.email.trim();
+        }
+      }
+    } catch (_) {}
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    return handleResponse(response, url, 'POST (UPLOAD)');
   },
 };
 
@@ -844,10 +551,26 @@ export const documentService = {
   },
 
   deleteDocument: async (id: number | string, filename?: string): Promise<any> => {
-    return api.post('/project-documents/delete.php', {
-      id: Number(id) || id,
-      filename: filename || '',
+    const token =
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token') ||
+      getStoredToken() ||
+      '';
+    const user = getStoredUser();
+    const response = await fetch('https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+        ...(user?.email ? { 'X-Admin-Email': user.email } : {}),
+      },
+      body: JSON.stringify({
+        id: Number(id) || id,
+        filename: filename || '',
+      }),
     });
+    const data = await response.json().catch(() => ({ success: response.ok }));
+    return data;
   },
 };
 
@@ -2476,8 +2199,17 @@ export const realtimeService = {
         : '';
       const endpoint = `/realtime/poll.php${query}`;
       const url = buildApiUrl(endpoint);
-      return await smartApiCall(url, 'GET', null, { signal });
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: getHeaders(),
+        signal,
+        cache: 'no-store',
+      });
+      if (!response.ok) return null;
+      const text = await response.text();
+      return text ? JSON.parse(text) : null;
     } catch (err: any) {
+      if (err.name === 'AbortError') return null;
       return null;
     }
   },
