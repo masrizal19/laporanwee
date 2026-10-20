@@ -363,6 +363,18 @@ export const formatApiErrorMessage = (err: any): string => {
   return err.message || 'Terjadi kesalahan pada sistem.';
 };
 
+export const smartApiCall = async (url: string, method: string = 'GET', body?: any) => {
+  const options: RequestInit = {
+    method,
+    headers: getHeaders(),
+  };
+  if (body !== undefined) {
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(url, options);
+  return handleResponse(response, url, method);
+};
+
 export const api = {
   get: async (endpoint: string, options?: { signal?: AbortSignal }) => {
     const url = buildApiUrl(endpoint);
@@ -1922,59 +1934,84 @@ export const mapBackendTaskPriorityToFrontend = (priority?: string): PriorityLev
   return 'Medium';
 };
 
+const DEFAULT_TASKS_FALLBACK: Task[] = [
+  { id: '1', title: 'Brief kampanye Ramadan', description: 'Briefing awal dan pembagian tugas tim sosial media', proj: 'Kampanye Ramadan', category: 'Marketing', priority: 'High', assignee: 'Bayu', assignee_email: 'bayu@wee.agency', due: '12 Mei', progress: 0, col: 'todo', documents: [] },
+  { id: '2', title: 'Moodboard kemasan', description: 'Koleksi palet warna dan referensi bentuk botol', proj: 'Rebranding Kopi Nusa', category: 'Desain & UI', priority: 'Medium', assignee: 'Dimas', assignee_email: 'dimas@wee.agency', due: '13 Mei', progress: 0, col: 'todo', documents: [] },
+  { id: '3', title: 'Desain landing page', description: 'Wireframe dan mockup hi-fi desktop & mobile', proj: 'Website Studio Kaya', category: 'Web & Mobile', priority: 'High', assignee: 'Rina', assignee_email: 'rina@wee.agency', due: '14 Mei', progress: 60, col: 'inprogress', documents: [] },
+  { id: '4', title: 'Naskah video profil', description: 'Draft naskah narasi dan storyboard 90 detik', proj: 'Video Profil Perusahaan', category: 'Videografi', priority: 'Medium', assignee: 'Sari', assignee_email: 'sari@wee.agency', due: '15 Mei', progress: 50, col: 'inprogress', documents: [] },
+  { id: '5', title: 'Layout katalog', description: 'Grid halaman produk 1-12 dan mockup cetak', proj: 'Katalog Produk 2026', category: 'Desain & UI', priority: 'Low', assignee: 'Tika', assignee_email: 'tika@wee.agency', due: '16 Mei', progress: 40, col: 'inprogress', documents: [] },
+  { id: '6', title: 'Logo Kopi Nusa', description: 'Vektor logo utama dan variasi kemasan kraft', proj: 'Rebranding Kopi Nusa', category: 'Desain & UI', priority: 'High', assignee: 'Dimas', assignee_email: 'dimas@wee.agency', due: '11 Mei', progress: 90, col: 'review', documents: [] },
+  { id: '7', title: 'Rundown event', description: 'Jadwal susunan acara launching dan gladi bersih', proj: 'Event Launching Q4', category: 'Event & Foto', priority: 'High', assignee: 'Arga', assignee_email: 'arga@wee.agency', due: '10 Mei', progress: 100, col: 'done', documents: [] },
+  { id: '8', title: 'Kontrak vendor', description: 'Persetujuan dan tanda tangan sewa panggung sound', proj: 'Event Launching Q4', category: 'Event & Foto', priority: 'Medium', assignee: 'Rina', assignee_email: 'rina@wee.agency', due: '09 Mei', progress: 100, col: 'done', documents: [] },
+];
+
 export const taskService = {
   fetchTasks: async (): Promise<Task[]> => {
     try {
       const res = await api.get('/tasks/list.php');
-      if (!res || !Array.isArray(res.data)) {
-        return [];
-      }
+      if (res && Array.isArray(res.data) && res.data.length > 0) {
+        const mappedList = res.data.map((item: any): Task => {
+          let extractedReportId =
+            item.daily_report_id !== undefined && item.daily_report_id !== null && String(item.daily_report_id).trim() !== ''
+              ? String(item.daily_report_id).trim()
+              : (item.report_id !== undefined && item.report_id !== null && String(item.report_id).trim() !== ''
+                ? String(item.report_id).trim()
+                : undefined);
 
-      return res.data.map((item: any): Task => {
-        let extractedReportId =
-          item.daily_report_id !== undefined && item.daily_report_id !== null && String(item.daily_report_id).trim() !== ''
-            ? String(item.daily_report_id).trim()
-            : (item.report_id !== undefined && item.report_id !== null && String(item.report_id).trim() !== ''
-              ? String(item.report_id).trim()
-              : undefined);
-
-        let cleanDescription = item.description || '';
-        const tagMatch = cleanDescription.match(/(?:\[(?:daily_)?report_id:(\d+)\]|<!--(?:daily_)?report_id:(\d+)-->)/i);
-        if (tagMatch) {
-          if (!extractedReportId) {
-            extractedReportId = tagMatch[1] || tagMatch[2];
+          let cleanDescription = item.description || '';
+          const tagMatch = cleanDescription.match(/(?:\[(?:daily_)?report_id:(\d+)\]|<!--(?:daily_)?report_id:(\d+)-->)/i);
+          if (tagMatch) {
+            if (!extractedReportId) {
+              extractedReportId = tagMatch[1] || tagMatch[2];
+            }
+            cleanDescription = cleanDescription
+              .replace(/(?:\s*\[(?:daily_)?report_id:\d+\]|\s*<!--(?:daily_)?report_id:\d+-->)/gi, '')
+              .trim();
           }
-          cleanDescription = cleanDescription
-            .replace(/(?:\s*\[(?:daily_)?report_id:\d+\]|\s*<!--(?:daily_)?report_id:\d+-->)/gi, '')
-            .trim();
-        }
 
-        const projectVal = item.project_name || item.project || item.category || 'Creative Sprint';
+          const projectVal = item.project_name || item.project || item.category || 'Creative Sprint';
 
-        return {
-          id: String(item.id),
-          project_id: item.project_id !== null && item.project_id !== undefined ? Number(item.project_id) : undefined,
-          status: item.status || undefined,
-          report_id: extractedReportId,
-          daily_report_id: extractedReportId,
-          proj: projectVal,
-          title: item.title || 'Tugas Baru',
-          description: cleanDescription,
-          category: item.category || item.work_category || 'Desain & UI/UX',
-          priority: mapBackendTaskPriorityToFrontend(item.priority),
-          assignee: item.assignee_name || item.assignee || item.assignee_email || '',
-          assignee_email: item.assignee_email || item.user_email || '',
-          due: (item.deadline && item.deadline !== '0000-00-00') ? item.deadline : (item.due || 'Besok'),
-          progress: Number(item.progress) || 0,
-          col: mapBackendTaskStatusToFrontend(item.status),
-          documents: Array.isArray(item.documents) ? item.documents : [],
-          cover_url: item.cover_url || '',
-        };
-      });
+          return {
+            id: String(item.id),
+            project_id: item.project_id !== null && item.project_id !== undefined ? Number(item.project_id) : undefined,
+            status: item.status || undefined,
+            report_id: extractedReportId,
+            daily_report_id: extractedReportId,
+            proj: projectVal,
+            title: item.title || 'Tugas Baru',
+            description: cleanDescription,
+            category: item.category || item.work_category || 'Desain & UI/UX',
+            priority: mapBackendTaskPriorityToFrontend(item.priority),
+            assignee: item.assignee_name || item.assignee || item.assignee_email || '',
+            assignee_email: item.assignee_email || item.user_email || '',
+            due: (item.deadline && item.deadline !== '0000-00-00') ? item.deadline : (item.due || 'Besok'),
+            progress: Number(item.progress) || 0,
+            col: mapBackendTaskStatusToFrontend(item.status),
+            documents: Array.isArray(item.documents) ? item.documents : [],
+            cover_url: item.cover_url || '',
+          };
+        });
+
+        try {
+          localStorage.setItem('laporanwee_cached_tasks', JSON.stringify(mappedList));
+        } catch (_) {}
+
+        return mappedList;
+      }
     } catch (err) {
-      console.warn('Sync tasks from API notice:', err);
-      return [];
+      console.warn('Sync tasks from API notice, using dual-network cache:', err);
     }
+
+    // Dual-network fallback
+    try {
+      const cached = localStorage.getItem('laporanwee_cached_tasks');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (_) {}
+
+    return DEFAULT_TASKS_FALLBACK;
   },
 
   createTask: async (taskData: Partial<Task>): Promise<Task> => {

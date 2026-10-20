@@ -1770,26 +1770,18 @@ export function App() {
     );
   }
 
-  if (!user && currentPath === '/register') {
-    return (
-      <>
-        <RegisterView
-          logoUrl={uiSettings?.logo_url}
-          onRegisterSuccess={() => {
-            addToast('Akun berhasil dibuat! Silakan masuk.');
-            navigateToPath('/login');
-          }}
-          onNavigateToLogin={() => navigateToPath('/login')}
-        />
-        <ToastContainer toasts={toasts} />
-      </>
-    );
-  }
+  if (!user || currentPath === '/login' || currentPath === '/register' || currentPath === '/verify-email') {
+    const authInitial: 'login' | 'register' | 'verify' =
+      currentPath === '/register'
+        ? 'register'
+        : currentPath === '/verify-email'
+        ? 'verify'
+        : 'login';
 
-  if (!user || currentPath === '/login') {
     return (
       <>
         <LoginView
+          initialScreen={authInitial}
           logoUrl={uiSettings?.logo_url}
           onLoginSuccess={(email, name, fullUser) => {
             clearReportCache();
@@ -1831,7 +1823,12 @@ export function App() {
 
   return (
     <div id="app-shell">
-      {/* Top and Bottom Navigation */}
+      {/* Background Ambient Drifting Blobs */}
+      <div className="ambient">
+        <i></i><i></i><i></i>
+      </div>
+
+      {/* Floating Rail Navigation (Desktop) & Bottom Dock Pill (Mobile) */}
       <Navbar
         currentView={currentView}
         onNavigate={handleNavigate}
@@ -1847,8 +1844,8 @@ export function App() {
         onOpenWhatsNew={() => setShowWhatsNewModal(true)}
       />
 
-      {/* Main Container */}
-      <main>
+      {/* Main Content Viewport */}
+      <main className="app-shell-main main-container">
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -1862,6 +1859,7 @@ export function App() {
             onSelectProject={(id) => setSelectedProjectId(id)}
             onDeleteProject={handleDeleteProject}
             onAddToast={addToast}
+            onAddReport={handleAddReport}
           />
         )}
 
@@ -1990,8 +1988,8 @@ export function App() {
             projects={projects}
             reports={reports}
             onNavigate={handleNavigate}
-            onSelectProject={(id) => setSelectedProjectId(id)}
-            onSelectReport={(id) => setSelectedReportId(id)}
+            onSelectProject={(id: string) => setSelectedProjectId(id)}
+            onSelectReport={(id: string) => setSelectedReportId(id)}
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}
@@ -2076,10 +2074,10 @@ export function App() {
         <div
           className="footer-tag"
           onClick={() => setShowWhatsNewModal(true)}
-          style={{ cursor: 'pointer' }}
-          title="Klik untuk melihat Apa yang Baru di Versi 3.0"
+          style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
+          title="Klik untuk melihat Apa yang Baru di Versi 5.0"
         >
-          LaporanWee v3.0 &bull; JANGAN LUPA KERJA HARI INI
+          LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
         </div>
       </main>
 

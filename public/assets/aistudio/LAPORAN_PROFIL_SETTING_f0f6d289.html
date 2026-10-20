@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LaporanWee — Pengaturan Profil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- ═════════ 1. DESIGN: token, layout, komponen ═════════ -->
+<style id="design">
+:root{
+  --bg1:#e6e5ec;--bg2:#f1f0f5;--ink:#1f1d2b;--muted:#8b8898;--glass:rgba(255,255,255,.62);--glass-solid:rgba(255,255,255,.94);
+  --line:rgba(31,29,43,.09);--dark:#23212e;--on-dark:#fff;--lime:#d4ee6b;--lime-soft:#e9f5b8;--lav:#d9d3f5;--lav-deep:#8f7fe0;
+  --blob1:rgba(176,160,240,.55);--blob2:rgba(244,214,170,.6);--bad:#d9534f;--ok:#4a9d6b;
+  --shadow:0 1px 0 rgba(255,255,255,.9) inset,0 24px 48px -30px rgba(60,50,110,.42);
+  --ease:cubic-bezier(.22,1,.36,1);--spring:cubic-bezier(.34,1.56,.64,1);
+}
+[data-theme=dark]{
+  --bg1:#14131b;--bg2:#1b1a24;--ink:#f2f0fa;--muted:#8d8aa0;--glass:rgba(40,38,54,.6);--glass-solid:rgba(46,44,62,.95);
+  --line:rgba(255,255,255,.09);--dark:#f2f0fa;--on-dark:#1f1d2b;--lime-soft:rgba(212,238,107,.18);--lav:#3b3560;
+  --blob1:rgba(110,90,200,.42);--blob2:rgba(200,140,80,.22);--bad:#ef7b77;--ok:#7fcf9c;
+  --shadow:0 1px 0 rgba(255,255,255,.05) inset,0 26px 50px -30px rgba(0,0,0,.75);
+}
+*{box-sizing:border-box;margin:0}
+html,body{min-height:100%}
+body{font-family:'Outfit',system-ui,sans-serif;color:var(--ink);background:linear-gradient(135deg,var(--bg1),var(--bg2));background-attachment:fixed;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+svg{display:block}
+:focus-visible{outline:2px solid var(--lav-deep);outline-offset:3px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+.ambient{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.ambient i{position:absolute;border-radius:50%;filter:blur(90px)}
+.ambient i:nth-child(1){width:620px;height:620px;left:-160px;bottom:-200px;background:var(--blob1)}
+.ambient i:nth-child(2){width:560px;height:560px;right:-140px;top:-180px;background:var(--blob2)}
+.ambient i:nth-child(3){width:380px;height:380px;left:42%;top:38%;background:var(--blob1);opacity:.3}
+
+/* bar atas */
+.bar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;padding:14px max(20px,calc(50% - 560px));
+  background:linear-gradient(var(--bg1),transparent);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.brand{display:flex;align-items:center;gap:11px;font-weight:600;font-size:19px;letter-spacing:-.02em}
+.brand b{width:38px;height:38px;border-radius:13px;background:var(--dark);display:grid;place-items:center}
+.brand b svg{width:21px;height:21px;stroke:var(--on-dark)}.brand span span{color:var(--lav-deep)}
+.sp1{flex:1}
+.theme{position:relative;display:flex;padding:4px;border-radius:999px;background:var(--glass);border:1px solid var(--line)}
+.theme button{position:relative;z-index:1;width:36px;height:32px;display:grid;place-items:center;border-radius:999px;color:var(--muted)}
+.theme svg{width:16px;height:16px;stroke:currentColor}
+.theme .knob{position:absolute;top:4px;left:4px;width:36px;height:32px;border-radius:999px;background:var(--glass-solid);box-shadow:0 4px 10px -4px rgba(0,0,0,.25)}
+[data-theme=dark] .theme .knob{transform:translateX(36px)}
+
+.btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:9px;height:46px;padding:0 22px;border-radius:999px;font-weight:500;font-size:14.5px;
+  white-space:nowrap;overflow:hidden}
+.btn svg{width:17px;height:17px;stroke:currentColor;flex:none}
+.btn.dark{background:var(--dark);color:var(--on-dark);box-shadow:0 14px 26px -14px rgba(35,33,46,.7)}
+.btn.soft{background:var(--glass-solid);border:1px solid var(--line)}
+.btn.lime{background:var(--lime);color:#23250a}
+.btn.sm{height:40px;padding:0 18px;font-size:13.5px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn .sp{position:absolute;width:18px;height:18px;border-radius:50%;border:2.5px solid transparent;border-top-color:currentColor;opacity:0}
+
+/* layout */
+.wrap{position:relative;z-index:1;width:min(1120px,100% - 40px);margin:10px auto 70px;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:20px;align-items:start}
+.card{background:var(--glass);backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);border:1px solid var(--line);border-radius:32px;padding:10px;box-shadow:var(--shadow)}
+.inner{background:var(--glass-solid);border-radius:24px;padding:26px}
+.eyebrow{font-size:12px;letter-spacing:.14em;font-weight:600;color:var(--muted);text-transform:uppercase}
+h1{font-size:clamp(30px,4vw,44px);font-weight:500;letter-spacing:-.04em;line-height:1.05}
+h2{font-size:19px;font-weight:600;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:14px;line-height:1.55;margin-top:6px}
+
+/* kartu foto */
+.pc{text-align:center;padding:30px 24px}
+.pwrap{position:relative;width:200px;height:200px;margin:0 auto 22px}
+.pr{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.pr circle{fill:none;stroke-width:5;stroke-linecap:round}.pr .a{stroke:var(--line)}.pr .b{stroke:url(#pg);stroke-dasharray:553}
+.pimg{position:absolute;inset:14px;border-radius:50%;overflow:hidden;background:var(--lav);box-shadow:0 22px 44px -20px rgba(60,50,110,.6);cursor:pointer}
+.pimg img{width:100%;height:100%;object-fit:cover;display:block}
+.pen{position:absolute;right:4px;bottom:8px;width:48px;height:48px;border-radius:50%;background:var(--lime);color:#23250a;display:grid;place-items:center;box-shadow:0 14px 24px -12px rgba(0,0,0,.45)}
+.pen svg{width:19px;height:19px;stroke:currentColor}
+.pct{position:absolute;left:50%;top:-6px;transform:translateX(-50%);padding:4px 12px;border-radius:999px;background:var(--dark);color:var(--on-dark);font-size:12px;font-weight:500}
+.pc h1{font-size:30px;margin:4px 0 8px;word-break:break-word}
+.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:14px 0 22px}
+.chip{padding:7px 14px;border-radius:999px;font-size:13px;font-weight:500;background:var(--glass);border:1px solid var(--line)}
+.chip.lime{background:var(--lime-soft)}.chip.lav{background:var(--lav)}
+
+/* form */
+.fh{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:24px;flex-wrap:wrap}
+.dirty{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);opacity:0}
+.dirty.on{opacity:1}.dirty i{width:8px;height:8px;border-radius:50%;background:var(--lime)}
+.f{position:relative;margin-bottom:16px}
+.f input{width:100%;height:60px;border-radius:20px;border:1.5px solid var(--line);background:var(--glass);padding:22px 20px 6px;font:inherit;font-size:16px;color:var(--ink);outline:0}
+.f label{position:absolute;left:21px;top:19px;font-size:15.5px;color:var(--muted);pointer-events:none;transform-origin:left top}
+.f input:focus+label,.f input:not(:placeholder-shown)+label{transform:translateY(-12px) scale(.78)}
+.f input:focus{border-color:var(--lav-deep);box-shadow:0 0 0 5px rgba(143,127,224,.2)}
+.f .err{font-size:12.5px;color:var(--bad);padding-left:8px;max-height:0;opacity:0;overflow:hidden}
+.f.bad input{border-color:var(--bad)}.f.bad .err{max-height:24px;opacity:1;margin-top:6px}
+.gl{font-size:13px;font-weight:600;letter-spacing:.04em;margin:22px 0 10px}
+.opts{display:flex;gap:8px;flex-wrap:wrap}
+.opt{padding:10px 18px;border-radius:999px;font-size:14.5px;background:var(--glass);border:1.5px solid var(--line)}
+.opt.on{background:var(--lime);border-color:var(--lime);color:#23250a}
+.fa{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:28px;padding-top:22px;border-top:1px solid var(--line)}
+
+/* modal / sheet */
+.ov{position:fixed;inset:0;z-index:80;display:grid;place-items:center;background:rgba(30,26,50,.34);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);opacity:0;pointer-events:none;padding:16px}
+.ov.show{opacity:1;pointer-events:auto}
+.modal{width:min(520px,100%);max-height:calc(100dvh - 32px);overflow:auto;padding:26px 28px 28px;border-radius:36px;background:var(--glass-solid);border:1px solid var(--line);box-shadow:0 40px 80px -30px rgba(0,0,0,.5)}
+.grab{display:none;width:44px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 14px}
+.mh{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.mh h2{font-size:23px}
+.x{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--glass);flex:none}
+.x svg{width:16px;height:16px;stroke:currentColor}
+.hint{color:var(--muted);font-size:14px;line-height:1.5;margin:6px 0 18px}
+.stagewrap{display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:18px}
+.crop{position:relative;width:min(260px,64vw);aspect-ratio:1;border-radius:50%;overflow:hidden;background:var(--line);cursor:grab;touch-action:none;
+  box-shadow:0 0 0 6px var(--glass),0 26px 46px -24px rgba(60,50,110,.65);outline-offset:8px}
+.crop.drag{cursor:grabbing}
+.crop img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none;max-width:none;will-change:transform}
+.crop .ring{position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 2px rgba(255,255,255,.75);pointer-events:none}
+.crop .grid{position:absolute;inset:0;pointer-events:none;opacity:0;
+  background:linear-gradient(90deg,transparent 33%,rgba(255,255,255,.55) 33% calc(33% + 1px),transparent calc(33% + 1px) 66%,rgba(255,255,255,.55) 66% calc(66% + 1px),transparent calc(66% + 1px)),
+  linear-gradient(transparent 33%,rgba(255,255,255,.55) 33% calc(33% + 1px),transparent calc(33% + 1px) 66%,rgba(255,255,255,.55) 66% calc(66% + 1px),transparent calc(66% + 1px))}
+.crop.act .grid{opacity:1}
+.prevs{display:flex;flex-direction:column;align-items:center;gap:12px}
+.pv{position:relative;overflow:hidden;border-radius:50%;background:var(--line);box-shadow:0 0 0 3px var(--glass)}
+.pv img{position:absolute;left:0;top:0;transform-origin:0 0;max-width:none}
+.pv.l{width:64px;height:64px}.pv.m{width:40px;height:40px}.pv.s{width:26px;height:26px}
+.prevs small{font-size:11px;color:var(--muted)}
+.tools{display:flex;justify-content:center;gap:8px;margin-bottom:18px}
+.tl{height:42px;padding:0 15px;border-radius:999px;background:var(--glass);border:1px solid var(--line);display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.tl svg{width:16px;height:16px;stroke:currentColor}
+.ctl{display:grid;grid-template-columns:78px 40px 1fr 40px 46px;align-items:center;gap:10px;margin-bottom:10px}
+.ctl span{font-size:12.5px;color:var(--muted)}.ctl output{font-size:12.5px;color:var(--muted);text-align:right}
+.z{width:40px;height:40px;border-radius:50%;background:var(--glass);border:1px solid var(--line);display:grid;place-items:center}
+.z svg{width:16px;height:16px;stroke:currentColor}
+.z[disabled]{opacity:.35;pointer-events:none}
+.ctl input[type=range]{appearance:none;-webkit-appearance:none;width:100%;height:6px;border-radius:9px;background:var(--line);outline:0}
+.ctl input[type=range]:disabled{opacity:.4}
+.ctl input::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:var(--dark);border:3px solid var(--glass-solid);box-shadow:0 4px 10px rgba(0,0,0,.3);cursor:grab}
+.ctl input::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--dark);border:3px solid var(--glass-solid)}
+.mact{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+.mact .full{grid-column:1/-1}
+.mact .btn{width:100%}
+
+.toast{position:fixed;z-index:90;left:50%;bottom:26px;transform:translate(-50%,40px);padding:14px 22px;border-radius:999px;background:var(--dark);color:var(--on-dark);font-size:14px;opacity:0;max-width:90vw;text-align:center}
+.toast.show{transform:translate(-50%,0);opacity:1}
+
+@media(max-width:900px){.wrap{grid-template-columns:1fr}.pc{padding:26px 20px}}
+@media(max-width:640px){
+  .bar{padding:12px 16px}.brand span{display:none}.btn.hide-s span{display:none}.btn.hide-s{padding:0 14px}
+  .inner{padding:20px 16px}
+  .ov{place-items:end center;padding:0}
+  .modal{width:100%;max-height:94dvh;border-radius:34px 34px 0 0;padding:12px 18px calc(22px + env(safe-area-inset-bottom))}
+  .grab{display:block}
+  .stagewrap{flex-direction:column;gap:14px}.prevs{flex-direction:row}
+  .ctl{grid-template-columns:62px 38px 1fr 38px 42px;gap:8px}.z{width:38px;height:38px}
+  .tools{flex-wrap:wrap}
+}
+</style>
+
+<!-- ═════════ 2. MOTION: gerak & transisi ═════════ -->
+<style id="motion">
+body{transition:background .6s var(--ease),color .4s}
+.ambient i{transition:background .6s}
+.ambient i:nth-child(1){animation:d1 22s ease-in-out infinite alternate}
+.ambient i:nth-child(2){animation:d2 26s ease-in-out infinite alternate}
+.ambient i:nth-child(3){animation:d2 30s ease-in-out infinite alternate-reverse}
+@keyframes d1{to{transform:translate(120px,-80px) scale(1.15)}}@keyframes d2{to{transform:translate(-110px,90px) scale(1.1)}}
+
+.theme .knob{transition:transform .5s var(--ease)}
+.btn{transition:transform .35s var(--ease),box-shadow .35s var(--ease),background .3s,opacity .3s}
+.btn:hover{transform:translateY(-2px)}.btn:active{transform:scale(.97)}
+.btn.dark:hover{box-shadow:0 20px 30px -14px rgba(35,33,46,.75)}
+.btn .sp{animation:spin .8s linear infinite}.btn.load{pointer-events:none}.btn.load>*:not(.sp){opacity:0}.btn.load .sp{opacity:1}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.rv{opacity:0;transform:translateY(24px) scale(.985);filter:blur(8px);animation:rise .9s var(--ease) forwards;animation-delay:calc(var(--i,0)*.09s + .05s)}
+@keyframes rise{to{opacity:1;transform:none;filter:none}}
+.f,.gl,.opts,.fa{opacity:0;transform:translateY(14px);animation:rise2 .7s var(--ease) forwards;animation-delay:calc(var(--j,0)*.06s + .35s)}
+@keyframes rise2{to{opacity:1;transform:none}}
+
+.pr .b{transition:stroke-dashoffset 1.6s var(--ease) .4s}
+.pimg img{transition:transform .8s var(--ease)}.pimg:hover img{transform:scale(1.07)}
+.pimg.pop{animation:pop .7s var(--spring)}
+@keyframes pop{0%{transform:scale(.88)}100%{transform:scale(1)}}
+.pen{transition:transform .45s var(--spring),background .3s}.pen:hover{transform:scale(1.14) rotate(-10deg)}
+.pct{transition:background .3s}
+
+.f input,.f label,.f .err{transition:border-color .3s,box-shadow .45s var(--ease),transform .4s var(--ease),max-height .4s var(--ease),opacity .3s,color .3s}
+.f.bad input{animation:shake .45s}
+@keyframes shake{20%{transform:translateX(-7px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+.opt{transition:background .3s,border-color .3s,transform .4s var(--spring)}.opt:hover{transform:translateY(-3px)}.opt:active{transform:scale(.95)}
+.opt.on{animation:pick .45s var(--spring)}@keyframes pick{0%{transform:scale(.9)}}
+.dirty{transition:opacity .4s,transform .5s var(--ease);transform:translateX(8px)}.dirty.on{transform:none}
+.dirty.on i{animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(212,238,107,.9)}70%{box-shadow:0 0 0 9px rgba(212,238,107,0)}100%{box-shadow:0 0 0 0 rgba(212,238,107,0)}}
+.chip{transition:background .4s}
+
+.ov{transition:opacity .4s var(--ease)}
+.modal{transform:translateY(30px) scale(.94);opacity:0;transition:transform .65s var(--spring),opacity .4s}
+.ov.show .modal{transform:none;opacity:1}
+.x{transition:transform .5s var(--spring),background .3s}.x:hover{transform:rotate(90deg)}
+.crop .grid{transition:opacity .35s}
+.crop{transition:box-shadow .4s var(--ease)}.crop.drag{box-shadow:0 0 0 6px var(--lav),0 30px 50px -22px rgba(60,50,110,.75)}
+.z,.tl{transition:transform .35s var(--spring),background .3s}.z:hover,.tl:hover{transform:scale(1.08);background:var(--lime)}.z:active,.tl:active{transform:scale(.92)}
+.tl:hover{transform:translateY(-2px)}
+.pv{transition:box-shadow .3s}
+
+.toast{transition:transform .6s var(--ease),opacity .4s}
+
+@media(max-width:640px){.modal{transform:translateY(100%);opacity:1;transition:transform .6s var(--ease)}.ov.show .modal{transform:none}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-delay:0s!important;transition-duration:.01ms!important}
+  .rv,.f,.gl,.opts,.fa{opacity:1;transform:none;filter:none}}
+</style>
+</head>
+<body>
+<div class="ambient"><i></i><i></i><i></i></div>
+
+<header class="bar">
+  <div class="brand"><b><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M5 13c3-6 11-6 14 0M8 17c2-3 6-3 8 0"/></svg></b><span>Laporan<span>Wee</span></span></div>
+  <div class="sp1"></div>
+  <div class="theme" role="group" aria-label="Tema"><div class="knob"></div>
+    <button data-t="light" aria-label="Terang"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button>
+    <button data-t="dark" aria-label="Gelap"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/></svg></button></div>
+    <button class="btn dark hide-s" id="save"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.500 10 17.500 19 7"/></svg><span>Simpan Profil</span><i class="sp"></i></button>
+</header>
+
+<main class="wrap">
+  <aside class="card rv" style="--i:0"><div class="inner pc">
+    <div class="pwrap">
+      <svg class="pr" viewBox="0 0 200 200"><defs><linearGradient id="pg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c2e04a"/><stop offset="1" stop-color="#8f7fe0"/></linearGradient></defs><circle class="a" cx="100" cy="100" r="88"/><circle class="b" id="ring" cx="100" cy="100" r="88" style="stroke-dashoffset:553"/></svg>
+      <div class="pimg" id="pimg" role="button" tabindex="0" aria-label="Ubah foto profil"><img id="avimg" alt="Foto Profil"></div>
+      <button class="pen" id="pen" aria-label="Edit foto profil"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16zM13.500 6.500l4 4"/></svg></button>
+      <span class="pct" id="pct">40%</span>
+    </div>
+    <div class="eyebrow">Foto Profil</div>
+    <h1 id="hname">Admin</h1>
+    <p class="sub" style="max-width:30ch;margin-inline:auto">Foto diedit dari pratinjau utama, lalu disimpan langsung tanpa kartu pratinjau crop tambahan.</p>
+    <div class="chips"><span class="chip lime" id="cDone">Profil 40% lengkap</span><span class="chip" id="cJob">Pekerjaan belum diatur</span><span class="chip lav" id="cStat">Status belum dipilih</span></div>
+    <button class="btn dark" id="openEd" style="width:100%"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 8"/></svg><span>Ubah Foto</span></button>
+  </div></aside>
+
+  <section class="card rv" style="--i:1"><div class="inner">
+    <div class="fh"><div><div class="eyebrow">Pengaturan</div><h2 style="margin-top:6px;font-size:26px">Informasi Profil</h2><p class="sub">Ubah data yang tampil di akun Anda.</p></div>
+      <span class="dirty" id="dirty"><i></i>Perubahan belum disimpan</span></div>
+    <form id="form" novalidate>
+      <div class="f" style="--j:0"><input id="fn" placeholder=" " autocomplete="name"><label for="fn">Name</label><div class="err">Name wajib diisi.</div></div>
+      <div class="f" style="--j:1"><input id="fe" type="email" placeholder=" " autocomplete="email"><label for="fe">Email</label><div class="err">Masukkan alamat email yang valid.</div></div>
+      <div class="f" style="--j:2"><input id="fj" placeholder=" " autocomplete="organization-title"><label for="fj">Pekerjaan</label></div>
+      <div class="opts" id="jobs" style="--j:3;margin:-4px 0 0"></div>
+      <div class="gl" style="--j:4">STATUS</div>
+      <div class="opts" id="stat" role="radiogroup" aria-label="Status" style="--j:5"></div>
+      <div class="fa" style="--j:6"><button type="button" class="btn soft" id="cancel">Batalkan</button><button type="submit" class="btn dark" id="save2"><span>Simpan Profil</span><i class="sp"></i></button></div>
+    </form>
+  </div></section>
+</main>
+
+<div class="ov" id="ov"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="mt">
+  <div class="grab"></div>
+  <div class="mh"><h2 id="mt">Edit Foto Profil</h2><button class="x" id="mx" aria-label="Tutup"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <p class="hint">Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.</p>
+  <div class="stagewrap">
+    <div class="crop" id="crop" tabindex="0" role="application" aria-label="Area crop. Gunakan tombol panah untuk menggeser, plus dan minus untuk zoom."><img id="cimg" alt="Pratinjau Crop" draggable="false"><div class="grid"></div><div class="ring"></div></div>
+    <div class="prevs" aria-hidden="true"><div class="pv l"><img></div><div class="pv m"><img></div><div class="pv s"><img></div><small>Pratinjau</small></div>
+  </div>
+  <div class="tools">
+    <button class="tl" id="rl"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 1 1-1 5M4 4v5h5"/></svg>Putar</button>
+    <button class="tl" id="fl"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z"/></svg>Balik</button>
+  </div>
+  <div class="ctl"><span>Zoom</span><button class="z" id="zm" aria-label="Perkecil"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M5 12h14"/></svg></button><input id="zr" type="range" min="100" max="300" value="100" aria-label="Zoom"><button class="z" id="zp" aria-label="Perbesar"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button><output id="zo">100%</output></div>
+  <div class="ctl"><span>Kiri–Kanan</span><button class="z" id="gl" aria-label="Geser ke kiri"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m14 6-6 6 6 6"/></svg></button><input id="hx" type="range" min="0" max="100" value="50" aria-label="Geser kiri atau kanan"><button class="z" id="gr" aria-label="Geser ke kanan"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 6 6 6-6 6"/></svg></button><output id="xo">50%</output></div>
+  <div class="ctl"><span>Atas–Bawah</span><button class="z" id="gu" aria-label="Geser ke atas"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 6-6 6 6"/></svg></button><input id="vy" type="range" min="0" max="100" value="50" aria-label="Geser atas atau bawah"><button class="z" id="gd" aria-label="Geser ke bawah"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 10 6 6 6-6"/></svg></button><output id="yo">50%</output></div>
+  <div class="mact">
+    <label class="btn soft full" for="file" style="cursor:pointer"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>Pilih Foto Baru</label>
+    <input id="file" type="file" accept="image/*" class="sr">
+    <button class="btn soft" id="rst">Reset</button>
+    <button class="btn dark" id="sph"><span>Simpan Foto</span><i class="sp"></i></button>
+  </div>
+</div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<!-- ═════════ 3. LOGIKA PROTOTIPE (tanpa backend) ═════════ -->
+<script>
+const $=(s,r=document)=>r.querySelector(s),$$=(s,r=document)=>[...r.querySelectorAll(s)];
+let tT;const toast=t=>{const e=$('#toast');e.textContent=t;e.classList.add('show');clearTimeout(tT);tT=setTimeout(()=>e.classList.remove('show'),2500)};
+const busy=(b,ms,cb)=>{b.classList.add('load');setTimeout(()=>{b.classList.remove('load');cb&&cb()},ms)};
+$$('.theme button').forEach(b=>b.onclick=()=>document.documentElement.dataset.theme=b.dataset.t);
+
+/* ── profil ── */
+const STAT=['KARYAWAN','MAGANG','PKL SISWA','PKL MAHASISWA'],JOBS=['Art Director','Desainer Grafis','Videografer','Copywriter','Social Media'];
+let S={name:'Admin',email:'admin@gmail.com',job:'',status:'',photo:false},B={...S};
+const mailOK=v=>/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+function fill(){$('#fn').value=S.name;$('#fe').value=S.email;$('#fj').value=S.job;chips()}
+function chips(){
+  $('#jobs').innerHTML=JOBS.map(j=>`<button type="button" class="opt ${S.job===j?'on':''}" data-j="${j}">${j}</button>`).join('');
+  $('#stat').innerHTML=STAT.map(s=>`<button type="button" role="radio" aria-checked="${S.status===s}" class="opt ${S.status===s?'on':''}" data-s="${s}">${s}</button>`).join('')}
+function summary(){
+  const p=[S.photo,S.name.trim(),S.email.trim(),S.job.trim(),S.status].filter(Boolean).length*20;
+  $('#hname').textContent=S.name.trim()||'Pengguna';$('#cDone').textContent=`Profil ${p}% lengkap`;$('#pct').textContent=p+'%';
+  $('#cJob').textContent=S.job.trim()||'Pekerjaan belum diatur';$('#cStat').textContent=S.status||'Status belum dipilih';
+  $('#ring').style.strokeDashoffset=553*(1-p/100);
+  const d=JSON.stringify({...S,photo:0})!==JSON.stringify({...B,photo:0});$('#dirty').classList.toggle('on',d);
+}
+$('#fn').oninput=e=>{S.name=e.target.value;e.target.closest('.f').classList.remove('bad');summary();if(!customPhoto){cur=mk();$('#avimg').src=cur}};
+$('#fe').oninput=e=>{S.email=e.target.value;e.target.closest('.f').classList.remove('bad');summary()};
+$('#fj').oninput=e=>{S.job=e.target.value;chips();summary()};
+$('#jobs').onclick=e=>{const b=e.target.closest('[data-j]');if(!b)return;S.job=b.dataset.j;$('#fj').value=S.job;chips();summary()};
+$('#stat').onclick=e=>{const b=e.target.closest('[data-s]');if(!b)return;S.status=b.dataset.s;chips();summary()};
+function validate(){let ok=true;
+  [['#fn',S.name.trim().length>0],['#fe',mailOK(S.email.trim())]].forEach(([id,v])=>{const f=$(id).closest('.f');f.classList.remove('bad');void f.offsetWidth;if(!v){f.classList.add('bad');ok=false}});
+  return ok}
+function doSave(btns){if(!validate()){toast('Periksa kembali isian Anda');return}
+  btns.forEach(b=>b.classList.add('load'));setTimeout(()=>{btns.forEach(b=>b.classList.remove('load'));B={...S};summary();toast('Profil disimpan')},1100)}
+$('#form').onsubmit=e=>{e.preventDefault();doSave([$('#save2'),$('#save')])};
+$('#save').onclick=()=>doSave([$('#save2'),$('#save')]);
+$('#cancel').onclick=()=>{S={...B};fill();$$('.f.bad').forEach(f=>f.classList.remove('bad'));summary();toast('Perubahan dibatalkan')};
+
+/* ── foto default (inisial) ── */
+let customPhoto=false;
+function mk(){const c=document.createElement('canvas');c.width=c.height=480;const g=c.getContext('2d'),gr=g.createLinearGradient(0,0,480,480);
+  gr.addColorStop(0,'#cfc6f4');gr.addColorStop(.55,'#e3ddfa');gr.addColorStop(1,'#d4ee6b');g.fillStyle=gr;g.fillRect(0,0,480,480);
+  g.fillStyle='rgba(255,255,255,.45)';g.beginPath();g.arc(360,120,140,0,7);g.fill();g.fillStyle='rgba(143,127,224,.35)';g.beginPath();g.arc(90,420,170,0,7);g.fill();
+  g.fillStyle='#2a2440';g.font='500 190px Outfit,system-ui,sans-serif';g.textAlign='center';g.textBaseline='middle';
+  g.fillText((S.name.trim()[0]||'P').toUpperCase(),240,262);return c.toDataURL()}
+let cur=mk();$('#avimg').src=cur;
+
+/* ── editor foto: geser, zoom, putar, balik ── */
+const crop=$('#crop'),ci=$('#cimg'),pvs=$$('.pv'),pvi=$$('.pv img');
+let CS=260,nw=0,nh=0,base=1,z=1,px=0,py=0,orig=cur,work=cur,raf=0;
+const clamp=()=>{const w=nw*base*z,h=nh*base*z;px=Math.min(0,Math.max(CS-w,px));py=Math.min(0,Math.max(CS-h,py))};
+function draw(){clamp();const s=base*z,w=nw*s-CS,h=nh*s-CS;
+  ci.style.transform=`translate(${px}px,${py}px) scale(${s})`;
+  pvs.forEach((p,i)=>{const r=p.clientWidth/CS;pvi[i].style.transform=`translate(${px*r}px,${py*r}px) scale(${s*r})`});
+  $('#zr').value=Math.round(z*100);$('#zo').textContent=Math.round(z*100)+'%';
+  const hx=$('#hx'),vy=$('#vy'),ox=w>1,oy=h>1;
+  hx.disabled=!ox;vy.disabled=!oy;$('#gl').disabled=$('#gr').disabled=!ox;$('#gu').disabled=$('#gd').disabled=!oy;
+  hx.value=ox?Math.round(-px/w*100):50;vy.value=oy?Math.round(-py/h*100):50;
+  $('#xo').textContent=hx.value+'%';$('#yo').textContent=vy.value+'%';
+  $('#zm').disabled=z<=1;$('#zp').disabled=z>=3}
+function setImg(src,keep){work=src;ci.onload=()=>{nw=ci.naturalWidth;nh=ci.naturalHeight;CS=crop.clientWidth;base=CS/Math.min(nw,nh);
+    if(!keep){z=1;px=(CS-nw*base)/2;py=(CS-nh*base)/2}pvi.forEach(i=>{i.src=src;i.style.width=nw+'px';i.style.height=nh+'px'});ci.style.width=nw+'px';ci.style.height=nh+'px';draw()};ci.src=src}
+const setZ=v=>{const nz=Math.min(3,Math.max(1,v)),cx=(CS/2-px)/(base*z),cy=(CS/2-py)/(base*z);z=nz;px=CS/2-cx*base*z;py=CS/2-cy*base*z;draw()};
+const flash=()=>{crop.classList.add('act');clearTimeout(flash.t);flash.t=setTimeout(()=>crop.classList.remove('act'),900)};
+const nudge=(dx,dy)=>{cancelAnimationFrame(raf);px+=dx;py+=dy;draw();flash()};
+
+/* geser dengan jari/kursor + inersia + cubit untuk zoom */
+const ptr=new Map();let last=null,vx=0,vy2=0,pinch=null;
+crop.onpointerdown=e=>{crop.setPointerCapture(e.pointerId);ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});cancelAnimationFrame(raf);
+  if(ptr.size===1){last={x:e.clientX,y:e.clientY,t:performance.now()};vx=vy2=0;crop.classList.add('drag')}
+  if(ptr.size===2){const [a,b]=[...ptr.values()];pinch={d:Math.hypot(a.x-b.x,a.y-b.y),z}}flash()};
+crop.onpointermove=e=>{if(!ptr.has(e.pointerId))return;ptr.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptr.size===2&&pinch){const [a,b]=[...ptr.values()];setZ(pinch.z*Math.hypot(a.x-b.x,a.y-b.y)/pinch.d);return}
+  if(ptr.size===1&&last){const now=performance.now(),dx=e.clientX-last.x,dy=e.clientY-last.y,dt=Math.max(1,now-last.t);
+    px+=dx;py+=dy;vx=dx/dt*16;vy2=dy/dt*16;last={x:e.clientX,y:e.clientY,t:now};draw()}};
+const up=e=>{ptr.delete(e.pointerId);pinch=null;if(ptr.size===0){crop.classList.remove('drag');last=null;
+  const tick=()=>{vx*=.92;vy2*=.92;if(Math.abs(vx)<.15&&Math.abs(vy2)<.15)return;px+=vx;py+=vy2;draw();raf=requestAnimationFrame(tick)};
+  if(Math.hypot(vx,vy2)>1)raf=requestAnimationFrame(tick)}};
+crop.onpointerup=crop.onpointercancel=up;
+crop.onwheel=e=>{e.preventDefault();setZ(z+(e.deltaY<0?.08:-.08));flash()};
+crop.onkeydown=e=>{const s=e.shiftKey?30:10,m={ArrowLeft:[s,0],ArrowRight:[-s,0],ArrowUp:[0,s],ArrowDown:[0,-s]}[e.key];
+  if(m){e.preventDefault();nudge(...m)}else if(e.key==='+'||e.key==='='){setZ(z+.1);flash()}else if(e.key==='-'){setZ(z-.1);flash()}};
+
+$('#zr').oninput=e=>{setZ(e.target.value/100);flash()};$('#zp').onclick=()=>{setZ(z+.15);flash()};$('#zm').onclick=()=>{setZ(z-.15);flash()};
+$('#hx').oninput=e=>{const w=nw*base*z-CS;px=-(e.target.value/100)*w;draw();flash()};
+$('#vy').oninput=e=>{const h=nh*base*z-CS;py=-(e.target.value/100)*h;draw();flash()};
+$('#gl').onclick=()=>nudge(18,0);$('#gr').onclick=()=>nudge(-18,0);$('#gu').onclick=()=>nudge(0,18);$('#gd').onclick=()=>nudge(0,-18);
+$('#rst').onclick=()=>setImg(orig);
+
+function bake(rot){const c=document.createElement('canvas'),g=c.getContext('2d');
+  c.width=rot?nh:nw;c.height=rot?nw:nh;g.translate(c.width/2,c.height/2);
+  if(rot)g.rotate(-Math.PI/2);else g.scale(-1,1);g.drawImage(ci,-nw/2,-nh/2);setImg(c.toDataURL('image/jpeg',.95))}
+$('#rl').onclick=()=>bake(true);$('#fl').onclick=()=>bake(false);
+
+$('#file').onchange=e=>{const f=e.target.files[0];e.target.value='';if(!f)return;
+  if(!f.type.startsWith('image/')){toast('File harus berupa gambar');return}
+  if(f.size>10*1048576){toast('Ukuran foto maksimal 10 MB');return}
+  const r=new FileReader();r.onload=()=>{orig=r.result;setImg(r.result)};r.readAsDataURL(f)};
+
+/* ── buka/tutup + simpan foto ── */
+const ov=$('#ov');let lastFocus;
+function openEd(){lastFocus=document.activeElement;ov.classList.add('show');orig=cur;requestAnimationFrame(()=>setTimeout(()=>{setImg(cur);crop.focus({preventScroll:true})},60))}
+function closeEd(){ov.classList.remove('show');lastFocus&&lastFocus.focus({preventScroll:true})}
+['#pen','#pimg','#openEd'].forEach(s=>$(s).onclick=openEd);
+$('#pimg').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();openEd()}};
+$('#mx').onclick=closeEd;ov.onclick=e=>{if(e.target===ov)closeEd()};
+addEventListener('keydown',e=>{if(e.key==='Escape'&&ov.classList.contains('show'))closeEd()});
+addEventListener('resize',()=>{if(ov.classList.contains('show')){CS=crop.clientWidth;base=CS/Math.min(nw,nh);draw()}});
+$('#sph').onclick=e=>{const o=document.createElement('canvas');o.width=o.height=512;const g=o.getContext('2d'),k=512/CS;
+  g.drawImage(ci,0,0,nw,nh,px*k,py*k,nw*base*z*k,nh*base*z*k);
+  busy(e.currentTarget,1000,()=>{cur=o.toDataURL('image/jpeg',.92);customPhoto=true;S.photo=B.photo=true;$('#avimg').src=cur;
+    const p=$('#pimg');p.classList.remove('pop');void p.offsetWidth;p.classList.add('pop');summary();closeEd();toast('Foto profil disimpan')})};
+
+/* focus trap sederhana di modal */
+ov.addEventListener('keydown',e=>{if(e.key!=='Tab')return;const f=$$('button:not([disabled]),input:not([disabled]),[tabindex="0"],label[for]',ov).filter(x=>x.offsetParent);
+  if(!f.length)return;const a=f[0],b=f[f.length-1];if(e.shiftKey&&document.activeElement===a){e.preventDefault();b.focus()}else if(!e.shiftKey&&document.activeElement===b){e.preventDefault();a.focus()}});
+
+fill();summary();
+</script>
+</body>
+</html>

@@ -1,0 +1,354 @@
+/* ==========================================================================
+   LaporanWee — Redesign Token, Glassmorphism & Shell Sidebar (Tahap 2 & 3)
+   ================================================================---------- */
+
+:root {
+  --bg1: #e6e5ec;
+  --bg2: #f1f0f5;
+  --ink: #1f1d2b;
+  --muted: #8b8898;
+  --glass: rgba(255, 255, 255, 0.62);
+  --glass-solid: rgba(255, 255, 255, 0.94);
+  --line: rgba(31, 29, 43, 0.09);
+  --dark: #23212e;
+  --on-dark: #fff;
+  --lime: #d4ee6b;
+  --lime-soft: #e9f5b8;
+  --lav: #d9d3f5;
+  --lav-deep: #8f7fe0;
+  --peach: #f6e6cf;
+  --mint: #d6ecdf;
+  --pink: #f1d8e4;
+  --blob1: rgba(176, 160, 240, 0.55);
+  --blob2: rgba(244, 214, 170, 0.6);
+  --bad: #d9534f;
+  --ok: #4a9d6b;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, 0 40px 80px -40px rgba(60, 50, 110, 0.5);
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+
+  /* Shape tokens */
+  --radius: 30px;
+  --radius-sm: 22px;
+  --radius-input: 19px;
+
+  /* UI Settings Dynamic Variables Fallback / Integration */
+  --primary-color: #8f7fe0;
+  --secondary-color: #23212e;
+  --text-color: #1f1d2b;
+  --background-color: #f1f0f5;
+  --font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  --heading-font: 'Outfit', system-ui, -apple-system, sans-serif;
+  --menu-icon-size: 20px;
+  --menu-icon-stroke: 2;
+  --signout-icon-size: 20px;
+}
+
+[data-theme="dark"] {
+  --bg1: #14131b;
+  --bg2: #1b1a24;
+  --ink: #f2f0fa;
+  --muted: #8d8aa0;
+  --glass: rgba(40, 38, 54, 0.6);
+  --glass-solid: rgba(46, 44, 62, 0.94);
+  --line: rgba(255, 255, 255, 0.09);
+  --dark: #f2f0fa;
+  --on-dark: #1f1d2b;
+  --lime-soft: rgba(212, 238, 107, 0.18);
+  --lav: #3b3560;
+  --peach: #4a3d33;
+  --mint: #2f4a3e;
+  --pink: #4a3342;
+  --blob1: rgba(110, 90, 200, 0.4);
+  --blob2: rgba(200, 140, 80, 0.22);
+  --bad: #ef7b77;
+  --ok: #7fcf9c;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 40px 80px -40px rgba(0, 0, 0, 0.8);
+  --text-color: #f2f0fa;
+  --background-color: #1b1a24;
+}
+
+body {
+  font-family: var(--font-family, 'Outfit', system-ui, sans-serif);
+  background: linear-gradient(135deg, var(--bg1), var(--bg2)) !important;
+  color: var(--ink) !important;
+  transition: background .6s var(--ease), color .4s;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--heading-font, var(--font-family, 'Outfit'));
+  font-weight: 500;
+  letter-spacing: -0.03em;
+}
+
+/* Glassmorphism card & panel overrides */
+.card, .auth-body .stage, .verify-card, .feature-card, .work-card, .progress-card, .promo-card, .cal-card, .preview-card, .dropdown-panel {
+  background: var(--glass) !important;
+  backdrop-filter: blur(24px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.4) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+}
+
+/* Ambient background warm fog */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: 
+    radial-gradient(circle at 10% 20%, var(--blob1) 0%, transparent 50%),
+    radial-gradient(circle at 90% 80%, var(--blob2) 0%, transparent 50%);
+  filter: blur(80px);
+  opacity: 0.8;
+}
+
+/* ==========================================================================
+   Sidebar Rail & Shell Redesign (Kelompok 2)
+   ================================================================---------- */
+
+.topnav {
+  position: fixed !important;
+  left: 14px;
+  top: 14px;
+  bottom: 14px;
+  width: 84px;
+  padding: 18px 14px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 16px !important;
+  background: var(--glass) !important;
+  backdrop-filter: blur(26px) saturate(1.4) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(1.4) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 32px !important;
+  box-shadow: var(--shadow) !important;
+  z-index: 50 !important;
+  overflow: hidden !important;
+  transition: width .5s var(--ease) !important;
+  align-items: stretch !important;
+}
+
+.topnav:hover, .topnav:focus-within {
+  width: 236px !important;
+}
+
+.topnav .brand {
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  height: 48px !important;
+  padding-left: 4px !important;
+  white-space: nowrap !important;
+  font-weight: 600 !important;
+  font-size: 19px !important;
+  letter-spacing: -0.02em !important;
+  background: none !important;
+  border: none !important;
+  color: var(--ink) !important;
+  cursor: pointer;
+}
+
+.topnav .brand span:not(.wee), .topnav .brand img {
+  display: inline-block;
+  opacity: 0;
+  transition: opacity .3s;
+}
+
+.topnav:hover .brand span:not(.wee), .topnav:hover .brand img,
+.topnav:focus-within .brand span:not(.wee), .topnav:focus-within .brand img {
+  opacity: 1;
+  transition-delay: .1s;
+}
+
+.topnav .brand .wee {
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  background: var(--dark);
+  color: var(--on-dark);
+  flex: none;
+  display: grid;
+  place-items: center;
+  position: static !important;
+}
+
+.topnav .brand .wee svg {
+  display: block !important;
+  margin: 0 !important;
+}
+
+.topnav .nav-links {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 6px !important;
+  flex: 1 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  scrollbar-width: none !important;
+}
+
+.topnav .nav-links::-webkit-scrollbar {
+  display: none !important;
+}
+
+.topnav .nav-item {
+  display: flex !important;
+  align-items: center !important;
+  height: 48px !important;
+  padding: 0 !important;
+  border-radius: 18px !important;
+  color: var(--muted) !important;
+  font-size: 14.5px !important;
+  font-weight: 500 !important;
+  background: transparent !important;
+  border: none !important;
+  cursor: pointer;
+  white-space: nowrap !important;
+  transition: color .35s var(--ease), background .3s !important;
+  width: 100% !important;
+}
+
+.topnav .nav-item:hover {
+  background: var(--glass-solid) !important;
+  color: var(--ink) !important;
+}
+
+.topnav .nav-item.active {
+  background: var(--dark) !important;
+  color: var(--on-dark) !important;
+  box-shadow: 0 14px 26px -14px rgba(35,33,46,.65);
+}
+
+.topnav .nav-item svg {
+  width: 20px !important;
+  height: 20px !important;
+  margin: 0 14px !important;
+  flex: none !important;
+}
+
+.topnav .nav-item span {
+  opacity: 0;
+  transform: translateX(-8px);
+  transition: opacity .3s, transform .5s var(--ease);
+}
+
+.topnav:hover .nav-item span, .topnav:focus-within .nav-item span {
+  opacity: 1;
+  transform: none;
+  transition-delay: .08s;
+}
+
+.topnav .nav-right {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  flex: none !important;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+
+.topnav .icon-btn {
+  width: 48px !important;
+  height: 48px !important;
+  border-radius: 18px !important;
+  background: transparent !important;
+  color: var(--muted) !important;
+  border: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  padding-left: 14px !important;
+}
+
+.topnav:hover .icon-btn, .topnav:focus-within .icon-btn {
+  width: 100% !important;
+}
+
+.topnav .icon-btn:hover {
+  background: var(--glass-solid) !important;
+  color: var(--ink) !important;
+}
+
+.topnav .profile-pill {
+  width: 100% !important;
+  background: transparent !important;
+  padding: 6px !important;
+  border-radius: 18px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  color: var(--ink) !important;
+}
+
+.topnav .profile-pill:hover {
+  background: var(--glass-solid) !important;
+}
+
+.topnav .profile-pill .meta {
+  display: none;
+}
+
+.topnav:hover .profile-pill .meta, .topnav:focus-within .profile-pill .meta {
+  display: block;
+}
+
+main {
+  padding: 26px 34px 56px calc(84px + 48px) !important;
+  max-width: 1560px !important;
+  margin: 0 auto !important;
+  width: 100% !important;
+}
+
+.dropdown-panel {
+  position: fixed !important;
+  top: 80px !important;
+  left: 110px !important;
+  right: auto !important;
+}
+
+/* Hide bottom mobile nav since topnav docks at bottom on mobile */
+.bottom-nav {
+  display: none !important;
+}
+
+@media(max-width: 900px) {
+  .topnav {
+    position: fixed !important;
+    inset: auto 12px 12px 12px !important;
+    width: auto !important;
+    height: auto !important;
+    flex-direction: row !important;
+    padding: 8px !important;
+    border-radius: 26px !important;
+    align-items: center !important;
+    justify-content: space-around !important;
+  }
+  .topnav .brand, .topnav .nav-right, .topnav .nav-item span {
+    display: none !important;
+  }
+  .topnav .nav-links {
+    flex-direction: row !important;
+    justify-content: space-around !important;
+    gap: 0 !important;
+    overflow: visible !important;
+  }
+  .topnav .nav-item {
+    height: 44px !important;
+    width: 44px !important;
+    justify-content: center !important;
+    border-radius: 16px !important;
+  }
+  .topnav .nav-item svg {
+    margin: 0 !important;
+  }
+  .topnav .nav-item.active {
+    background: var(--dark) !important;
+    color: var(--on-dark) !important;
+  }
+  main {
+    padding: 18px 16px 100px !important;
+  }
+}
