@@ -55,6 +55,21 @@
   min-width: 0;
 }
 
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.top .crumb {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
 .card {
   background: var(--glass);
   backdrop-filter: blur(22px) saturate(1.3);
