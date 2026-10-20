@@ -16,12 +16,12 @@ import {
   SocialMediaSummary,
 } from '../types';
 
+// Locked cPanel root endpoint: https://api-laporanwe.mkverse.my.id/api
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
 let baseApi = rawEnvUrl.trim().replace(/\/+$/, '');
 
-// Ensure official backend HTTPS host with /api (https://api.mkverse.my.id/api)
-if (!baseApi || (!baseApi.startsWith('https://api.mkverse.my.id') && !baseApi.startsWith('https://api-laporanwe.mkverse.my.id'))) {
-  baseApi = 'https://api.mkverse.my.id/api';
+if (!baseApi || (!baseApi.startsWith('https://api-laporanwe.mkverse.my.id') && !baseApi.startsWith('https://api.mkverse.my.id'))) {
+  baseApi = 'https://api-laporanwe.mkverse.my.id/api';
 }
 if (!baseApi.endsWith('/api')) {
   baseApi = `${baseApi}/api`;
@@ -187,11 +187,11 @@ export const buildApiUrl = (endpoint: string): string => {
   let clean = (endpoint || '').trim();
 
   // If already pointing to official backend API
-  if (clean.startsWith('https://api.mkverse.my.id/api/')) {
+  if (clean.startsWith('https://api-laporanwe.mkverse.my.id/api/')) {
     return clean.replace('/api/api/', '/api/');
   }
-  if (clean.startsWith('https://api-laporanwe.mkverse.my.id/api/')) {
-    return clean.replace('api-laporanwe.mkverse.my.id', 'api.mkverse.my.id').replace('/api/api/', '/api/');
+  if (clean.startsWith('https://api.mkverse.my.id/api/')) {
+    return clean.replace('api.mkverse.my.id', 'api-laporanwe.mkverse.my.id').replace('/api/api/', '/api/');
   }
 
   // If pointing to an external domain
