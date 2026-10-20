@@ -51,7 +51,7 @@ function getAuthenticatedProfileUser($pdo) {
         }
     }
 
-    if (!$user && !empty($adminEmailHeader)) {
+    if (!$user && !empty($adminEmailHeader) && empty($token)) {
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = :email LIMIT 1");
         $stmt->execute(['email' => $adminEmailHeader]);
         $user = $stmt->fetch();

@@ -62,8 +62,8 @@ try {
         }
     }
 
-    if (!$user && !empty($adminEmailHeader)) {
-        // Fallback match by X-Admin-Email if token lookup did not match
+    if (!$user && !empty($adminEmailHeader) && empty($token)) {
+        // Fallback match by X-Admin-Email only if no Bearer token was provided
         $stmt = $pdo->prepare("SELECT * FROM users WHERE email = :email LIMIT 1");
         $stmt->execute(['email' => $adminEmailHeader]);
         $user = $stmt->fetch();

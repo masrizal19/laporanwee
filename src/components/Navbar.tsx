@@ -82,8 +82,6 @@ export const Navbar: React.FC<NavbarProps> = ({
       ? 'Detail Laporan'
       : currentView === 'project-detail'
       ? 'Detail Proyek'
-      : currentView === 'profile'
-      ? 'Pengaturan Profil'
       : currentNav?.label || 'Dashboard';
 
   // Compute User Initials
@@ -165,10 +163,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </aside>
 
-      {/* Top Bar Header with Breadcrumb, Theme Toggle, Quick Search, User Profile (Hidden on profile view to use dedicated Profile Bar) */}
-      {currentView !== 'profile' && (
-        <header className="top-bar-shell">
-          <div className="crumb">{breadcrumbTitle}</div>
+      {/* Top Bar Header with Breadcrumb, Theme Toggle, Quick Search, User Profile */}
+      <header className="top-bar-shell">
+        <div className="crumb">{breadcrumbTitle}</div>
 
         <div className="top-actions">
           {/* Theme Switcher Sliding Pill */}
@@ -234,7 +231,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </header>
-      )}
     </>
   );
 };

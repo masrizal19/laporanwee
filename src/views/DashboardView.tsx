@@ -14,7 +14,6 @@ interface DashboardViewProps {
   onSelectProject: (projectId: string) => void;
   onDeleteProject?: (projectId: string) => void;
   onAddToast: (text: string) => void;
-  onAddReport?: (reportData: any) => Promise<any> | any;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -29,48 +28,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectProject,
   onDeleteProject,
   onAddToast,
-  onAddReport,
 }) => {
   const [filterTab, setFilterTab] = useState<'Semua' | 'On-Track' | 'Berisiko'>('Semua');
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Quick Report Modal State matching prototype 2
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [modalTitle, setModalTitle] = useState('');
-  const [modalProject, setModalProject] = useState(projects[0]?.name || 'Rebranding Kopi Nusa');
-  const [isSavingReport, setIsSavingReport] = useState(false);
-
-  // Dynamic dashboard state synced with backend with local cache fallback
-  const [dateLabel, setDateLabel] = useState(() => {
-    try {
-      const cached = localStorage.getItem('laporanwee_cached_dashboard');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed.header?.date_label) return parsed.header.date_label;
-      }
-    } catch (_) {}
-    return 'Rabu, 11 Mei';
-  });
+  // Dynamic dashboard state synced with backend
+  const [dateLabel, setDateLabel] = useState('Rabu, 11 Mei');
   const [kpiActiveProjects, setKpiActiveProjects] = useState<number | string>(12);
   const [kpiOngoingTasks, setKpiOngoingTasks] = useState<number | string>(48);
   const [kpiCompletionRate, setKpiCompletionRate] = useState<number>(82);
 
-  const [todoList, setTodoList] = useState(() => {
-    try {
-      const cached = localStorage.getItem('laporanwee_cached_dashboard_tasks');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch (_) {}
-    return [
-      { id: '1', title: 'Review & umpan balik klien', subtitle: 'Redesain landing page', time: '22.00 – 23.45', done: true, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Sa', bg: '#f6e6cf' }] },
-      { id: '2', title: 'Susun laporan mingguan', subtitle: 'Divisi Kreatif', time: '10.00 – 11.00', done: false, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Di', bg: '#e9f5b8' }] },
-      { id: '3', title: 'Revisi kemasan Kopi Nusa', subtitle: 'Rebranding', time: '13.30 – 15.00', done: false, assignees: [{ initial: 'Sa', bg: '#f6e6cf' }, { initial: 'Ba', bg: '#d6ecdf' }] },
-      { id: '4', title: 'Rapat sinkronisasi tim', subtitle: 'Google Meet', time: '16.00 – 16.30', done: false, assignees: [{ initial: 'Ba', bg: '#d6ecdf' }, { initial: 'Ti', bg: '#f1d8e4' }] },
-    ];
-  });
+  const [todoList, setTodoList] = useState([
+    { id: '1', title: 'Review & umpan balik klien', subtitle: 'Redesain landing page', time: '22.00 – 23.45', done: true, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Sa', bg: '#f6e6cf' }] },
+    { id: '2', title: 'Susun laporan mingguan', subtitle: 'Divisi Kreatif', time: '10.00 – 11.00', done: false, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Di', bg: '#e9f5b8' }] },
+    { id: '3', title: 'Revisi kemasan Kopi Nusa', subtitle: 'Rebranding', time: '13.30 – 15.00', done: false, assignees: [{ initial: 'Sa', bg: '#f6e6cf' }, { initial: 'Ba', bg: '#d6ecdf' }] },
+    { id: '4', title: 'Rapat sinkronisasi tim', subtitle: 'Google Meet', time: '16.00 – 16.30', done: false, assignees: [{ initial: 'Ba', bg: '#d6ecdf' }, { initial: 'Ti', bg: '#f1d8e4' }] },
+  ]);
 
   // Sync dashboard data from backend API with 30s polling
   useEffect(() => {
@@ -281,44 +255,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     };
   }, []);
 
-  const handleSaveQuickReport = async () => {
-    if (!modalTitle.trim()) {
-      onAddToast('Judul laporan tidak boleh kosong.');
-      return;
-    }
-    setIsSavingReport(true);
-    try {
-      const selectedProj = projects.find((p) => p.name === modalProject) || projects[0];
-      const payload = {
-        title: modalTitle.trim(),
-        task: modalTitle.trim(),
-        project: modalProject || (selectedProj ? selectedProj.name : 'Rebranding Kopi Nusa'),
-        project_id: selectedProj ? selectedProj.id : undefined,
-        description: 'Laporan progres kerja harian.',
-        desc: 'Laporan progres kerja harian.',
-        person: userName || userEmail?.split('@')[0] || 'Admin',
-        user_email: userEmail || 'admin@gmail.com',
-        status: 'Terkirim',
-        date: new Date().toISOString().split('T')[0],
-        report_date: new Date().toISOString().split('T')[0],
-      };
-
-      if (onAddReport) {
-        await onAddReport(payload);
-      }
-      setIsCreateModalOpen(false);
-      setModalTitle('');
-      onAddToast('Laporan disimpan');
-    } catch (err: any) {
-      console.warn('Quick report save notice:', err);
-      setIsCreateModalOpen(false);
-      setModalTitle('');
-      onAddToast('Laporan disimpan');
-    } finally {
-      setIsSavingReport(false);
-    }
-  };
-
   const handleConfirmDelete = async () => {
     if (!projectToDelete) return;
     const target = projectToDelete;
@@ -364,8 +300,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <button
           type="button"
           className="cta"
-          data-open
-          onClick={() => setIsCreateModalOpen(true)}
+          onClick={() => onNavigate('create-report')}
           title="Kirim Laporan Kerja Baru"
         >
           <svg viewBox="0 0 24 24" fill="none" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -420,7 +355,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <small>{t.subtitle} &bull; {t.time}</small>
                 </div>
                 <div className="stack">
-                  {t.assignees.map((a: any, i: number) => (
+                  {t.assignees.map((a, i) => (
                     <i key={i} style={{ background: a.bg || (i % 2 === 0 ? 'var(--lav)' : 'var(--lime-soft)') }}>
                       {a.initial}
                     </i>
@@ -745,93 +680,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       )}
-
-      {/* Quick Create Report Modal (Matching Prototype 2 exactly) */}
-      <div
-        className={`ov ${isCreateModalOpen ? 'show' : ''}`}
-        id="ov"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Buat Laporan"
-        onClick={(e) => {
-          if (e.target === e.currentTarget) setIsCreateModalOpen(false);
-        }}
-      >
-        <div className="modal" onClick={(e) => e.stopPropagation()}>
-          <h3>Buat Laporan</h3>
-          <label htmlFor="f1">Judul laporan</label>
-          <input
-            id="f1"
-            placeholder="Contoh: Progres desain minggu ini"
-            value={modalTitle}
-            onChange={(e) => setModalTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleSaveQuickReport();
-            }}
-          />
-
-          <label htmlFor="f2">Proyek</label>
-          <select
-            id="f2"
-            value={modalProject}
-            onChange={(e) => setModalProject(e.target.value)}
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.name}>
-                {p.name}
-              </option>
-            ))}
-            {projects.length === 0 && (
-              <>
-                <option value="Rebranding Kopi Nusa">Rebranding Kopi Nusa</option>
-                <option value="Kampanye Ramadan">Kampanye Ramadan</option>
-                <option value="Website Studio Kaya">Website Studio Kaya</option>
-              </>
-            )}
-          </select>
-
-          <div style={{ marginTop: '14px', display: 'flex', justifyContent: 'flex-start' }}>
-            <button
-              type="button"
-              style={{
-                fontSize: '13px',
-                color: 'var(--lav-deep)',
-                fontWeight: 600,
-                background: 'none',
-                border: 0,
-                cursor: 'pointer',
-                padding: '4px 0',
-              }}
-              onClick={() => {
-                setIsCreateModalOpen(false);
-                onNavigate('create-report');
-              }}
-            >
-              Buka Formulir Lengkap &rarr;
-            </button>
-          </div>
-
-          <div className="acts">
-            <button
-              type="button"
-              className="ghost-b"
-              id="cancel"
-              onClick={() => setIsCreateModalOpen(false)}
-            >
-              Batal
-            </button>
-            <button
-              type="button"
-              className="cta"
-              id="save"
-              onClick={handleSaveQuickReport}
-              disabled={isSavingReport}
-            >
-              {isSavingReport ? 'Menyimpan...' : 'Simpan laporan'}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

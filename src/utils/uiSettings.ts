@@ -217,17 +217,13 @@ export const fetchUISettings = async (adminEmailParam?: string): Promise<UISetti
   // 1. Primary request: public GET /api/ui-settings.php without authentication restriction (Rule 5, 9, 10)
   try {
     const url = `${GLOBAL_UI_SETTINGS_API}?_t=${Date.now()}`;
-    const ctrl = new AbortController();
-    const tid = setTimeout(() => ctrl.abort(), 3000);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
       },
-      signal: ctrl.signal,
       cache: 'no-store',
     });
-    clearTimeout(tid);
 
     if (response.ok) {
       const res = await response.json().catch(() => null);
