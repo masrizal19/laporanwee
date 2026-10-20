@@ -29,7 +29,7 @@ interface ProfileViewProps {
 }
 
 const STAT_OPTIONS = ['KARYAWAN', 'MAGANG', 'PKL SISWA', 'PKL MAHASISWA'];
-const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'Videografer', 'Copywriter', 'Social Media'];
+const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'Videografer', 'Video Editor', 'Copywriter', 'Social Media'];
 
 // Generates pastel initials canvas data URL
 function generateInitialsAvatar(name: string): string {
