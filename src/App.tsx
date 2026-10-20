@@ -1770,18 +1770,26 @@ export function App() {
     );
   }
 
-  if (!user || currentPath === '/login' || currentPath === '/register' || currentPath === '/verify-email') {
-    const authInitial: 'login' | 'register' | 'verify' =
-      currentPath === '/register'
-        ? 'register'
-        : currentPath === '/verify-email'
-        ? 'verify'
-        : 'login';
+  if (!user && currentPath === '/register') {
+    return (
+      <>
+        <RegisterView
+          logoUrl={uiSettings?.logo_url}
+          onRegisterSuccess={() => {
+            addToast('Akun berhasil dibuat! Silakan masuk.');
+            navigateToPath('/login');
+          }}
+          onNavigateToLogin={() => navigateToPath('/login')}
+        />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
 
+  if (!user || currentPath === '/login') {
     return (
       <>
         <LoginView
-          initialScreen={authInitial}
           logoUrl={uiSettings?.logo_url}
           onLoginSuccess={(email, name, fullUser) => {
             clearReportCache();
@@ -1845,7 +1853,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className="app-shell-main main-container">
+      <main className="app-shell-main">
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -1859,7 +1867,6 @@ export function App() {
             onSelectProject={(id) => setSelectedProjectId(id)}
             onDeleteProject={handleDeleteProject}
             onAddToast={addToast}
-            onAddReport={handleAddReport}
           />
         )}
 
@@ -1988,8 +1995,8 @@ export function App() {
             projects={projects}
             reports={reports}
             onNavigate={handleNavigate}
-            onSelectProject={(id: string) => setSelectedProjectId(id)}
-            onSelectReport={(id: string) => setSelectedReportId(id)}
+            onSelectProject={(id) => setSelectedProjectId(id)}
+            onSelectReport={(id) => setSelectedReportId(id)}
             onAddToast={addToast}
             userEmail={user.email}
             userName={user.name}

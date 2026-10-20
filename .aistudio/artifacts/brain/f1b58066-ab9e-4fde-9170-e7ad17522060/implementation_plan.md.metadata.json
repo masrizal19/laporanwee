@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for polishing LaporanWee SPA layout to precisely match reference design and screenshots with sidebar rail, bento cards, and responsive web sizing.",
-  "updatedAt": "2026-10-20T07:15:11.498946179Z",
+  "summary": "Rencana perbaikan menyeluruh Pengaturan Profil: menambahkan tombol 'Simpan Profil' di header atas DAN di bawah kartu Informasi Profil, memperbaiki pengeditan baris profil (Nama, Email, Pekerjaan, Status) dengan tombol Terapkan & Batal, mengaktifkan modal Crop Foto dengan drag/zoom/preview dialog tambahan sebelum disimpan ke backend MySQL, serta sinkronisasi avatar real-time ke top bar.",
+  "updatedAt": "2026-10-19T09:24:17.558982191Z",
   "requestFeedback": true,
   "userFacing": true
 }

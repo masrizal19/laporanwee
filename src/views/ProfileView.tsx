@@ -195,8 +195,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         setStatus(inputStatus.trim());
         setOpenRow(null);
 
-        localStorage.setItem('lw_user_profile', JSON.stringify(payload));
-
         syncAuthenticatedUser({
           name: inputName.trim(),
           email: inputEmail.trim(),
@@ -215,36 +213,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           });
         }
 
-        const toastMsg =
-          res.message === 'Tersimpan di preview lokal' ||
-          res.message?.includes('preview') ||
-          res.message?.includes('sandbox')
-            ? 'Tersimpan di preview lokal'
-            : res.message || 'Profil berhasil disimpan.';
-        onAddToast(toastMsg);
+        onAddToast('Profil berhasil disimpan.');
       } else {
         throw new Error(res?.message || 'Gagal menyimpan profil');
       }
     } catch (err: any) {
-      console.warn('[ProfileView] Save error fallback to local storage:', err);
-      const payload = {
-        full_name: inputName.trim(),
-        name: inputName.trim(),
-        email: inputEmail.trim(),
-        profile_title: inputJob.trim(),
-        profile_location: inputStatus.trim(),
-        avatar_url: avatar,
-      };
-      localStorage.setItem('lw_user_profile', JSON.stringify(payload));
-      setName(inputName.trim());
-      setEmail(inputEmail.trim());
-      setJob(inputJob.trim());
-      setStatus(inputStatus.trim());
-      setOpenRow(null);
-
-      syncAuthenticatedUser(payload);
-      if (onUpdateUser) onUpdateUser(payload);
-      onAddToast('Tersimpan di preview lokal');
+      console.error('[ProfileView] Save error:', err);
+      onAddToast(err?.message || 'Gagal menyimpan profil ke server.');
     } finally {
       setIsSaving(false);
     }
@@ -376,40 +351,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         const blob = await (await fetch(dataUrl)).blob();
         const file = new File([blob], 'profile-avatar.jpg', { type: 'image/jpeg' });
 
+        const uploadRes = await profileService.uploadPhoto(file);
         let finalAvatarUrl = dataUrl;
-        let isLocalPreview = false;
 
-        try {
-          const uploadRes = await profileService.uploadPhoto(file);
-          if (uploadRes && uploadRes.success) {
-            if (uploadRes.data?.url && !uploadRes.data.url.startsWith('data:')) {
-              finalAvatarUrl = withAvatarCacheBust(uploadRes.data.url);
-            }
-            if (
-              uploadRes.message === 'Tersimpan di preview lokal' ||
-              uploadRes.message?.includes('preview') ||
-              uploadRes.message?.includes('sandbox')
-            ) {
-              isLocalPreview = true;
-            }
-          }
-        } catch (uploadErr) {
-          console.warn('[ProfileView] Upload failed, falling back to local base64:', uploadErr);
-          isLocalPreview = true;
+        if (uploadRes && uploadRes.success && uploadRes.data?.url) {
+          finalAvatarUrl = withAvatarCacheBust(uploadRes.data.url);
         }
 
-        // Simpan base64 foto langsung ke localStorage
-        localStorage.setItem('lw_user_avatar', finalAvatarUrl);
-        const existingProfile = localStorage.getItem('lw_user_profile');
-        if (existingProfile) {
-          try {
-            const p = JSON.parse(existingProfile);
-            p.avatar_url = finalAvatarUrl;
-            localStorage.setItem('lw_user_profile', JSON.stringify(p));
-          } catch (_) {}
-        }
-
-        // Perbarui tampilan UI seketika
         setAvatar(finalAvatarUrl);
         setIsModalOpen(false);
 
@@ -431,19 +379,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           });
         }
 
-        // Tampilkan notifikasi: 'Tersimpan di preview lokal'
-        onAddToast(isLocalPreview ? 'Tersimpan di preview lokal' : 'Foto profil berhasil diperbarui.');
+        onAddToast('Foto profil berhasil diperbarui.');
       }
     } catch (err: any) {
       console.error('[ProfileView] Photo save error:', err);
-      if (modalImageSrc) {
-        localStorage.setItem('lw_user_avatar', modalImageSrc);
-        setAvatar(modalImageSrc);
-        setIsModalOpen(false);
-        onAddToast('Tersimpan di preview lokal');
-      } else {
-        onAddToast('Gagal memproses foto profil.');
-      }
+      onAddToast('Gagal mengunggah foto profil.');
     } finally {
       setIsUploadingPhoto(false);
     }

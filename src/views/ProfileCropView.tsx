@@ -283,24 +283,9 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         return;
       }
 
-      let isLocalFallback = false;
-      let croppedFileName = 'profile-avatar.jpg';
-      let croppedUrl = rawImageSrc;
-
-      if (cropRes && cropRes.success) {
-        const cropData = cropRes.data || cropRes;
-        croppedFileName = cropData.file_name || cropData.crop_file || 'profile-avatar.jpg';
-        croppedUrl = cropData.crop_url || cropData.file_url || cropData.avatar_url || rawImageSrc;
-        if (
-          cropRes.message === 'Tersimpan di preview lokal' ||
-          cropRes.message?.includes('preview') ||
-          cropRes.message?.includes('sandbox')
-        ) {
-          isLocalFallback = true;
-        }
-      } else {
-        isLocalFallback = true;
-      }
+      const cropData = cropRes.data || cropRes;
+      const croppedFileName = cropData.file_name || cropData.crop_file;
+      const croppedUrl = cropData.crop_url || cropData.file_url || cropData.avatar_url;
 
       // Step 2: Save cropped result to profile with preserved metadata (POST /profile/save.php)
       const savePayload: any = {
@@ -309,7 +294,6 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         profile_location: profileMeta.profile_location,
         crop_file: croppedFileName,
         crop_url: croppedUrl,
-        avatar_url: croppedUrl,
         zoom: currentCrop.zoom,
         x: currentCrop.x,
         y: currentCrop.y,
@@ -318,82 +302,48 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
       const res = await profileService.saveProfile(savePayload);
       recordProfileSaveTimestamp();
 
-      const finalAvatar = croppedUrl;
-      localStorage.setItem('lw_user_avatar', finalAvatar);
-      localStorage.setItem('lw_user_profile', JSON.stringify({
-        ...profileMeta,
-        avatar_url: finalAvatar,
-      }));
+      if (res && res.success) {
+        onAddToast('Foto profil berhasil disimpan.');
+        const d = res.data || res;
+        const rawAvatar = extractAvatarFromResponse(res) || croppedUrl;
+        const freshAvatar = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : (d.avatar_url !== undefined ? d.avatar_url : null);
 
-      const toastMessage =
-        res?.message === 'Tersimpan di preview lokal' ||
-        res?.message?.includes('preview') ||
-        res?.message?.includes('sandbox') ||
-        isLocalFallback
-          ? 'Tersimpan di preview lokal'
-          : res?.message || 'Foto profil berhasil disimpan.';
-
-      onAddToast(toastMessage);
-
-      const d = res?.data || res || {};
-      const freshAvatar = finalAvatar ? withAvatarCacheBust(finalAvatar, d.updated_at || Date.now()) : null;
-
-      syncAuthenticatedUser({
-        avatar_url: freshAvatar,
-        ...(profileMeta.full_name ? { name: profileMeta.full_name } : {}),
-        ...(profileMeta.profile_title ? { profile_title: profileMeta.profile_title } : {}),
-        ...(profileMeta.profile_location ? { profile_location: profileMeta.profile_location } : {}),
-      });
-
-      if (onUpdateUser) {
-        onUpdateUser({
-          name: profileMeta.full_name,
-          email: userEmail,
-          profile_title: profileMeta.profile_title,
-          profile_location: profileMeta.profile_location,
-          avatar_url: freshAvatar,
-        });
-      }
-
-      window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', {
-        detail: {
-          avatar_url: freshAvatar,
-          full_name: profileMeta.full_name,
-          profile_title: profileMeta.profile_title,
-          profile_location: profileMeta.profile_location,
-        },
-      }));
-
-      onNavigate('profile');
-    } catch (err: any) {
-      console.warn('[ProfileCropView] Crop save fallback to local storage:', err);
-      if (rawImageSrc) {
-        localStorage.setItem('lw_user_avatar', rawImageSrc);
-        localStorage.setItem('lw_user_profile', JSON.stringify({
-          ...profileMeta,
-          avatar_url: rawImageSrc,
-        }));
         syncAuthenticatedUser({
-          avatar_url: rawImageSrc,
-          name: profileMeta.full_name,
-          profile_title: profileMeta.profile_title,
-          profile_location: profileMeta.profile_location,
+          avatar_url: freshAvatar,
+          ...(d.full_name ? { name: d.full_name } : {}),
+          ...(d.profile_title !== undefined ? { profile_title: d.profile_title } : (profileMeta.profile_title ? { profile_title: profileMeta.profile_title } : {})),
+          ...(d.profile_location !== undefined ? { profile_location: d.profile_location } : (profileMeta.profile_location ? { profile_location: profileMeta.profile_location } : {})),
         });
+
         if (onUpdateUser) {
           onUpdateUser({
-            name: profileMeta.full_name,
+            name: d.full_name || profileMeta.full_name,
             email: userEmail,
-            avatar_url: rawImageSrc,
-            profile_title: profileMeta.profile_title,
-            profile_location: profileMeta.profile_location,
+            profile_title: d.profile_title !== undefined ? d.profile_title : profileMeta.profile_title,
+            profile_location: d.profile_location !== undefined ? d.profile_location : profileMeta.profile_location,
+            avatar_url: freshAvatar,
           });
         }
-        onAddToast('Tersimpan di preview lokal');
+
+        window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', {
+          detail: {
+            id: d.id,
+            user_id: d.id || d.user_id,
+            avatar_url: freshAvatar,
+            full_name: d.full_name || profileMeta.full_name,
+            profile_title: d.profile_title !== undefined ? d.profile_title : profileMeta.profile_title,
+            profile_location: d.profile_location !== undefined ? d.profile_location : profileMeta.profile_location,
+          },
+        }));
+
         onNavigate('profile');
       } else {
-        onAddToast('Tersimpan di preview lokal');
-        onNavigate('profile');
+        const errorMsg = res?.message || 'Gagal menyimpan foto ke profil.';
+        onAddToast(`Gagal menyimpan foto: ${errorMsg}`);
       }
+    } catch (err: any) {
+      const errorMsg = err?.message || 'Kesalahan server';
+      onAddToast(`Gagal menyimpan foto: ${errorMsg}`);
     } finally {
       setIsSavingCrop(false);
     }

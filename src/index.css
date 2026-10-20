@@ -8353,8 +8353,8 @@ svg {
 .app-shell-main {
   position: relative;
   z-index: 1;
-  padding: 26px 34px 56px calc(var(--rail, 84px) + 48px);
-  max-width: 1560px;
+  padding: 24px 36px 60px calc(var(--rail, 84px) + 32px);
+  max-width: 1600px;
   margin: 0 auto;
   transition: padding 0.4s var(--ease);
   min-height: 100vh;
@@ -8364,21 +8364,22 @@ svg {
 .top-bar-shell {
   display: flex;
   align-items: center;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 20px;
   margin-bottom: 26px;
   width: 100%;
   box-sizing: border-box;
+  padding: 4px 6px;
 }
 
 .top-bar-shell .crumb {
-  font-weight: 500;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: 16px;
   color: var(--muted);
   flex: 1;
   letter-spacing: -0.01em;
+  margin-left: 10px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .top-actions {
