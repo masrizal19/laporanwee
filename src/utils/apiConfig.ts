@@ -95,12 +95,16 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, timeoutM
 }
 
 export const API_CONFIG = {
-  baseUrl: (import.meta.env.VITE_API_URL as string) || 'https://api-laporanwe.mkverse.my.id/api',
+  baseUrl: (import.meta.env.VITE_API_URL as string) || 'https://api.mkverse.my.id/api',
   timeout: 5000,
 
   getAuthToken(): string | null {
     try {
-      return localStorage.getItem(STORAGE_KEYS.TOKEN);
+      return (
+        localStorage.getItem(STORAGE_KEYS.TOKEN) ||
+        localStorage.getItem('auth_token') ||
+        localStorage.getItem('token')
+      );
     } catch {
       return null;
     }
@@ -109,25 +113,39 @@ export const API_CONFIG = {
   setAuthToken(token: string): void {
     try {
       localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+      localStorage.setItem('auth_token', token);
+      localStorage.setItem('token', token);
     } catch (_) {}
   },
 
   clearAuth(): void {
     try {
       localStorage.removeItem(STORAGE_KEYS.TOKEN);
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('token');
       localStorage.removeItem(STORAGE_KEYS.USER);
+      localStorage.removeItem('lw_profile_cache');
+      localStorage.removeItem('lw_user_profile');
     } catch (_) {}
   },
 
   getLocalUser(): UserProfileData {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.USER);
+      const data =
+        localStorage.getItem(STORAGE_KEYS.USER) ||
+        localStorage.getItem('lw_profile_cache') ||
+        localStorage.getItem('lw_user_profile');
       if (data) {
         const parsed = JSON.parse(data);
-        if (parsed && (parsed.email || parsed.name)) {
+        if (parsed && (parsed.email || parsed.name || parsed.full_name)) {
           return {
             ...DEFAULT_USER,
             ...parsed,
+            name: parsed.name || parsed.full_name || 'Admin',
+            full_name: parsed.full_name || parsed.name || 'Admin',
+            job: parsed.job || parsed.profile_title || 'VIDEO EDITOR',
+            status: parsed.status || parsed.profile_location || 'KARYAWAN',
+            avatar_url: parsed.avatar_url || localStorage.getItem('lw_avatar_cache') || null,
           };
         }
       }
@@ -143,8 +161,15 @@ export const API_CONFIG = {
         ...user,
         name: user.name || user.full_name || current.name,
         full_name: user.full_name || user.name || current.full_name,
+        job: user.job || user.profile_title || current.job,
+        status: user.status || user.profile_location || current.status,
       };
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(updated));
+      localStorage.setItem('lw_profile_cache', JSON.stringify(updated));
+      localStorage.setItem('lw_user_profile', JSON.stringify(updated));
+      if (updated.avatar_url) {
+        localStorage.setItem('lw_avatar_cache', updated.avatar_url);
+      }
       return updated;
     } catch (_) {
       return { ...DEFAULT_USER, ...user };
@@ -157,36 +182,43 @@ export const API_CONFIG = {
       const cleanEmail = email.trim().toLowerCase();
       const cleanPass = pass.trim();
 
-      // 1. Attempt backend HTTP request
-      try {
-        const url = `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/login.php`;
-        const res = await fetchWithTimeout(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify({ email: cleanEmail, password: cleanPass }),
-        }, API_CONFIG.timeout);
+      // 1. Attempt backend HTTP request to https://api.mkverse.my.id/api
+      const loginEndpoints = [
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/auth/login.php`,
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/login.php`,
+      ];
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data && (data.success || data.token)) {
-            const token = data.token || `tok_${Date.now()}`;
-            API_CONFIG.setAuthToken(token);
-            const userPayload: UserProfileData = {
-              id: data.user?.id || 1,
-              name: data.user?.full_name || data.user?.name || cleanEmail.split('@')[0],
-              full_name: data.user?.full_name || data.user?.name || cleanEmail.split('@')[0],
-              email: cleanEmail,
-              role: data.user?.role || 'Administrator',
-              status: data.user?.status || 'KARYAWAN',
-              job: data.user?.job || 'Art Director',
-              avatar_url: data.user?.avatar_url || null,
-            };
-            API_CONFIG.setLocalUser(userPayload);
-            return { success: true, user: userPayload, token, message: data.message || 'Login berhasil' };
+      for (const url of loginEndpoints) {
+        try {
+          const res = await fetchWithTimeout(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({ email: cleanEmail, password: cleanPass, pass: cleanPass }),
+          }, API_CONFIG.timeout);
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data && (data.success || data.token || data.user)) {
+              const token = data.token || `tok_${Date.now()}`;
+              API_CONFIG.setAuthToken(token);
+              const rawUser = data.user || data.data?.user || data.data || {};
+              const userPayload: UserProfileData = {
+                id: rawUser.id || 1,
+                name: rawUser.full_name || rawUser.name || 'RIZAL FADHILAH SARAGIH',
+                full_name: rawUser.full_name || rawUser.name || 'RIZAL FADHILAH SARAGIH',
+                email: rawUser.email || cleanEmail,
+                role: rawUser.role || 'VIDEO EDITOR',
+                status: rawUser.status || 'KARYAWAN',
+                job: rawUser.job || rawUser.profile_title || 'VIDEO EDITOR',
+                avatar_url: rawUser.avatar_url || rawUser.photo || localStorage.getItem('lw_avatar_cache') || null,
+              };
+              API_CONFIG.setLocalUser(userPayload);
+              return { success: true, user: userPayload, token, message: data.message || 'Login berhasil' };
+            }
           }
+        } catch (err) {
+          console.warn('[API_CONFIG] Endpoint unreachable:', url, err);
         }
-      } catch (err) {
-        console.warn('[API_CONFIG] Backend login unreachable, engaging offline fallback:', err);
       }
 
       // 2. Fallback: Check local credentials / demo accounts
@@ -200,8 +232,10 @@ export const API_CONFIG = {
         const resolvedUser: UserProfileData = {
           ...local,
           email: cleanEmail,
-          name: isDemo && !local.name ? 'Admin' : local.name || 'Admin',
-          full_name: isDemo && !local.full_name ? 'Admin' : local.full_name || 'Admin',
+          name: isDemo ? (local.name || 'RIZAL FADHILAH SARAGIH') : local.name || 'Admin',
+          full_name: isDemo ? (local.full_name || 'RIZAL FADHILAH SARAGIH') : local.full_name || 'Admin',
+          job: isDemo ? (local.job || 'VIDEO EDITOR') : local.job || 'Art Director',
+          status: isDemo ? (local.status || 'KARYAWAN') : local.status || 'KARYAWAN',
         };
         API_CONFIG.setLocalUser(resolvedUser);
         return { success: true, user: resolvedUser, token, message: 'Masuk berhasil (Sesi Lokal)' };
@@ -286,40 +320,44 @@ export const API_CONFIG = {
       const token = API_CONFIG.getAuthToken();
       const local = API_CONFIG.getLocalUser();
 
-      if (!token) return local;
+      const profileEndpoints = [
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile/get.php`,
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile.php`,
+      ];
 
-      try {
-        const url = `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile.php`;
-        const res = await fetchWithTimeout(url, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: 'application/json',
-          },
-        }, API_CONFIG.timeout);
+      for (const url of profileEndpoints) {
+        try {
+          const res = await fetchWithTimeout(url, {
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              Accept: 'application/json',
+            },
+          }, API_CONFIG.timeout);
 
-        if (res.ok) {
-          const data = await res.json();
-          if (data && data.success && data.data) {
-            const d = data.data;
-            const updated: UserProfileData = {
-              ...local,
-              id: d.id || local.id,
-              name: d.full_name || d.name || local.name,
-              full_name: d.full_name || d.name || local.full_name,
-              email: d.email || local.email,
-              role: d.role || local.role,
-              status: d.status || local.status,
-              job: d.job || d.profile_title || local.job,
-              avatar_url: d.avatar_url || local.avatar_url,
-              profile_title: d.profile_title || local.profile_title,
-              profile_location: d.profile_location || local.profile_location,
-            };
-            API_CONFIG.setLocalUser(updated);
-            return updated;
+          if (res.ok) {
+            const data = await res.json();
+            const d = data?.data || data;
+            if (d && (d.full_name || d.name || d.email)) {
+              const updated: UserProfileData = {
+                ...local,
+                id: d.id || local.id,
+                name: d.full_name || d.name || local.name,
+                full_name: d.full_name || d.name || local.full_name,
+                email: d.email || local.email,
+                role: d.role || local.role,
+                status: d.status || d.profile_location || local.status,
+                job: d.job || d.profile_title || local.job,
+                avatar_url: d.avatar_url || d.photo || local.avatar_url,
+                profile_title: d.profile_title || d.job || local.profile_title,
+                profile_location: d.profile_location || d.status || local.profile_location,
+              };
+              API_CONFIG.setLocalUser(updated);
+              return updated;
+            }
           }
+        } catch (err) {
+          console.warn('[API_CONFIG] Profile get notice:', url, err);
         }
-      } catch (err) {
-        console.warn('[API_CONFIG] Failed to fetch remote profile, using local cache:', err);
       }
 
       return local;
@@ -332,28 +370,40 @@ export const API_CONFIG = {
       // 2. Dispatch custom event for instant cross-component synchronization
       window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', { detail: saved }));
 
-      // 3. Try sending to backend in background
+      // 3. Try sending to backend in background (supports /profile/save.php and /profile.php)
       const token = API_CONFIG.getAuthToken();
-      if (token) {
+      const updateEndpoints = [
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile/save.php`,
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile.php`,
+      ];
+
+      for (const url of updateEndpoints) {
         try {
-          const url = `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile.php`;
-          await fetchWithTimeout(url, {
+          const res = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
             body: JSON.stringify({
-              full_name: saved.name || saved.full_name,
-              name: saved.name,
-              job: saved.job,
-              status: saved.status,
+              name: saved.name || saved.full_name,
+              full_name: saved.full_name || saved.name,
+              email: saved.email,
+              job: saved.job || saved.profile_title,
               profile_title: saved.job || saved.profile_title,
+              status: saved.status || saved.profile_location,
+              profile_location: saved.status || saved.profile_location,
+              role: saved.job || saved.role,
               avatar_url: saved.avatar_url,
+              photo: saved.avatar_url,
             }),
           }, API_CONFIG.timeout);
+
+          if (res.ok) {
+            break; // Succeeded
+          }
         } catch (err) {
-          console.warn('[API_CONFIG] Backend profile update deferred (local cache preserved):', err);
+          console.warn('[API_CONFIG] Backend profile update notice:', url, err);
         }
       }
 
@@ -378,17 +428,22 @@ export const API_CONFIG = {
       const current = API_CONFIG.getLocalUser();
       const updated = { ...current, avatar_url: finalDataUrl };
       API_CONFIG.setLocalUser(updated);
+      localStorage.setItem('lw_avatar_cache', finalDataUrl);
       window.dispatchEvent(new CustomEvent('laporanwee-profile-updated', { detail: updated }));
 
       // Try uploading to backend if possible
       const token = API_CONFIG.getAuthToken();
-      if (token) {
+      const uploadEndpoints = [
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile/upload.php`,
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile.php`,
+      ];
+
+      for (const url of uploadEndpoints) {
         try {
           const formData = new FormData();
           if (dataUrlOrFile instanceof File) {
             formData.append('avatar', dataUrlOrFile);
           } else {
-            // Convert data URL to Blob for multipart upload
             const arr = finalDataUrl.split(',');
             const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
             const bstr = atob(arr[1]);
@@ -402,29 +457,77 @@ export const API_CONFIG = {
           }
           formData.append('full_name', current.name);
 
-          const url = `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/profile.php`;
           const res = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
-              Authorization: `Bearer ${token}`,
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
             body: formData,
           }, API_CONFIG.timeout);
 
           if (res.ok) {
             const data = await res.json();
-            if (data?.data?.avatar_url) {
-              const remoteUrl = data.data.avatar_url;
+            if (data?.data?.avatar_url || data?.url) {
+              const remoteUrl = data?.data?.avatar_url || data?.url;
               API_CONFIG.setLocalUser({ ...updated, avatar_url: remoteUrl });
               return remoteUrl;
             }
+            break;
           }
         } catch (err) {
-          console.warn('[API_CONFIG] Remote photo upload notice, stored locally:', err);
+          console.warn('[API_CONFIG] Remote photo upload notice:', url, err);
         }
       }
 
       return finalDataUrl;
+    },
+  },
+
+  // Project operations synced to backend PHP
+  projects: {
+    async get(): Promise<any[]> {
+      const token = API_CONFIG.getAuthToken();
+      const endpoints = [
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/projects/get.php`,
+        `${API_CONFIG.baseUrl.replace(/\/+$/, '')}/projects/list.php`,
+      ];
+
+      for (const url of endpoints) {
+        try {
+          const res = await fetchWithTimeout(url, {
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              Accept: 'application/json',
+            },
+          }, API_CONFIG.timeout);
+
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.data && Array.isArray(data.data) ? data.data : null);
+            if (list && list.length > 0) {
+              localStorage.setItem('lw_projects_cache', JSON.stringify(list));
+              return list;
+            }
+          }
+        } catch (_) {}
+      }
+
+      const cached = localStorage.getItem('lw_projects_cache');
+      if (cached) {
+        try {
+          const p = JSON.parse(cached);
+          if (Array.isArray(p) && p.length > 0) return p;
+        } catch (_) {}
+      }
+
+      return [
+        { id: 1, title: 'Rebranding Kopi Nusa', desc: 'Identitas visual dan kemasan', status: 'On-Track', prog: 78, progress: 78, avatars: ['Ri', 'Di', '+3'], members: 3 },
+        { id: 2, title: 'Kampanye Ramadan', desc: 'Konten sosial media 30 hari', status: 'On-Track', prog: 62, progress: 62, avatars: ['Ri', 'Di', '+4'], members: 4 },
+        { id: 3, title: 'Website Studio Kaya', desc: 'Desain dan pengembangan landing page', status: 'Berisiko', prog: 34, progress: 34, avatars: ['Ri', 'Di', '+2'], members: 2 },
+        { id: 4, title: 'Video Profil Perusahaan', desc: 'Naskah, syuting, dan penyuntingan', status: 'On-Track', prog: 91, progress: 91, avatars: ['Ri', 'Di', '+3'], members: 3 },
+        { id: 5, title: 'Katalog Produk 2026', desc: 'Layout cetak dan digital', status: 'Berisiko', prog: 48, progress: 48, avatars: ['Ri', 'Di', '+2'], members: 2 },
+        { id: 6, title: 'Event Launching Q4', desc: 'Dekorasi, rundown, dan publikasi', status: 'On-Track', prog: 55, progress: 55, avatars: ['Ri', 'Di', '+5'], members: 5 },
+      ];
     },
   },
 };

@@ -19,9 +19,9 @@ import {
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
 let baseApi = rawEnvUrl.trim().replace(/\/+$/, '');
 
-// Ensure strictly official backend HTTPS host with /api
-if (!baseApi || !baseApi.startsWith('https://api-laporanwe.mkverse.my.id')) {
-  baseApi = 'https://api-laporanwe.mkverse.my.id/api';
+// Ensure official backend HTTPS host with /api (https://api.mkverse.my.id/api)
+if (!baseApi || (!baseApi.startsWith('https://api.mkverse.my.id') && !baseApi.startsWith('https://api-laporanwe.mkverse.my.id'))) {
+  baseApi = 'https://api.mkverse.my.id/api';
 }
 if (!baseApi.endsWith('/api')) {
   baseApi = `${baseApi}/api`;
@@ -31,8 +31,8 @@ export const API_BASE_URL = baseApi;
 
 /**
  * Normalizes file URLs to ensure valid, public HTTPS URLs pointing to
- * https://api-laporanwe.mkverse.my.id/uploads/daily-reports/...
- * Handles relative filenames, legacy api domain, and paths seamlessly.
+ * https://api.mkverse.my.id/uploads/...
+ * Handles relative filenames and paths seamlessly.
  */
 export const normalizeFileUrl = (rawUrl?: string): string => {
   if (!rawUrl || typeof rawUrl !== 'string') return '';
@@ -44,14 +44,15 @@ export const normalizeFileUrl = (rawUrl?: string): string => {
     return url;
   }
 
-  // Replace legacy domain if present
-  if (url.includes('api.mkverse.my.id')) {
-    url = url.replace('api.mkverse.my.id', 'api-laporanwe.mkverse.my.id');
-  }
-
   // Force HTTPS if pointing to official server
-  if (url.startsWith('http://api-laporanwe.mkverse.my.id')) {
+  if (url.startsWith('http://api.mkverse.my.id')) {
     url = url.replace('http://', 'https://');
+  }
+  if (url.startsWith('http://api-laporanwe.mkverse.my.id')) {
+    url = url.replace('http://api-laporanwe.mkverse.my.id', 'https://api.mkverse.my.id');
+  }
+  if (url.startsWith('https://api-laporanwe.mkverse.my.id')) {
+    url = url.replace('https://api-laporanwe.mkverse.my.id', 'https://api.mkverse.my.id');
   }
 
   // If already an absolute http/https URL pointing to an external or full host
@@ -61,15 +62,15 @@ export const normalizeFileUrl = (rawUrl?: string): string => {
 
   // If relative path starting with /uploads/
   if (url.startsWith('/uploads/')) {
-    return `https://api-laporanwe.mkverse.my.id${url}`;
+    return `https://api.mkverse.my.id${url}`;
   }
   if (url.startsWith('uploads/')) {
-    return `https://api-laporanwe.mkverse.my.id/${url}`;
+    return `https://api.mkverse.my.id/${url}`;
   }
 
   // If relative file name without leading slash (e.g. "photo.jpg" or "daily_123.jpg")
   const cleanName = url.replace(/^\/+/, '');
-  return `https://api-laporanwe.mkverse.my.id/uploads/daily-reports/${cleanName}`;
+  return `https://api.mkverse.my.id/uploads/daily-reports/${cleanName}`;
 };
 
 /**
@@ -180,17 +181,20 @@ export const syncAuthenticatedUser = (profileData: ProfileUpdatePayload) => {
 
 /**
  * Guarantees a clean absolute HTTPS URL to the official backend:
- * https://api-laporanwe.mkverse.my.id/api/...
+ * https://api.mkverse.my.id/api/...
  */
 export const buildApiUrl = (endpoint: string): string => {
   let clean = (endpoint || '').trim();
 
-  // If already pointing to the official backend API
-  if (clean.startsWith('https://api-laporanwe.mkverse.my.id/api/')) {
+  // If already pointing to official backend API
+  if (clean.startsWith('https://api.mkverse.my.id/api/')) {
     return clean.replace('/api/api/', '/api/');
   }
+  if (clean.startsWith('https://api-laporanwe.mkverse.my.id/api/')) {
+    return clean.replace('api-laporanwe.mkverse.my.id', 'api.mkverse.my.id').replace('/api/api/', '/api/');
+  }
 
-  // If pointing to a frontend or wrong domain (e.g. http://laporan.mkverse.my.id)
+  // If pointing to an external domain
   if (clean.startsWith('http://') || clean.startsWith('https://')) {
     try {
       const u = new URL(clean);
@@ -738,23 +742,65 @@ export const api = {
 // ==========================================
 export const projectService = {
   fetchProjects: async (): Promise<Project[]> => {
-    const res = await api.get('/projects/list.php');
-    if (!res || !Array.isArray(res.data)) {
-      return [];
+    let rawList: any[] | null = null;
+
+    // Try /projects/get.php first (matching attachment)
+    try {
+      const res = await api.get('/projects/get.php');
+      if (Array.isArray(res)) rawList = res;
+      else if (res && Array.isArray(res.data)) rawList = res.data;
+    } catch (_) {}
+
+    // Fallback to /projects/list.php
+    if (!rawList || rawList.length === 0) {
+      try {
+        const res = await api.get('/projects/list.php');
+        if (Array.isArray(res)) rawList = res;
+        else if (res && Array.isArray(res.data)) rawList = res.data;
+      } catch (_) {}
     }
 
-    return res.data.map((item: any): Project => {
+    // Fallback to local storage cache if available
+    if (!rawList || rawList.length === 0) {
+      try {
+        const cached = localStorage.getItem('lw_projects_cache') || localStorage.getItem('laporanwee_projects');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) rawList = parsed;
+        }
+      } catch (_) {}
+    }
+
+    // Default to INITIAL_PROJECTS from user specification
+    if (!rawList || rawList.length === 0) {
+      rawList = [
+        { id: 1, title: 'Rebranding Kopi Nusa', desc: 'Identitas visual dan kemasan', status: 'On-Track', progress: 78, avatars: ['Ri', 'Di', '+3'] },
+        { id: 2, title: 'Kampanye Ramadan', desc: 'Konten sosial media 30 hari', status: 'On-Track', progress: 62, avatars: ['Ri', 'Di', '+4'] },
+        { id: 3, title: 'Website Studio Kaya', desc: 'Desain dan pengembangan landing page', status: 'Berisiko', progress: 34, avatars: ['Ri', 'Di', '+2'] },
+        { id: 4, title: 'Video Profil Perusahaan', desc: 'Naskah, syuting, dan penyuntingan', status: 'On-Track', progress: 91, avatars: ['Ri', 'Di', '+3'] },
+        { id: 5, title: 'Katalog Produk 2026', desc: 'Layout cetak dan digital', status: 'Berisiko', progress: 48, avatars: ['Ri', 'Di', '+2'] },
+        { id: 6, title: 'Event Launching Q4', desc: 'Dekorasi, rundown, dan publikasi', status: 'On-Track', progress: 55, avatars: ['Ri', 'Di', '+5'] }
+      ];
+    }
+
+    try {
+      localStorage.setItem('lw_projects_cache', JSON.stringify(rawList));
+    } catch (_) {}
+
+    return rawList.map((item: any): Project => {
       const category = item.category || 'Creative';
       let cat = 'palette';
       if (category.toLowerCase().includes('photo')) cat = 'camera';
       else if (category.toLowerCase().includes('video')) cat = 'video';
       else if (category.toLowerCase().includes('code') || category.toLowerCase().includes('dev')) cat = 'sparkle';
 
-      const teamList = Array.isArray(item.team)
+      const teamList = Array.isArray(item.avatars)
+        ? item.avatars
+        : Array.isArray(item.team)
         ? item.team
         : typeof item.team === 'string' && item.team.trim()
         ? item.team.split(',').map((s: string) => s.trim())
-        : (item.created_by ? [item.created_by] : []);
+        : (item.created_by ? [item.created_by] : ['Ri', 'Di']);
 
       return {
         id: String(item.id),
@@ -763,13 +809,13 @@ export const projectService = {
         cat,
         catLabel: category,
         category,
-        desc: item.description || '',
-        description: item.description || '',
-        progress: Number(item.progress) || 0,
+        desc: item.desc || item.description || '',
+        description: item.desc || item.description || '',
+        progress: Number(item.progress || item.prog) || 0,
         team: teamList,
-        due: item.deadline ? item.deadline.slice(0, 10) : '2026-10-20',
-        deadline: item.deadline || '',
-        status: item.status || 'Active',
+        due: item.deadline ? item.deadline.slice(0, 10) : (item.due || '2026-10-31'),
+        deadline: item.deadline || item.due || '',
+        status: item.status || 'On-Track',
         cover_url: item.cover_url || null,
         thumbnail_url: item.cover_url || undefined,
         created_by: item.created_by || '',
@@ -1870,16 +1916,22 @@ export const getAbsoluteAvatarUrl = (img?: string | null, _userName?: string): s
   if (finalUrl.startsWith('data:') || finalUrl.startsWith('blob:')) {
     return finalUrl;
   }
-  if (finalUrl.startsWith('http://api-laporanwe.mkverse.my.id')) {
+  if (finalUrl.startsWith('http://api.mkverse.my.id')) {
     finalUrl = finalUrl.replace('http://', 'https://');
+  }
+  if (finalUrl.startsWith('http://api-laporanwe.mkverse.my.id')) {
+    finalUrl = finalUrl.replace('http://api-laporanwe.mkverse.my.id', 'https://api.mkverse.my.id');
+  }
+  if (finalUrl.startsWith('https://api-laporanwe.mkverse.my.id')) {
+    finalUrl = finalUrl.replace('https://api-laporanwe.mkverse.my.id', 'https://api.mkverse.my.id');
   }
   if (finalUrl.startsWith('http://') || finalUrl.startsWith('https://')) {
     return finalUrl;
   }
   if (finalUrl.startsWith('/')) {
-    return `https://api-laporanwe.mkverse.my.id${finalUrl}`;
+    return `https://api.mkverse.my.id${finalUrl}`;
   }
-  return `https://api-laporanwe.mkverse.my.id/${finalUrl}`;
+  return `https://api.mkverse.my.id/${finalUrl}`;
 };
 
 export const teamService = {

@@ -11,7 +11,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 
 $email = isset($input['email']) ? trim($input['email']) : '';
-$password = isset($input['password']) ? trim($input['password']) : '';
+$password = isset($input['password']) ? trim($input['password']) : (isset($input['pass']) ? trim($input['pass']) : '');
 
 if (empty($email) || empty($password)) {
     response(false, 'Email dan password wajib diisi.', [], 400);
@@ -40,18 +40,36 @@ try {
     // Generate a simple secure token for the session
     $token = bin2hex(random_bytes(32));
 
+    try {
+        $hashedToken = hash('sha256', $token);
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+30 days'));
+        $ins = $pdo->prepare("INSERT INTO auth_tokens (user_id, token_hash, expires_at) VALUES (:user_id, :token_hash, :expires_at)");
+        $ins->execute([
+            'user_id' => $user['id'],
+            'token_hash' => $hashedToken,
+            'expires_at' => $expiresAt
+        ]);
+    } catch (Exception $tokenErr) {
+        // Non-fatal if table not created
+    }
+
     // Prepare clean user response payload as requested
     $userPayload = [
         'id' => (int)$user['id'],
         'full_name' => $user['full_name'],
         'email' => $user['email'],
         'role' => $user['role'],
-        'status' => $user['status']
+        'status' => $user['status'],
+        'avatar_url' => $user['avatar_url'] ?? null
     ];
 
     response(true, 'Login berhasil.', [
         'token' => $token,
-        'user' => $userPayload
+        'user' => $userPayload,
+        'data' => [
+            'token' => $token,
+            'user' => $userPayload
+        ]
     ], 200);
 
 } catch (Exception $e) {
