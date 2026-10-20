@@ -1,37 +1,39 @@
-# Implementation Plan - Perbaikan Total Pengaturan Profil, Edit Profil, Crop Foto, & Simpan Data v5.0
+# Rencana Penyelarasan Pengaturan Profil Sesuai Gambar Referensi
 
-Memperbaiki seluruh fungsi Pengaturan Profil di `ProfileView.tsx` dan `src/profile-edit.css` agar pengguna dapat mengedit field profil, memotong (crop) foto, mengunggah foto baru dengan dialog pratinjau tambahan sebelum simpan, serta menyediakan tombol "Simpan Profil" yang selalu terlihat di header atas DAN di bagian bawah kartu Informasi Profil.
-
----
-
-## 1. Rencana Perbaikan pada `ProfileView.tsx` & `src/profile-edit.css`
-
-1. **Tombol "Simpan Profil" Ganda (Header Atas & Bawah Kartu)**:
-   - Menyediakan tombol "Simpan Profil" utama di baris header atas (`.top`).
-   - Menambahkan tombol "Simpan Semua Perubahan Profil" sekunder di bagian bawah kartu Informasi Profil (`.card.c12`), sehingga pengguna tidak perlu menggulir ke atas untuk menyimpan.
-
-2. **Pengeditan Baris Informasi Profil (`.prow`)**:
-   - Menyempurnakan setiap baris expandable (Nama, Email, Pekerjaan, Status) dengan tombol "Terapkan" (`btn dark sm`) dan "Batal" (`btn soft sm`).
-   - Ketika "Terapkan" diklik, nilai input otomatis tersimpan ke state lokal, menandai status *dirty* (`Perubahan belum disimpan`), dan menutup baris.
-
-3. **Modal Crop Foto & Dialog Pratinjau Tambahan**:
-   - **Modal Crop Utama**: Memperbaiki kanvas crop foto (drag/pan pointer events, slider zoom 100%–300%, tombol "Pilih Foto Baru", dan "Reset").
-   - **Dialog Pratinjau Foto Tambahan**: Saat pengguna menekan "Simpan Foto" di modal crop, sistem akan menampilkan dialog pratinjau hasil potongan foto (*Cropped Preview Modal*) terlebih dahulu dengan tombol "Ganti / Edit Ulang" dan "Konfirmasi & Simpan ke Server".
-   - Setelah dikonfirmasi, foto dikirim ke backend `POST /api/profile/upload.php` via `FormData` dan `profileService.uploadPhoto`, lalu avatar di Top Bar header dan kartu profil langsung ter-update secara real-time tanpa refresh browser.
+Berdasarkan jawaban klarifikasi dan gambar referensi yang dilampirkan (`image_b1c16dc8.png`):
+1. **Tampilan di Layout Utama**: Halaman profil tetap berada di dalam tata letak dashboard utama bersama navigasi rail/sidebar.
+2. **Top Bar Header Profil**: Mengaktifkan toggle switch tema (Light/Dark dengan sliding knob) dan tombol *Simpan Profil* di bagian header atas profil persis seperti di gambar.
 
 ---
 
-## 2. Langkah Implementasi
+### Tahapan Pengerjaan
 
-1. **Langkah 1**: Perbarui `src/profile-edit.css` dengan gaya dialog pratinjau foto dan tombol simpan profil bawah.
-2. **Langkah 2**: Refaktor `src/views/ProfileView.tsx` untuk menyematkan tombol simpan bawah, tombol Terapkan/Batal pada baris informasi, serta dialog pratinjau foto tambahan sebelum simpan.
-3. **Langkah 3**: Jalankan `compile_applet` dan `lint_applet` untuk memverifikasi build lulus 100% tanpa error TypeScript.
+#### 1. Header Profil & Toggle Tema (Sesuai Gambar)
+- Memperbarui komponen header pada `ProfileView.tsx` agar memiliki:
+  - Brand logo `LaporanWee` dengan ikon dan aksen warna lavender.
+  - Komponen switch tema `.theme` (tombol *Terang* dan *Gelap* dengan animasi geser `.knob`).
+  - Tombol `.btn.dark` bertuliskan **Simpan Profil** dengan ikon centang dan status *loading spinner*.
+- Menghubungkan switch tema dengan pengaturan tema sistem (`document.documentElement.dataset.theme`) dan penyimpanan `localStorage` (*zero-flash*).
 
----
+#### 2. Penyelarasan Kartu Profil (Zero-Distortion)
+- **Kartu Kiri (Foto Profil)**:
+  - Lingkaran ring gradien SVG dengan label persentase (misal `40%`).
+  - Inisial avatar bergradasi pastel (jika belum ada foto custom) atau foto custom tersimpan.
+  - Tombol pena edit foto berwarna *lime green* (`.pen`).
+  - Judul `Foto Profil`, nama pengguna, teks deskripsi sub, serta *chips* ringkasan (`Profil 40% lengkap`, pekerjaan, status).
+  - Tombol `Ubah Foto` untuk membuka modal editor crop.
+- **Kartu Kanan (Informasi Profil)**:
+  - Header *Pengaturan*, judul *Informasi Profil*, subjudul, dan indikator *dirty state* jika ada perubahan.
+  - Input field *Name* dan *Email* dengan floating label dan validasi error.
+  - Input *Pekerjaan* beserta baris chip pilihan cepat: `Art Director`, `Desainer Grafis`, `Videografer`, `Copywriter`, `Social Media`.
+  - Grup *STATUS* dengan radio chip pilihan: `KARYAWAN`, `MAGANG`, `PKL SISWA`, `PKL MAHASISWA`.
+  - Tombol aksi bawah: `Batalkan` dan `Simpan Profil`.
 
-## 3. Rencana Pengujian (Verification Plan)
+#### 3. Sinkronisasi Data & Backend API
+- Mengirim pembaruan nama, email, pekerjaan, dan status ke backend riil: `https://api-laporanwe.mkverse.my.id/api/profile/save.php` dan `update.php`.
+- Sinkronisasi instan ke state pengguna di `App.tsx` dan `localStorage` (*zero visual lag*).
+- Modal crop foto profil tetap berjalan penuh dengan dukungan geser/drag, zoom slider, tombol putar & balik, serta upload ke `upload.php`.
 
-- **Uji Tombol Simpan Profil**: Pastikan tombol "Simpan Profil" ada di header atas DAN di bagian bawah kartu Informasi Profil, dan keduanya dapat menyimpan data ke backend.
-- **Uji Edit Field Baris**: Buka baris Nama/Email/Pekerjaan/Status, ubah isi, klik "Terapkan", dan verifikasi teks langsung berubah serta indikator *dirty* aktif.
-- **Uji Crop & Pratinjau Foto**: Klik ikon pensil foto, pilih foto baru, atur zoom & posisi, klik "Simpan Foto", verifikasi dialog pratinjau foto tambahan muncul, lalu klik "Konfirmasi & Simpan" untuk menyimpan foto.
-- **Uji Kompilasi**: `compile_applet` dan `lint_applet` berhasil.
+#### 4. Verifikasi & Pengujian
+- Menjalankan `compile_applet` dan `lint_applet` untuk memastikan kode bebas dari kesalahan tipe data atau error sintaks.
+- Memastikan transisi tema berjalan lancar (60 FPS) tanpa merusak tampilan halaman lainnya.

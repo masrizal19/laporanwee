@@ -99,6 +99,26 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [isPhotoSaving, setIsPhotoSaving] = useState<boolean>(false);
   const [isPopActive, setIsPopActive] = useState<boolean>(false);
 
+  // Theme Mode State
+  const [themeMode, setThemeMode] = useState<'light' | 'dark'>(() => {
+    try {
+      const saved = localStorage.getItem('laporanwee_theme') || localStorage.getItem('theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+    } catch (_) {
+      return 'light';
+    }
+  });
+
+  const handleToggleTheme = (mode: 'light' | 'dark') => {
+    setThemeMode(mode);
+    document.documentElement.dataset.theme = mode;
+    try {
+      localStorage.setItem('laporanwee_theme', mode);
+      localStorage.setItem('theme', mode);
+    } catch (_) {}
+  };
+
   // Modal / Crop Editor States
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [modalImageSrc, setModalImageSrc] = useState<string>('');
@@ -693,7 +713,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     <>
       {/* Profile Top Bar */}
       <header className="profile-bar">
-        <div className="brand">
+        <div
+          className="brand"
+          onClick={() => onNavigate('dashboard')}
+          role="button"
+          tabIndex={0}
+          style={{ cursor: 'pointer' }}
+          title="Kembali ke Dashboard"
+        >
           <b>
             <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
               <path d="M5 13c3-6 11-6 14 0M8 17c2-3 6-3 8 0" />
@@ -704,6 +731,36 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </span>
         </div>
         <div className="sp1" />
+
+        {/* Theme Switcher Sliding Pill */}
+        <div className="theme" role="group" aria-label="Tema">
+          <div className="knob" />
+          <button
+            type="button"
+            data-t="light"
+            onClick={() => handleToggleTheme('light')}
+            aria-label="Terang"
+            title="Mode Terang"
+            className={themeMode === 'light' ? 'active' : ''}
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            data-t="dark"
+            onClick={() => handleToggleTheme('dark')}
+            aria-label="Gelap"
+            title="Mode Gelap"
+            className={themeMode === 'dark' ? 'active' : ''}
+          >
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z" />
+            </svg>
+          </button>
+        </div>
 
         {/* Top Simpan Profil Button */}
         <button

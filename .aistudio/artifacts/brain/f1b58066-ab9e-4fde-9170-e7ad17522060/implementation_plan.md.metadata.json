@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana perbaikan menyeluruh Pengaturan Profil: menambahkan tombol 'Simpan Profil' di header atas DAN di bawah kartu Informasi Profil, memperbaiki pengeditan baris profil (Nama, Email, Pekerjaan, Status) dengan tombol Terapkan & Batal, mengaktifkan modal Crop Foto dengan drag/zoom/preview dialog tambahan sebelum disimpan ke backend MySQL, serta sinkronisasi avatar real-time ke top bar.",
-  "updatedAt": "2026-10-19T09:24:17.558982191Z",
+  "summary": "Rencana implementasi penyelarasan tampilan Pengaturan Profil sesuai gambar referensi: mengintegrasikan top bar profil dengan toggle tema Light/Dark & tombol Simpan Profil, menyelaraskan layout kartu informasi profil dan foto profil di dalam dashboard utama dengan sidebar, serta menjaga sinkronisasi backend dan interaksi crop.",
+  "updatedAt": "2026-10-20T01:18:56.455414634Z",
   "requestFeedback": true,
   "userFacing": true
 }
