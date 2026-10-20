@@ -1,0 +1,27 @@
+/* ❌ HINDARI: Properti yang mengunci layar dan memotong konten */
+body, .main-container {
+  height: 100vh;             /* Mengunci tinggi kaku */
+  overflow: hidden;           /* Menyembunyikan form jika melebihi layar */
+}
+
+.profile-layout {
+  display: flex;
+  width: 100%;
+  max-width: 1200px;         /* Terlalu sempit untuk layar lebar */
+}
+
+/*  GUNAKAN: Tata letak dinamis dan adaptif */
+body, .main-container {
+  min-height: 100vh;          /* Fleksibel mengikuti isi konten */
+  overflow-y: auto;           /* Memungkinkan scrolling jika form panjang */
+  display: flex;
+}
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: 360px 1fr; /* Kolom profil fixed, kolom pengaturan mengisi sisa ruang */
+  gap: 2rem;
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+}
