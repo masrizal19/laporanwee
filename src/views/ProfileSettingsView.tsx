@@ -13,7 +13,7 @@ interface ProfileSettingsViewProps {
 
 const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
 const STAT_OPTIONS = ['KARYAWAN', 'MAGANG', 'PKL SISWA', 'PKL MAHASISWA'];
-const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'VIDEO EDITOR', 'Videografer', 'Copywriter', 'Social Media'];
+const JOB_OPTIONS = ['Fotografer', 'Desainer Grafis', 'Editor', 'Videografer', 'Copywriter', 'Social Media Specialist'];
 
 export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddToast, onUpdateUser }) => {
   const [profileId, setProfileId] = useState<number | string>(1);
