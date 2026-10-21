@@ -130,6 +130,14 @@ export const Icon: React.FC<{
         </>,
         1.9
       );
+    case 'user':
+      return renderStroke(
+        <>
+          <circle cx="12" cy="7" r="4" />
+          <path d="M5.5 21v-2a4 4 0 0 1 4-4h5a4 4 0 0 1 4 4v2" />
+        </>,
+        2
+      );
     case 'code':
       return renderStroke(
         <path d="M8 6L2 12l6 6M16 6l6 6-6 6" />,

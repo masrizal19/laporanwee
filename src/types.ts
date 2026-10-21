@@ -9,10 +9,12 @@ export type ViewType =
   | 'report-detail'
   | 'create-report'
   | 'profile'
+  | 'profil'
   | 'profile-crop'
   | 'user-profile'
   | 'analytics'
   | 'ui-settings'
+  | 'ui_settings'
   | 'export-laporan'
   | 'edit-laporan'
   | 'social-media';

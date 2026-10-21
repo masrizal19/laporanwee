@@ -8237,6 +8237,12 @@ svg {
   flex-direction: column;
   gap: 6px;
   flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+.rail .nav::-webkit-scrollbar {
+  display: none;
 }
 
 .rail .pill {

@@ -58,6 +58,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'team', label: 'Tim', icon: 'users' },
     { view: 'calendar', label: 'Kalender', icon: 'calendar' },
     { view: 'analytics', label: 'Analitik', icon: 'chart' },
+    { view: 'profil', label: 'Pengaturan Profil', icon: 'user' },
+    { view: 'ui_settings', label: 'UI Setting', icon: 'sliders' },
   ];
 
   // Compute active nav index for the sliding pill
@@ -65,6 +67,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (currentView === item.view) return true;
     if (item.view === 'projects' && currentView === 'project-detail') return true;
     if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
+    if (item.view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
+    if (item.view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
     return false;
   });
 
@@ -73,6 +77,8 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (currentView === item.view) return true;
     if (item.view === 'projects' && currentView === 'project-detail') return true;
     if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
+    if (item.view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
+    if (item.view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
     return false;
   });
   const breadcrumbTitle =
@@ -82,6 +88,10 @@ export const Navbar: React.FC<NavbarProps> = ({
       ? 'Detail Laporan'
       : currentView === 'project-detail'
       ? 'Detail Proyek'
+      : currentView === 'profil' || currentView === 'profile'
+      ? 'Pengaturan Profil'
+      : currentView === 'ui_settings' || currentView === 'ui-settings'
+      ? 'UI Setting'
       : currentNav?.label || 'Dashboard';
 
   // Compute User Initials

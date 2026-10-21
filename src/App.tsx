@@ -32,6 +32,8 @@ import { UserProfileView } from './views/UserProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SocialMediaView } from './views/SocialMediaView';
 import { AdminUISettingsView } from './views/AdminUISettingsView';
+import { ProfileSettingsView } from './views/ProfileSettingsView';
+import { UiSettingsView } from './views/UiSettingsView';
 import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 
@@ -394,12 +396,13 @@ export function App() {
     '/analitik': 'analytics',
     '/analitik/exporlaporan': 'export-laporan',
     '/analitik/editlaporan': 'edit-laporan',
-    '/admin/ui-settings': 'ui-settings',
-    '/ui-settings': 'ui-settings',
+    '/admin/ui-settings': 'ui_settings',
+    '/ui-settings': 'ui_settings',
+    '/ui_settings': 'ui_settings',
     '/sosial-media': 'social-media',
     '/social-media': 'social-media',
-    '/profil': 'profile',
-    '/profile': 'profile',
+    '/profil': 'profil',
+    '/profile': 'profil',
     '/profil/crop': 'profile-crop',
     '/profil/user': 'user-profile',
   };
@@ -415,11 +418,13 @@ export function App() {
     'report-detail': '/laporan',
     'create-report': '/laporan',
     'profile': '/profil',
+    'profil': '/profil',
     'profile-crop': '/profil/crop',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
     'social-media': '/sosial-media',
-    'ui-settings': '/admin/ui-settings',
+    'ui-settings': '/ui-settings',
+    'ui_settings': '/ui-settings',
     'export-laporan': '/analitik/exporlaporan',
     'edit-laporan': '/analitik/editlaporan',
   };
@@ -2066,15 +2071,35 @@ export function App() {
           />
         )}
 
-        {currentView === 'ui-settings' && (
-          <AdminUISettingsView
-            onNavigate={handleNavigate}
-            onAddToast={addToast}
-            userEmail={user.email}
+        {(currentView === 'profil' || currentView === 'profile') && (
+          <ProfileSettingsView
             userName={user.name}
-            onSettingsUpdated={(newSettings) => {
-              setUiSettings(newSettings);
+            userEmail={user.email}
+            userRole={user.role}
+            userStatus={user.status}
+            avatarUrl={user.avatar_url}
+            onAddToast={addToast}
+            onUpdateUser={(updated) => {
+              setUser((prev) => {
+                if (!prev) return null;
+                const updatedUser: AuthUser = {
+                  ...prev,
+                  email: updated.email,
+                  name: updated.name,
+                  full_name: updated.name,
+                  status: updated.status !== undefined ? updated.status : prev.status,
+                  avatar_url: updated.avatar_url !== undefined ? updated.avatar_url : prev.avatar_url,
+                };
+                setStoredUser(updatedUser);
+                return updatedUser;
+              });
             }}
+          />
+        )}
+
+        {(currentView === 'ui_settings' || currentView === 'ui-settings') && (
+          <UiSettingsView
+            onAddToast={addToast}
           />
         )}
 
