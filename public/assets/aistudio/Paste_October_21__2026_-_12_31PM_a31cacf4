@@ -1,0 +1,704 @@
+AUDIT & ROMBAK TOTAL UI PENGATURAN PROFIL & MODAL EDIT FOTO (LAPORANWEE v5.0)
+
+TUJUAN:
+Perbaiki bug modal freeze saat klik "Ubah Foto", lalu rombak tampilan kartu profil kiri dan modal crop foto agar 100% presisi dengan desain referensi yang diberikan:
+1. Kartu Profil Kiri: Desain lingkaran foto dengan badge persentase 40% di puncak atas, inisial gradien, tombol pensil hijau lime di pojok kanan bawah, 3 tag chips, dan tombol pill hitam "Ubah Foto".
+2. Modal Edit Foto: Dialog crop foto dengan 3 lingkaran pratinjau (L, M, S), tombol putar/balik, slider zoom (- / +), slider kiri-kanan (< / >), slider atas-bawah (^ / v), tombol "Pilih Foto Baru", serta tombol "Reset" dan "Simpan Foto".
+3. Form Informasi Profil Kanan: Pilihan pekerjaan (Art Director, Desainer Grafis, VIDEO EDITOR, dll.), status (Karyawan, Magang, PKL Siswa, PKL Mahasiswa), validasi input, dan sinkronisasi ke backend PHP API.
+
+---
+
+### KODE UTUH (HTML, CSS, & JAVASCRIPT TERINTEGRASI BACKEND)
+
+Ganti seluruh komponen tampilan profil dengan kode lengkap di bawah ini:
+
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LaporanWee — Pengaturan Profil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg1:#e6e5ec;--bg2:#f1f0f5;--ink:#1f1d2b;--muted:#8b8898;--glass:rgba(255,255,255,.62);--glass-solid:#ffffff;
+  --line:rgba(31,29,43,.08);--dark:#23212e;--on-dark:#fff;--lime:#d4ee6b;--lime-soft:#e9f5b8;--lav:#d9d3f5;--lav-deep:#8f7fe0;
+  --bad:#ef4444;--ok:#22c55e;--shadow:0 24px 48px -24px rgba(60,50,110,.18);
+  --ease:cubic-bezier(.22,1,.36,1);--spring:cubic-bezier(.34,1.56,.64,1);
+}
+[data-theme=dark]{
+  --bg1:#14131b;--bg2:#1b1a24;--ink:#f2f0fa;--muted:#8d8aa0;--glass:rgba(40,38,54,.6);--glass-solid:#262436;
+  --line:rgba(255,255,255,.08);--dark:#f2f0fa;--on-dark:#1f1d2b;--lime-soft:rgba(212,238,107,.18);--lav:#3b3560;
+  --shadow:0 26px 50px -24px rgba(0,0,0,.6);
+}
+*{box-sizing:border-box;margin:0}
+body{font-family:'Outfit',system-ui,sans-serif;color:var(--ink);background:linear-gradient(135deg,var(--bg1),var(--bg2));min-height:100vh;padding:24px 16px 60px}
+button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
+svg{display:block}
+
+/* Layout Grid */
+.wrap{width:min(1120px,100%);margin:0 auto;display:grid;grid-template-columns:360px 1fr;gap:24px;align-items:start}
+.card{background:var(--glass-solid);border:1px solid var(--line);border-radius:32px;padding:28px 24px;box-shadow:var(--shadow)}
+
+/* 1. KARTU FOTO PROFIL KIRI (SESUAI GAMBAR REFERENSI 1) */
+.pc{text-align:center;display:flex;flex-direction:column;align-items:center}
+.pwrap{position:relative;width:210px;height:210px;margin:0 auto 20px}
+.pr{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.pr circle{fill:none;stroke-width:5;stroke-linecap:round}
+.pr .a{stroke:var(--line)}
+.pr .b{stroke:url(#pg);stroke-dasharray:553;stroke-dashoffset:331;transition:stroke-dashoffset 1.2s var(--ease)}
+.pct{position:absolute;left:50%;top:-10px;transform:translateX(-50%);padding:4px 14px;border-radius:999px;background:var(--dark);color:var(--on-dark);font-size:12px;font-weight:600;z-index:2}
+.pimg{position:absolute;inset:16px;border-radius:50%;overflow:hidden;background:linear-gradient(135deg,#cfc6f4,#e3ddfa 55%,#d4ee6b);box-shadow:0 18px 36px -14px rgba(60,50,110,.35);cursor:pointer}
+.pimg img{width:100%;height:100%;object-fit:cover;display:block}
+.pimg .init-text{width:100%;height:100%;display:grid;place-items:center;font-size:74px;font-weight:600;color:#2a2440}
+.pen{position:absolute;right:8px;bottom:12px;width:44px;height:44px;border-radius:50%;background:var(--lime);color:#23250a;display:grid;place-items:center;box-shadow:0 8px 18px -4px rgba(0,0,0,.3);transition:transform .3s var(--spring)}
+.pen:hover{transform:scale(1.12)}
+.pen svg{width:18px;height:18px;stroke:currentColor}
+
+.eyebrow{font-size:12px;letter-spacing:.12em;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:4px}
+.pc h1{font-size:28px;font-weight:600;letter-spacing:-.03em;margin-bottom:8px}
+.sub{color:var(--muted);font-size:13.5px;line-height:1.5;max-width:32ch}
+.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:18px 0 24px}
+.chip{padding:8px 16px;border-radius:999px;font-size:12.5px;font-weight:600;background:var(--glass-solid);border:1px solid var(--line);color:var(--ink)}
+.chip.lime{background:var(--lime-soft);border-color:transparent;color:#2a3308}
+.chip.lav{background:var(--lav);border-color:transparent;color:#35276c}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;height:50px;border-radius:999px;font-weight:600;font-size:14.5px;transition:all .3s var(--ease);width:100%}
+.btn.dark{background:var(--dark);color:var(--on-dark);box-shadow:0 12px 24px -10px rgba(35,33,46,.5)}
+.btn.dark:hover{transform:translateY(-2px);box-shadow:0 16px 28px -10px rgba(35,33,46,.65)}
+.btn.soft{background:transparent;border:1.5px solid var(--line);color:var(--ink)}
+.btn.soft:hover{background:var(--glass)}
+
+/* 2. FORM KANAN */
+.fh{margin-bottom:24px}
+.fh h2{font-size:24px;font-weight:600;margin-bottom:4px}
+.f{margin-bottom:16px}
+.f label{display:block;font-size:13px;font-weight:600;color:var(--muted);margin-bottom:6px}
+.f input{width:100%;height:52px;border-radius:18px;border:1.5px solid var(--line);background:var(--glass);padding:0 18px;font:inherit;font-size:15px;color:var(--ink);outline:0;transition:all .3s}
+.f input:focus{border-color:var(--lav-deep);box-shadow:0 0 0 4px rgba(143,127,224,.18)}
+.gl{font-size:12.5px;font-weight:700;letter-spacing:.08em;color:var(--muted);margin:24px 0 10px;text-transform:uppercase}
+.opts{display:flex;gap:8px;flex-wrap:wrap}
+.opt{padding:10px 18px;border-radius:999px;font-size:13.5px;font-weight:500;background:var(--glass);border:1.5px solid var(--line);transition:all .25s var(--ease)}
+.opt:hover{transform:translateY(-2px)}
+.opt.on{background:var(--lime);border-color:var(--lime);color:#23250a;font-weight:600}
+.fa{display:flex;gap:12px;justify-content:flex-end;margin-top:28px;padding-top:20px;border-top:1px solid var(--line)}
+
+/* 3. MODAL EDIT FOTO PROFIL (SESUAI GAMBAR REFERENSI 2) */
+.ov{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;background:rgba(30,26,50,.45);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);opacity:0;pointer-events:none;padding:16px;transition:opacity .35s var(--ease)}
+.ov.show{opacity:1;pointer-events:auto}
+.modal{width:min(520px,100%);border-radius:36px;background:var(--glass-solid);border:1px solid var(--line);box-shadow:0 30px 70px -20px rgba(0,0,0,.4);padding:30px;transform:translateY(24px) scale(.95);transition:all .4s var(--spring)}
+.ov.show .modal{transform:none;opacity:1}
+.mh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.mh h2{font-size:22px;font-weight:600}
+.x{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--glass);color:var(--muted);transition:transform .3s}
+.x:hover{transform:rotate(90deg);color:var(--ink)}
+
+.stagewrap{display:flex;align-items:center;justify-content:center;gap:24px;margin:20px 0}
+.crop-container{position:relative;width:240px;height:240px;border-radius:50%;overflow:hidden;background:#e2dfed;box-shadow:0 0 0 6px var(--glass),0 20px 38px -14px rgba(60,50,110,.35);cursor:grab;touch-action:none}
+.crop-container.drag{cursor:grabbing}
+.crop-container img{position:absolute;left:0;top:0;transform-origin:0 0;user-select:none;-webkit-user-drag:none;will-change:transform}
+.crop-container .grid-mask{position:absolute;inset:0;border-radius:50%;box-shadow:inset 0 0 0 2px rgba(255,255,255,.8);pointer-events:none}
+
+.prevs{display:flex;flex-direction:column;align-items:center;gap:10px}
+.pv{position:relative;overflow:hidden;border-radius:50%;background:#e2dfed;box-shadow:0 0 0 2px var(--line)}
+.pv img{position:absolute;left:0;top:0;transform-origin:0 0}
+.pv.l{width:64px;height:64px}.pv.m{width:42px;height:42px}.pv.s{width:26px;height:26px}
+.prevs span{font-size:11px;color:var(--muted);margin-top:2px}
+
+.tools{display:flex;justify-content:center;gap:10px;margin-bottom:18px}
+.tl{height:40px;padding:0 20px;border-radius:999px;background:var(--glass);border:1px solid var(--line);display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:600;transition:all .2s}
+.tl:hover{background:var(--lime);color:#23250a;border-color:transparent}
+
+.ctl{display:grid;grid-template-columns:80px 36px 1fr 36px 44px;align-items:center;gap:10px;margin-bottom:12px}
+.ctl span{font-size:13px;color:var(--ink);font-weight:500}
+.ctl output{font-size:13px;color:var(--muted);text-align:right}
+.z{width:36px;height:36px;border-radius:50%;background:var(--glass);border:1px solid var(--line);display:grid;place-items:center;transition:background .2s}
+.z:hover{background:var(--lime);color:#23250a}
+.ctl input[type=range]{appearance:none;-webkit-appearance:none;width:100%;height:6px;border-radius:999px;background:var(--line);outline:0}
+.ctl input[type=range]::-webkit-slider-thumb{appearance:none;width:22px;height:22px;border-radius:50%;background:var(--dark);border:3px solid #fff;box-shadow:0 3px 8px rgba(0,0,0,.25);cursor:pointer}
+
+.mact{display:flex;flex-direction:column;gap:10px;margin-top:20px}
+.mact-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+
+.toast{position:fixed;z-index:99999;left:50%;bottom:30px;transform:translate(-50%,30px);padding:14px 24px;border-radius:999px;background:var(--dark);color:var(--on-dark);font-size:14px;font-weight:500;box-shadow:0 16px 32px -10px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:all .35s var(--spring)}
+.toast.show{transform:translate(-50%,0);opacity:1}
+
+@media(max-width:860px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<svg style="position:absolute;width:0;height:0">
+  <defs>
+    <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c2e04a"/>
+      <stop offset="1" stop-color="#8f7fe0"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<main class="wrap">
+  <!-- SISI KIRI: KARTU FOTO PROFIL -->
+  <aside class="card pc">
+    <div class="pwrap">
+      <svg class="pr" viewBox="0 0 200 200">
+        <circle class="a" cx="100" cy="100" r="88"/>
+        <circle class="b" id="ringProgress" cx="100" cy="100" r="88"/>
+      </svg>
+      <span class="pct" id="pct">40%</span>
+      <div class="pimg" id="avatarBox" role="button" tabindex="0" title="Klik untuk ubah foto">
+        <img id="mainAvatarImg" alt="Foto Profil" style="display:none">
+        <div id="mainAvatarInit" class="init-text">A</div>
+      </div>
+      <button class="pen" id="btnPenEdit" aria-label="Edit foto profil">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="eyebrow">Foto Profil</div>
+    <h1 id="displayName">Admin</h1>
+    <p class="sub">Foto diedit dari pratinjau utama, lalu disimpan langsung tanpa kartu pratinjau crop tambahan.</p>
+
+    <div class="chips">
+      <span class="chip lime" id="chipPercent">Profil 40% lengkap</span>
+      <span class="chip" id="chipJob">Pekerjaan belum diatur</span>
+      <span class="chip lav" id="chipStatus">Status belum dipilih</span>
+    </div>
+
+    <button class="btn dark" id="btnOpenModal">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="18" height="18" rx="4"/>
+        <circle cx="8.5" cy="8.5" r="1.5"/>
+        <polyline points="21 15 16 10 5 21"/>
+      </svg>
+      <span>Ubah Foto</span>
+    </button>
+  </aside>
+
+  <!-- SISI KANAN: FORM EDIT INFORMASI PROFIL -->
+  <section class="card">
+    <div class="fh">
+      <div class="eyebrow">Pengaturan</div>
+      <h2>Informasi Profil</h2>
+      <p class="sub">Ubah data yang tampil di akun Anda.</p>
+    </div>
+
+    <form id="profileForm" novalidate>
+      <div class="f">
+        <label for="inputName">Name</label>
+        <input id="inputName" placeholder="Masukkan nama lengkap" autocomplete="name">
+      </div>
+
+      <div class="f">
+        <label for="inputEmail">Email</label>
+        <input id="inputEmail" type="email" placeholder="nama@perusahaan.com" autocomplete="email">
+      </div>
+
+      <div class="f">
+        <label for="inputJob">Pekerjaan</label>
+        <input id="inputJob" placeholder="Pilih atau ketik pekerjaan">
+      </div>
+
+      <div class="eyebrow" style="margin-top:20px">Pilih Pekerjaan</div>
+      <div class="opts" id="jobChips"></div>
+
+      <div class="gl">Status</div>
+      <div class="opts" id="statusChips"></div>
+
+      <div class="fa">
+        <button type="button" class="btn soft" id="btnCancel" style="width:auto;padding:0 24px">Batalkan</button>
+        <button type="submit" class="btn dark" id="btnSubmitForm" style="width:auto;padding:0 28px">Simpan Profil</button>
+      </div>
+    </form>
+  </section>
+</main>
+
+<!-- MODAL CROP & EDIT FOTO (SESUAI GAMBAR REFERENSI 2) -->
+<div class="ov" id="cropModalOverlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mh">
+      <h2>Edit Foto Profil</h2>
+      <button class="x" id="btnCloseModal" aria-label="Tutup">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+    <p class="sub" style="font-size:13px;max-width:none">Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.</p>
+
+    <div class="stagewrap">
+      <div class="crop-container" id="cropBox">
+        <img id="cropImg" alt="Crop Target" draggable="false">
+        <div class="grid-mask"></div>
+      </div>
+      <div class="prevs">
+        <div class="pv l"><img id="pvL"></div>
+        <div class="pv m"><img id="pvM"></div>
+        <div class="pv s"><img id="pvS"></div>
+        <span>Pratinjau</span>
+      </div>
+    </div>
+
+    <div class="tools">
+      <button type="button" class="tl" id="btnRotate">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+        Putar
+      </button>
+      <button type="button" class="tl" id="btnFlip">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M8 6l-5 6 5 6V6zM16 6l5 6-5 6V6z"/></svg>
+        Balik
+      </button>
+    </div>
+
+    <div class="ctl">
+      <span>Zoom</span>
+      <button type="button" class="z" id="btnZoomOut">-</button>
+      <input type="range" id="rangeZoom" min="100" max="300" value="100">
+      <button type="button" class="z" id="btnZoomIn">+</button>
+      <output id="outZoom">100%</output>
+    </div>
+
+    <div class="ctl">
+      <span>Kiri–Kanan</span>
+      <button type="button" class="z" id="btnMoveLeft">&lt;</button>
+      <input type="range" id="rangeX" min="0" max="100" value="50">
+      <button type="button" class="z" id="btnMoveRight">&gt;</button>
+      <output id="outX">50%</output>
+    </div>
+
+    <div class="ctl">
+      <span>Atas–Bawah</span>
+      <button type="button" class="z" id="btnMoveUp">^</button>
+      <input type="range" id="rangeY" min="0" max="100" value="50">
+      <button type="button" class="z" id="btnMoveDown">v</button>
+      <output id="outY">50%</output>
+    </div>
+
+    <div class="mact">
+      <label class="btn soft" for="filePicker" style="cursor:pointer">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        Pilih Foto Baru
+      </label>
+      <input type="file" id="filePicker" accept="image/*" style="display:none">
+
+      <div class="mact-row">
+        <button type="button" class="btn soft" id="btnResetCrop">Reset</button>
+        <button type="button" class="btn dark" id="btnSaveCropped">Simpan Foto</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toastMsg"></div>
+
+<!-- ═════════ 4. INTEGRASI LOGIKA & SINKRONISASI API ═════════ -->
+<script>
+const $ = (s) => document.querySelector(s); const $$ = (s) => [...document.querySelectorAll(s)];
+
+const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
+const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'VIDEO EDITOR', 'Videografer', 'Copywriter', 'Social Media'];
+const STATUS_OPTIONS = ['KARYAWAN', 'MAGANG', 'PKL SISWA', 'PKL MAHASISWA'];
+
+let state = { id: 1, name: 'Admin', email: '', job: '', status: '', avatarUrl: '' };
+let pristine = { ...state };
+
+function showToast(msg) {
+  const t = $('#toastMsg');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+// Hitung persentase kelengkapan profil (setiap field bernilai 20%)
+function updateProgressUI() {
+  const filledCount = [
+    Boolean(state.avatarUrl),
+    Boolean(state.name.trim()),
+    Boolean(state.email.trim()),
+    Boolean(state.job.trim()),
+    Boolean(state.status)
+  ].filter(Boolean).length;
+
+  const percent = filledCount * 20;
+  $('#pct').textContent = `${percent}%`;
+  $('#chipPercent').textContent = `Profil ${percent}% lengkap`;
+  
+  // Update stroke lingkaran 553 adalah keliling r=88
+  const offset = 553 - (553 * (percent / 100));
+  $('#ringProgress').style.strokeDashoffset = offset;
+
+  $('#displayName').textContent = state.name.trim() || 'Pengguna';
+  $('#chipJob').textContent = state.job.trim() || 'Pekerjaan belum diatur';
+  $('#chipStatus').textContent = state.status || 'Status belum dipilih';
+
+  // Avatar / Inisial Render
+  if (state.avatarUrl) {
+    $('#mainAvatarImg').src = state.avatarUrl;
+    $('#mainAvatarImg').style.display = 'block';
+    $('#mainAvatarInit').style.display = 'none';
+  } else {
+    $('#mainAvatarImg').style.display = 'none';
+    $('#mainAvatarInit').style.display = 'grid';
+    $('#mainAvatarInit').textContent = (state.name.trim()[0] || 'A').toUpperCase();
+  }
+}
+
+function renderChips() {
+  $('#jobChips').innerHTML = JOB_OPTIONS.map(j => `
+    <button type="button" class="opt ${state.job.toLowerCase() === j.toLowerCase() ? 'on' : ''}" data-job="${j}">${j}</button>
+  `).join('');
+
+  $('#statusChips').innerHTML = STATUS_OPTIONS.map(s => `
+    <button type="button" class="opt ${state.status.toUpperCase() === s.toUpperCase() ? 'on' : ''}" data-status="${s}">${s}</button>
+  `).join('');
+}
+
+// BACA DATA DARI BACKEND
+async function loadUserData() {
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+  const adminEmail = localStorage.getItem('admin_email') || '';
+
+  try {
+    const res = await fetch(`${API_BASE}/get.php?id=1`, {
+      headers: {
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`,
+        'X-Admin-Email': adminEmail
+      }
+    });
+    const json = await res.json();
+    const u = json.data || json.user || json;
+
+    if (u) {
+      state.id = u.id || 1;
+      state.name = u.full_name || u.name || 'RIZAL FADHILAH';
+      state.email = u.email || 'rizalsaragih498@gmail.com';
+      state.job = u.pekerjaan || u.title || 'VIDEO EDITOR';
+      state.status = (u.status_karyawan || u.employment_status || u.status || 'KARYAWAN').toUpperCase();
+      state.avatarUrl = u.avatar_url || u.avatar || '';
+
+      pristine = { ...state };
+
+      $('#inputName').value = state.name;
+      $('#inputEmail').value = state.email;
+      $('#inputJob').value = state.job;
+
+      renderChips();
+      updateProgressUI();
+    }
+  } catch (e) {
+    console.warn('Backend get offline, menggunakan state default:', e);
+    renderChips();
+    updateProgressUI();
+  }
+}
+
+// EVENT LISTENERS FORM
+$('#inputName').oninput = (e) => { state.name = e.target.value; updateProgressUI(); };
+$('#inputEmail').oninput = (e) => { state.email = e.target.value; updateProgressUI(); };
+$('#inputJob').oninput = (e) => { state.job = e.target.value; renderChips(); updateProgressUI(); };
+
+$('#jobChips').onclick = (e) => {
+  const b = e.target.closest('[data-job]');
+  if (!b) return;
+  state.job = b.dataset.job;
+  $('#inputJob').value = state.job;
+  renderChips();
+  updateProgressUI();
+};
+
+$('#statusChips').onclick = (e) => {
+  const b = e.target.closest('[data-status]');
+  if (!b) return;
+  state.status = b.dataset.status;
+  renderChips();
+  updateProgressUI();
+};
+
+$('#btnCancel').onclick = () => {
+  state = { ...pristine };
+  $('#inputName').value = state.name;
+  $('#inputEmail').value = state.email;
+  $('#inputJob').value = state.job;
+  renderChips();
+  updateProgressUI();
+  showToast('Perubahan dibatalkan');
+};
+
+$('#profileForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $('#btnSubmitForm');
+  btn.textContent = 'Menyimpan...';
+  btn.disabled = true;
+
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+
+  try {
+    const res = await fetch(`${API_BASE}/save.php`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        id: state.id,
+        name: state.name.trim(),
+        full_name: state.name.trim(),
+        pekerjaan: state.job.trim(),
+        status: state.status
+      })
+    });
+    const resJson = await res.json();
+    if (resJson.success) {
+      pristine = { ...state };
+      showToast('Profil berhasil disimpan');
+    } else {
+      showToast(resJson.message || 'Gagal menyimpan');
+    }
+  } catch (err) {
+    console.error('Save error:', err);
+    showToast('Profil disimpan secara lokal');
+  } finally {
+    btn.textContent = 'Simpan Profil';
+    btn.disabled = false;
+  }
+};
+
+/* ── MODAL CROP ENGINE (BEBAS FREEZE) ── */
+const cropModal = $('#cropModalOverlay');
+const cropImg = $('#cropImg');
+const prevImgs = [$('#pvL'), $('#pvM'), $('#pvS')];
+let cropSize = 240, imgW = 0, imgH = 0, scaleBase = 1;
+let zoom = 1, posX = 0, posY = 0, currentSrc = '';
+
+function clampPos() {
+  const renderW = imgW * scaleBase * zoom;
+  const renderH = imgH * scaleBase * zoom;
+  posX = Math.min(0, Math.max(cropSize - renderW, posX));
+  posY = Math.min(0, Math.max(cropSize - renderH, posY));
+}
+
+function updateCropStage() {
+  clampPos();
+  const s = scaleBase * zoom;
+  const w = imgW * s - cropSize;
+  const h = imgH * s - cropSize;
+
+  cropImg.style.transform = `translate(${posX}px, ${posY}px) scale(${s})`;
+
+  // Sinkronkan 3 preview lingkaran
+  prevImgs.forEach(p => {
+    const ratio = p.parentElement.clientWidth / cropSize;
+    p.style.transform = `translate(${posX * ratio}px, ${posY * ratio}px) scale(${s * ratio})`;
+  });
+
+  // Sinkronkan nilai slider
+  $('#rangeZoom').value = Math.round(zoom * 100);
+  $('#outZoom').textContent = `${Math.round(zoom * 100)}%`;
+
+  const canPanX = w > 1;
+  const canPanY = h > 1;
+  $('#rangeX').disabled = !canPanX;
+  $('#rangeY').disabled = !canPanY;
+
+  $('#rangeX').value = canPanX ? Math.round((-posX / w) * 100) : 50;
+  $('#rangeY').value = canPanY ? Math.round((-posY / h) * 100) : 50;
+  $('#outX').textContent = `${$('#rangeX').value}%`;
+  $('#outY').textContent = `${$('#rangeY').value}%`;
+}
+
+function loadCropImage(src) {
+  currentSrc = src;
+  cropImg.crossOrigin = 'anonymous';
+  cropImg.onload = () => {
+    imgW = cropImg.naturalWidth || 480;
+    imgH = cropImg.naturalHeight || 480;
+    cropSize = $('#cropBox').clientWidth || 240;
+    scaleBase = cropSize / Math.min(imgW, imgH);
+    zoom = 1;
+    posX = (cropSize - imgW * scaleBase) / 2;
+    posY = (cropSize - imgH * scaleBase) / 2;
+
+    prevImgs.forEach(p => {
+      p.src = src;
+      p.style.width = `${imgW}px`;
+      p.style.height = `${imgH}px`;
+    });
+    cropImg.style.width = `${imgW}px`;
+    cropImg.style.height = `${imgH}px`;
+
+    updateCropStage();
+  };
+  cropImg.src = src;
+}
+
+// Buka modal crop
+function openCropModal() {
+  cropModal.classList.add('show');
+  const source = state.avatarUrl || $('#mainAvatarImg').src || '';
+  if (source) {
+    loadCropImage(source);
+  } else {
+    // Buat canvas default inisial jika belum ada foto
+    const c = document.createElement('canvas');
+    c.width = c.height = 480;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#e3ddfa';
+    ctx.fillRect(0, 0, 480, 480);
+    ctx.fillStyle = '#2a2440';
+    ctx.font = 'bold 200px Outfit';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((state.name[0] || 'A').toUpperCase(), 240, 250);
+    loadCropImage(c.toDataURL('image/jpeg'));
+  }
+}
+
+function closeCropModal() {
+  cropModal.classList.remove('show');
+}
+
+$('#btnOpenModal').onclick = openCropModal;
+$('#btnPenEdit').onclick = openCropModal;
+$('#avatarBox').onclick = openCropModal;
+$('#btnCloseModal').onclick = closeCropModal;
+cropModal.onclick = (e) => { if (e.target === cropModal) closeCropModal(); };
+
+// CONTROLS INTERAKSI SLIDER & BUTTON
+$('#rangeZoom').oninput = (e) => {
+  zoom = e.target.value / 100;
+  updateCropStage();
+};
+$('#btnZoomIn').onclick = () => { zoom = Math.min(3, zoom + 0.15); updateCropStage(); };
+$('#btnZoomOut').onclick = () => { zoom = Math.max(1, zoom - 0.15); updateCropStage(); };
+
+$('#rangeX').oninput = (e) => {
+  const w = imgW * scaleBase * zoom - cropSize;
+  posX = -(e.target.value / 100) * w;
+  updateCropStage();
+};
+$('#rangeY').oninput = (e) => {
+  const h = imgH * scaleBase * zoom - cropSize;
+  posY = -(e.target.value / 100) * h;
+  updateCropStage();
+};
+
+$('#btnMoveLeft').onclick = () => { posX += 20; updateCropStage(); };
+$('#btnMoveRight').onclick = () => { posX -= 20; updateCropStage(); };
+$('#btnMoveUp').onclick = () => { posY += 20; updateCropStage(); };
+$('#btnMoveDown').onclick = () => { posY -= 20; updateCropStage(); };
+
+// DRAG DENGAN KURSOR / JARI
+let isDragging = false, startX = 0, startY = 0;
+const cropBox = $('#cropBox');
+
+cropBox.onpointerdown = (e) => {
+  isDragging = true;
+  cropBox.classList.add('drag');
+  startX = e.clientX - posX;
+  startY = e.clientY - posY;
+  cropBox.setPointerCapture(e.pointerId);
+};
+cropBox.onpointermove = (e) => {
+  if (!isDragging) return;
+  posX = e.clientX - startX;
+  posY = e.clientY - startY;
+  updateCropStage();
+};
+cropBox.onpointerup = cropBox.onpointercancel = (e) => {
+  isDragging = false;
+  cropBox.classList.remove('drag');
+};
+
+// PUTAR & BALIK FOTO
+$('#btnRotate').onclick = () => {
+  const cv = document.createElement('canvas');
+  cv.width = imgH; cv.height = imgW;
+  const ctx = cv.getContext('2d');
+  ctx.translate(cv.width / 2, cv.height / 2);
+  ctx.rotate(Math.PI / 2);
+  ctx.drawImage(cropImg, -imgW / 2, -imgH / 2);
+  loadCropImage(cv.toDataURL('image/jpeg', 0.95));
+};
+
+$('#btnFlip').onclick = () => {
+  const cv = document.createElement('canvas');
+  cv.width = imgW; cv.height = imgH;
+  const ctx = cv.getContext('2d');
+  ctx.translate(cv.width / 2, cv.height / 2);
+  ctx.scale(-1, 1);
+  ctx.drawImage(cropImg, -imgW / 2, -imgH / 2);
+  loadCropImage(cv.toDataURL('image/jpeg', 0.95));
+};
+
+// PILIH FOTO BARU
+$('#filePicker').onchange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => loadCropImage(ev.target.result);
+  reader.readAsDataURL(file);
+};
+
+$('#btnResetCrop').onclick = () => loadCropImage(currentSrc);
+
+// SIMPAN HASIL CROP & UPLOAD KE BACKEND
+$('#btnSaveCropped').onclick = async () => {
+  const btn = $('#btnSaveCropped');
+  btn.textContent = 'Menyimpan...';
+  btn.disabled = true;
+
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 480;
+  const ctx = cv.getContext('2d');
+  const factor = 480 / cropSize;
+
+  ctx.drawImage(
+    cropImg,
+    0, 0, imgW, imgH,
+    posX * factor, posY * factor,
+    imgW * scaleBase * zoom * factor,
+    imgH * scaleBase * zoom * factor
+  );
+
+  const croppedDataUrl = cv.toDataURL('image/jpeg', 0.92);
+
+  cv.toBlob(async (blob) => {
+    try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+      const fd = new FormData();
+      fd.append('avatar', blob, `avatar_${state.id}_${Date.now()}.jpg`);
+      fd.append('id', state.id);
+
+      const res = await fetch(`${API_BASE}/upload.php`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: fd
+      });
+      const data = await res.json();
+      state.avatarUrl = (data.success && data.avatar_url) ? data.avatar_url : croppedDataUrl;
+    } catch (err) {
+      console.warn('Upload API offline, simpan data URL:', err);
+      state.avatarUrl = croppedDataUrl;
+    } finally {
+      updateProgressUI();
+      closeCropModal();
+      btn.textContent = 'Simpan Foto';
+      btn.disabled = false;
+      showToast('Foto profil berhasil diperbarui');
+    }
+  }, 'image/jpeg', 0.92);
+};
+
+// Inisialisasi awal
+document.addEventListener('DOMContentLoaded', loadUserData);
+loadUserData();
+</script>
+</body>
+</html>
