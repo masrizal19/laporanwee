@@ -74,7 +74,13 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
   }, []);
 
   const getBounds = useCallback(
-    (curZ = zoom, curB = base, curW = nw, curH = nh, curCS = stateRef.current.CS || 280) => {
+    (
+      curZ = stateRef.current.z,
+      curB = stateRef.current.base,
+      curW = stateRef.current.nw,
+      curH = stateRef.current.nh,
+      curCS = stateRef.current.CS || 280
+    ) => {
       const scaledW = curW * curB * curZ;
       const scaledH = curH * curB * curZ;
       const minX = Math.min(0, curCS - scaledW);
@@ -83,7 +89,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
       const maxY = 0;
       return { minX, maxX, minY, maxY, scaledW, scaledH, curCS };
     },
-    [zoom, base, nw, nh, clamp]
+    []
   );
 
   // Sync stateRef with React state
@@ -399,6 +405,9 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
     stateRef.current.ptrs.delete(e.pointerId);
     stateRef.current.pinch = null;
 
@@ -478,7 +487,12 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     }, 200);
   };
 
-  const handlePadPointerUp = () => {
+  const handlePadPointerUp = (e?: React.PointerEvent<HTMLButtonElement>) => {
+    if (e) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+    }
     clearTimeout(holdTimerRef.current);
     setActivePadDir(null);
     if (stateRef.current.hold) {
@@ -673,11 +687,11 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
   const percentX = ox > 1 ? Math.round((-cx / ox) * 100) : 50;
   const percentY = oy > 1 ? Math.round((-cy / oy) * 100) : 50;
 
-  // Limits for disabling D-pad buttons
-  const isLimLeft = ox <= 1 || cx >= bounds.maxX - 0.5;
-  const isLimRight = ox <= 1 || cx <= bounds.minX + 0.5;
-  const isLimUp = oy <= 1 || cy >= bounds.maxY - 0.5;
-  const isLimDown = oy <= 1 || cy <= bounds.minY + 0.5;
+  // Limits for disabling D-pad buttons (photo moves towards button direction)
+  const isLimLeft = ox <= 1 || cx <= bounds.minX + 0.5;
+  const isLimRight = ox <= 1 || cx >= bounds.maxX - 0.5;
+  const isLimUp = oy <= 1 || cy <= bounds.minY + 0.5;
+  const isLimDown = oy <= 1 || cy >= bounds.maxY - 0.5;
 
   return createPortal(
     <div
@@ -795,8 +809,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 aria-label="Geser ke atas"
                 aria-disabled={isLimUp}
                 onPointerDown={(e) => handlePadPointerDown('up', e)}
-                onPointerUp={handlePadPointerUp}
-                onPointerCancel={handlePadPointerUp}
+                onPointerUp={(e) => handlePadPointerUp(e)}
+                onPointerCancel={(e) => handlePadPointerUp(e)}
                 onClick={() => handlePadClick('up')}
               >
                 <svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6" /></svg>
@@ -808,8 +822,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 aria-label="Geser ke kiri"
                 aria-disabled={isLimLeft}
                 onPointerDown={(e) => handlePadPointerDown('left', e)}
-                onPointerUp={handlePadPointerUp}
-                onPointerCancel={handlePadPointerUp}
+                onPointerUp={(e) => handlePadPointerUp(e)}
+                onPointerCancel={(e) => handlePadPointerUp(e)}
                 onClick={() => handlePadClick('left')}
               >
                 <svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6" /></svg>
@@ -833,8 +847,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 aria-label="Geser ke kanan"
                 aria-disabled={isLimRight}
                 onPointerDown={(e) => handlePadPointerDown('right', e)}
-                onPointerUp={handlePadPointerUp}
-                onPointerCancel={handlePadPointerUp}
+                onPointerUp={(e) => handlePadPointerUp(e)}
+                onPointerCancel={(e) => handlePadPointerUp(e)}
                 onClick={() => handlePadClick('right')}
               >
                 <svg viewBox="0 0 24 24"><path d="m10 6 6 6-6 6" /></svg>
@@ -846,8 +860,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 aria-label="Geser ke bawah"
                 aria-disabled={isLimDown}
                 onPointerDown={(e) => handlePadPointerDown('down', e)}
-                onPointerUp={handlePadPointerUp}
-                onPointerCancel={handlePadPointerUp}
+                onPointerUp={(e) => handlePadPointerUp(e)}
+                onPointerCancel={(e) => handlePadPointerUp(e)}
                 onClick={() => handlePadClick('down')}
               >
                 <svg viewBox="0 0 24 24"><path d="m6 10 6 6 6-6" /></svg>
@@ -869,7 +883,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <button
                   type="button"
                   className="pc-pan-btn"
-                  disabled={ox <= 1}
+                  disabled={ox <= 1 || isLimLeft}
                   onClick={() => step(-STEP, 0)}
                   aria-label="Geser kiri"
                 >
@@ -888,7 +902,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <button
                   type="button"
                   className="pc-pan-btn"
-                  disabled={ox <= 1}
+                  disabled={ox <= 1 || isLimRight}
                   onClick={() => step(STEP, 0)}
                   aria-label="Geser kanan"
                 >
@@ -902,7 +916,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <button
                   type="button"
                   className="pc-pan-btn"
-                  disabled={oy <= 1}
+                  disabled={oy <= 1 || isLimUp}
                   onClick={() => step(0, -STEP)}
                   aria-label="Geser atas"
                 >
@@ -921,7 +935,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <button
                   type="button"
                   className="pc-pan-btn"
-                  disabled={oy <= 1}
+                  disabled={oy <= 1 || isLimDown}
                   onClick={() => step(0, STEP)}
                   aria-label="Geser bawah"
                 >
