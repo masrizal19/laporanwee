@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import '../profile-edit.css';
 
 interface ProfileSettingsViewProps {
   userName?: string;
@@ -16,239 +17,243 @@ const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'VIDEO EDITOR', 'Videogr
 
 export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddToast, onUpdateUser }) => {
   const [profileId, setProfileId] = useState<number | string>(1);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [job, setJob] = useState('');
-  const [status, setStatus] = useState('');
+  const [name, setName] = useState('RIZAL FADHILAH');
+  const [email, setEmail] = useState('rizalsaragih498@gmail.com');
+  const [job, setJob] = useState('VIDEO EDITOR');
+  const [status, setStatus] = useState('KARYAWAN');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   const [initialProfile, setInitialProfile] = useState({ name: '', email: '', job: '', status: '' });
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Crop Modal state
+  // Modal Crop State
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [cropSrc, setCropSrc] = useState<string>('');
   const [zoom, setZoom] = useState(1);
   const [posX, setPosX] = useState(0);
   const [posY, setPosY] = useState(0);
+  const [imgDim, setImgDim] = useState({ w: 480, h: 480, base: 1 });
   const [isUploading, setIsUploading] = useState(false);
 
-  const imgRef = useRef<HTMLImageElement>(null);
-  const cropRef = useRef<HTMLDivElement>(null);
+  const cropBoxRef = useRef<HTMLDivElement>(null);
+  const cropImgRef = useRef<HTMLImageElement>(null);
+  const isDraggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
 
-  // Fetch initial profile from backend
-  const loadProfile = async () => {
-    setIsRefreshing(true);
-    try {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-      const adminEmail = localStorage.getItem('admin_email') || '';
-      const res = await fetch(`${API_BASE}/get.php?id=1`, {
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': 'Bearer ' + token,
-          'X-Admin-Email': adminEmail,
-        },
-      });
-      const json = await res.json();
-      const u = json.data || json.user || json;
-      if (u) {
-        const id = u.id || u.user_id || 1;
-        const n = u.full_name || u.name || 'RIZAL FADHILAH';
-        const e = u.email || 'rizalsaragih498@gmail.com';
-        const j = u.pekerjaan || u.title || u.profile_title || 'VIDEO EDITOR';
-        const s = (u.status_karyawan || u.employment_status || u.status || 'KARYAWAN').toUpperCase();
-        const av = u.avatar_url || u.avatar || u.photo;
-
-        setProfileId(id);
-        setName(n);
-        setEmail(e);
-        setJob(j);
-        setStatus(s);
-        if (av && typeof av === 'string' && av.trim() !== '') {
-          setAvatarUrl(av);
-        }
-        setInitialProfile({ name: n, email: e, job: j, status: s });
-      }
-    } catch (err) {
-      console.warn('Gagal memuat profil dari backend, menggunakan default:', err);
-      const defName = 'RIZAL FADHILAH';
-      const defEmail = 'rizalsaragih498@gmail.com';
-      const defJob = 'VIDEO EDITOR';
-      const defStatus = 'KARYAWAN';
-      setName(defName);
-      setEmail(defEmail);
-      setJob(defJob);
-      setStatus(defStatus);
-      setInitialProfile({ name: defName, email: defEmail, job: defJob, status: defStatus });
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  // Compute dirty state & completeness
-  useEffect(() => {
-    const dirty = name !== initialProfile.name || email !== initialProfile.email || job !== initialProfile.job || status !== initialProfile.status;
-    setIsDirty(dirty);
-  }, [name, email, job, status, initialProfile]);
-
-  const completeness = [avatarUrl ? 1 : 0, name.trim() ? 1 : 0, email.trim() ? 1 : 0, job.trim() ? 1 : 0, status ? 1 : 0].filter(Boolean).length * 20;
-  const strokeDashoffset = 553 * (1 - completeness / 100);
-
-  // Generate Initials Avatar DataURL fallback
-  const getInitialsDataUrl = () => {
+  // Generate fallback avatar canvas
+  const getInitialAvatar = (char: string) => {
     const c = document.createElement('canvas');
     c.width = c.height = 480;
-    const g = c.getContext('2d');
-    if (!g) return '';
-    const gr = g.createLinearGradient(0, 0, 480, 480);
+    const ctx = c.getContext('2d');
+    if (!ctx) return '';
+    const gr = ctx.createLinearGradient(0, 0, 480, 480);
     gr.addColorStop(0, '#cfc6f4');
     gr.addColorStop(0.55, '#e3ddfa');
     gr.addColorStop(1, '#d4ee6b');
-    g.fillStyle = gr;
-    g.fillRect(0, 0, 480, 480);
-    g.fillStyle = 'rgba(255,255,255,.45)';
-    g.beginPath();
-    g.arc(360, 120, 140, 0, 7);
-    g.fill();
-    g.fillStyle = 'rgba(143,127,224,.35)';
-    g.beginPath();
-    g.arc(90, 420, 170, 0, 7);
-    g.fill();
-    g.fillStyle = '#2a2440';
-    g.font = '500 190px Outfit,system-ui,sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText((name.trim()[0] || 'R').toUpperCase(), 240, 262);
-    return c.toDataURL();
+    ctx.fillStyle = gr;
+    ctx.fillRect(0, 0, 480, 480);
+    ctx.fillStyle = '#2a2440';
+    ctx.font = 'bold 200px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((char || 'A').toUpperCase(), 240, 250);
+    return c.toDataURL('image/jpeg');
   };
 
-  const displayAvatar = avatarUrl || getInitialsDataUrl();
+  // Muat data profil dari backend
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+        const res = await fetch(`${API_BASE}/get.php?id=1`, {
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+        });
+        const json = await res.json();
+        const u = json.data || json.user || json;
+        if (u) {
+          const n = u.full_name || u.name || 'RIZAL FADHILAH';
+          const e = u.email || 'rizalsaragih498@gmail.com';
+          const j = u.pekerjaan || u.title || 'VIDEO EDITOR';
+          const s = (u.status_karyawan || u.employment_status || u.status || 'KARYAWAN').toUpperCase();
+          const av = u.avatar_url || u.avatar || null;
 
-  const handleSave = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!name.trim()) {
-      onAddToast('Nama lengkap wajib diisi.');
-      return;
-    }
-    setIsSaving(true);
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-    const adminEmail = localStorage.getItem('admin_email') || email;
-
-    try {
-      const res = await fetch(`${API_BASE}/save.php`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token,
-          'X-Admin-Email': adminEmail,
-        },
-        body: JSON.stringify({
-          id: profileId,
-          user_id: profileId,
-          name: name.trim(),
-          full_name: name.trim(),
-          pekerjaan: job.trim(),
-          title: job.trim(),
-          status,
-          status_karyawan: status,
-        }),
-      });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success || data.status === 'success' || res.ok) {
-        setInitialProfile({ name: name.trim(), email, job: job.trim(), status });
-        setIsDirty(false);
-        if (onUpdateUser) {
-          onUpdateUser({ email, name: name.trim(), role: 'Administrator', status, avatar_url: avatarUrl });
+          setProfileId(u.id || 1);
+          setName(n);
+          setEmail(e);
+          setJob(j);
+          setStatus(s);
+          setAvatarUrl(av);
+          setInitialProfile({ name: n, email: e, job: j, status: s });
         }
-        onAddToast('Profil berhasil disimpan ke server');
-      } else {
-        onAddToast(data.message || 'Gagal menyimpan profil');
+      } catch (err) {
+        console.warn('Gagal memuat profil backend, menggunakan data lokal:', err);
+        setInitialProfile({ name, email, job, status });
       }
-    } catch (err) {
-      console.error('Save error:', err);
-      setInitialProfile({ name: name.trim(), email, job: job.trim(), status });
-      setIsDirty(false);
-      onAddToast('Profil tersimpan di sesi lokal');
-    } finally {
-      setIsSaving(false);
-    }
+    };
+    fetchProfile();
+  }, []);
+
+  // Hitung persentase kelengkapan profil (5 parameter = @20%)
+  const completeness = [avatarUrl ? 1 : 0, name.trim() ? 1 : 0, email.trim() ? 1 : 0, job.trim() ? 1 : 0, status ? 1 : 0].filter(Boolean).length * 20;
+  const strokeOffset = 553 - (553 * (completeness / 100));
+
+  useEffect(() => {
+    setIsDirty(name !== initialProfile.name || email !== initialProfile.email || job !== initialProfile.job || status !== initialProfile.status);
+  }, [name, email, job, status, initialProfile]);
+
+  // Modal buka & hitung rasio crop
+  const handleOpenModal = () => {
+    const src = avatarUrl || getInitialAvatar(name[0]);
+    setCropSrc(src);
+    setIsModalOpen(true);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const onCropImgLoaded = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const img = e.currentTarget;
+    const nw = img.naturalWidth || 480;
+    const nh = img.naturalHeight || 480;
+    const cs = 240;
+    const base = cs / Math.min(nw, nh);
+
+    setImgDim({ w: nw, h: nh, base });
+    setZoom(1);
+    setPosX((cs - nw * base) / 2);
+    setPosY((cs - nh * base) / 2);
+  };
+
+  // Clamp pergeseran agar tidak keluar dari lingkaran
+  const clamp = (x: number, y: number, currentZoom: number) => {
+    const cs = 240;
+    const rw = imgDim.w * imgDim.base * currentZoom;
+    const rh = imgDim.h * imgDim.base * currentZoom;
+    const cx = Math.min(0, Math.max(cs - rw, x));
+    const cy = Math.min(0, Math.max(cs - rh, y));
+    return { cx, cy };
+  };
+
+  const updateZoom = (newZoom: number) => {
+    const targetZoom = Math.min(3, Math.max(1, newZoom));
+    const { cx, cy } = clamp(posX, posY, targetZoom);
+    setZoom(targetZoom);
+    setPosX(cx);
+    setPosY(cy);
+  };
+
+  // Drag Interaksi Kursor / Touch
+  const handlePointerDown = (e: React.PointerEvent) => {
+    isDraggingRef.current = true;
+    dragStartRef.current = { x: e.clientX - posX, y: e.clientY - posY };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    const { cx, cy } = clamp(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y, zoom);
+    setPosX(cx);
+    setPosY(cy);
+  };
+
+  const handlePointerUp = () => {
+    isDraggingRef.current = false;
+  };
+
+  // Putar & Balik Canvas
+  const handleRotate = () => {
+    const img = cropImgRef.current;
+    if (!img) return;
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalHeight;
+    cv.height = img.naturalWidth;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.translate(cv.width / 2, cv.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    setCropSrc(cv.toDataURL('image/jpeg', 0.95));
+  };
+
+  const handleFlip = () => {
+    const img = cropImgRef.current;
+    if (!img) return;
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.translate(cv.width / 2, cv.height / 2);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    setCropSrc(cv.toDataURL('image/jpeg', 0.95));
+  };
+
+  // Upload file baru dari lokal
+  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    if (!f) return;
+    if (!f.type.startsWith('image/')) {
       onAddToast('File harus berupa gambar');
       return;
     }
-    if (file.size > 10 * 1048576) {
-      onAddToast('Ukuran foto maksimal 10 MB');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropImageSrc(reader.result as string);
-      setZoom(1);
-      setPosX(0);
-      setPosY(0);
-      setIsModalOpen(true);
+    const r = new FileReader();
+    r.onload = () => {
+      setCropSrc(r.result as string);
     };
-    reader.readAsDataURL(file);
+    r.readAsDataURL(f);
   };
 
-  const handleUploadCroppedPhoto = async () => {
-    if (!cropRef.current || !imgRef.current) return;
+  // Simpan hasil crop ke backend
+  const handleSaveCrop = async () => {
+    const img = cropImgRef.current;
+    if (!img) return;
     setIsUploading(true);
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      setIsUploading(false);
-      return;
-    }
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 480;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
 
-    const img = imgRef.current;
-    const cs = cropRef.current.clientWidth || 260;
-    const k = 512 / cs;
-    ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, posX * k, posY * k, img.naturalWidth * zoom * (512 / Math.min(img.naturalWidth, img.naturalHeight)), img.naturalHeight * zoom * (512 / Math.min(img.naturalWidth, img.naturalHeight)));
+    const factor = 480 / 240;
+    ctx.drawImage(
+      img,
+      0, 0, imgDim.w, imgDim.h,
+      posX * factor, posY * factor,
+      imgDim.w * imgDim.base * zoom * factor,
+      imgDim.h * imgDim.base * zoom * factor
+    );
 
-    canvas.toBlob(async (blob) => {
+    const croppedBase64 = cv.toDataURL('image/jpeg', 0.92);
+
+    cv.toBlob(async (blob) => {
       if (!blob) {
         setIsUploading(false);
         return;
       }
       try {
         const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-        const formData = new FormData();
-        formData.append('avatar', blob, `avatar_${profileId}_${Date.now()}.jpg`);
-        formData.append('id', String(profileId));
+        const fd = new FormData();
+        fd.append('avatar', blob, `avatar_${profileId}_${Date.now()}.jpg`);
+        fd.append('id', String(profileId));
 
         const res = await fetch(`${API_BASE}/upload.php`, {
           method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + token,
-          },
-          body: formData,
+          headers: { 'Authorization': 'Bearer ' + token },
+          body: fd,
         });
-        const resJson = await res.json().catch(() => ({ success: false }));
-        if (resJson.success && resJson.avatar_url) {
-          setAvatarUrl(resJson.avatar_url);
-        } else {
-          setAvatarUrl(canvas.toDataURL('image/jpeg', 0.92));
+        const resJson = await res.json();
+        const finalUrl = resJson.success && resJson.avatar_url ? resJson.avatar_url : croppedBase64;
+        setAvatarUrl(finalUrl);
+        if (onUpdateUser) {
+          onUpdateUser({ email, name, avatar_url: finalUrl });
         }
         onAddToast('Foto profil berhasil disimpan ke server');
       } catch (err) {
-        console.warn('Upload API offline:', err);
-        setAvatarUrl(canvas.toDataURL('image/jpeg', 0.92));
+        console.warn('API upload offline, simpan data URL:', err);
+        setAvatarUrl(croppedBase64);
         onAddToast('Foto profil diperbarui secara lokal');
       } finally {
         setIsUploading(false);
@@ -257,214 +262,375 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     }, 'image/jpeg', 0.92);
   };
 
+  // Simpan data teks profil
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      onAddToast('Nama lengkap wajib diisi.');
+      return;
+    }
+    setIsSaving(true);
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+
+    try {
+      const res = await fetch(`${API_BASE}/save.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+        },
+        body: JSON.stringify({
+          id: profileId,
+          name: name.trim(),
+          full_name: name.trim(),
+          pekerjaan: job.trim(),
+          status: status,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInitialProfile({ name: name.trim(), email, job: job.trim(), status });
+        setIsDirty(false);
+        if (onUpdateUser) {
+          onUpdateUser({ email, name: name.trim(), role: 'Administrator', status, avatar_url: avatarUrl });
+        }
+        onAddToast('Profil berhasil disimpan');
+      } else {
+        onAddToast(data.message || 'Gagal menyimpan profil');
+      }
+    } catch (err) {
+      setInitialProfile({ name: name.trim(), email, job: job.trim(), status });
+      setIsDirty(false);
+      onAddToast('Profil disimpan secara lokal');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Hitung persentase slider X dan Y
+  const renderW = imgDim.w * imgDim.base * zoom;
+  const renderH = imgDim.h * imgDim.base * zoom;
+  const maxPanX = renderW - 240;
+  const maxPanY = renderH - 240;
+  const sliderXVal = maxPanX > 1 ? Math.round((-posX / maxPanX) * 100) : 50;
+  const sliderYVal = maxPanY > 1 ? Math.round((-posY / maxPanY) * 100) : 50;
+
   return (
-    <div className="view" style={{ paddingBottom: 60 }}>
-      <main className="wrap" style={{ marginTop: 20 }}>
-        {/* Left Card: Photo & Completeness */}
-        <aside className="card rv" style={{ '--i': 0 } as any}>
-          <div className="inner pc">
-            <div className="pwrap">
-              <svg className="pr" viewBox="0 0 200 200">
-                <defs>
-                  <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stopColor="#c2e04a" />
-                    <stop offset="1" stopColor="#8f7fe0" />
-                  </linearGradient>
-                </defs>
-                <circle className="a" cx="100" cy="100" r="88" fill="none" stroke="var(--line)" strokeWidth="5" />
-                <circle className="b" id="ring" cx="100" cy="100" r="88" fill="none" stroke="url(#pg)" strokeWidth="5" strokeLinecap="round" style={{ strokeDasharray: 553, strokeDashoffset, transition: 'stroke-dashoffset 1.6s cubic-bezier(.22,1,.36,1)' }} />
-              </svg>
-              <div className="pimg" id="pimg" role="button" tabIndex={0} onClick={() => { setCropImageSrc(displayAvatar); setIsModalOpen(true); }} aria-label="Ubah foto profil">
-                <img id="avimg" src={displayAvatar} alt="Foto Profil" />
-              </div>
-              <button className="pen" id="pen" onClick={() => { setCropImageSrc(displayAvatar); setIsModalOpen(true); }} aria-label="Edit foto profil">
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 20h4L19 9l-4-4L4 16zM13.500 6.500l4 4" />
-                </svg>
-              </button>
-              <span className="pct" id="pct">{completeness}%</span>
+    <div className="wrap">
+      {/* KARTU KIRI: FOTO PROFIL */}
+      <aside className="card pc">
+        <div className="inner" style={{ width: '100%' }}>
+          <div className="pwrap">
+            <svg className="pr" viewBox="0 0 200 200">
+              <defs>
+                <linearGradient id="pg" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stopColor="#c2e04a" />
+                  <stop offset="1" stopColor="#8f7fe0" />
+                </linearGradient>
+              </defs>
+              <circle className="a" cx="100" cy="100" r="88" />
+              <circle className="b" cx="100" cy="100" r="88" style={{ strokeDashoffset: strokeOffset }} />
+            </svg>
+            <span className="pct">{completeness}%</span>
+
+            <div className="pimg" onClick={handleOpenModal} role="button" tabIndex={0}>
+              <img src={avatarUrl || getInitialAvatar(name[0])} alt="Foto Profil" />
             </div>
-            <div className="eyebrow">Foto Profil</div>
-            <h1 id="hname">{name || 'Pengguna'}</h1>
-            <p className="sub" style={{ maxWidth: 300, marginInline: 'auto' }}>Foto diedit dari pratinjau utama, lalu disimpan langsung tanpa kartu pratinjau crop tambahan.</p>
-            <div className="chips">
-              <span className="chip lime" id="cDone">Profil {completeness}% lengkap</span>
-              <span className="chip" id="cJob">{job || 'Pekerjaan belum diatur'}</span>
-              <span className="chip lav" id="cStat">{status || 'Status belum dipilih'}</span>
-            </div>
-            <button className="btn dark" id="openEd" onClick={() => { setCropImageSrc(displayAvatar); setIsModalOpen(true); }} style={{ width: '100%' }}>
-              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="4" />
-                <circle cx="9" cy="10" r="2" />
-                <path d="m21 16-5-5-8 8" />
+
+            <button type="button" className="pen" onClick={handleOpenModal} aria-label="Edit foto">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
               </svg>
-              <span>Ubah Foto</span>
             </button>
           </div>
-        </aside>
 
-        {/* Right Card: Form Information */}
-        <section className="card rv" style={{ '--i': 1 } as any}>
-          <div className="inner">
-            <div className="fh">
-              <div>
-                <div className="eyebrow">Pengaturan</div>
-                <h2 style={{ marginTop: 6, fontSize: 26 }}>Informasi Profil</h2>
-                <p className="sub">Ubah data yang tampil di akun Anda.</p>
-              </div>
-              <span className={`dirty ${isDirty ? 'on' : ''}`} id="dirty">
-                <i /> Perubahan belum disimpan
-              </span>
-            </div>
-            <form id="form" onSubmit={handleSave} noValidate>
-              <div className="f" style={{ '--j': 0 } as any}>
-                <input id="fn" placeholder=" " value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-                <label htmlFor="fn">Name</label>
-                <div className="err">Name wajib diisi.</div>
-              </div>
-              <div className="f" style={{ '--j': 1 } as any}>
-                <input id="fe" type="email" placeholder=" " value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-                <label htmlFor="fe">Email</label>
-                <div className="err">Masukkan alamat email yang valid.</div>
-              </div>
-              <div className="f" style={{ '--j': 2 } as any}>
-                <input id="fj" placeholder=" " value={job} onChange={(e) => setJob(e.target.value)} autoComplete="organization-title" />
-                <label htmlFor="fj">Pekerjaan</label>
-              </div>
+          <div className="eyebrow">Foto Profil</div>
+          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '6px 0' }}>{name || 'Pengguna'}</h1>
+          <p className="sub" style={{ margin: '0 auto 16px' }}>
+            Foto diedit dari pratinjau utama, lalu disimpan langsung tanpa kartu pratinjau crop tambahan.
+          </p>
 
-              <div className="gl" style={{ '--j': 3 } as any}>PILIH PEKERJAAN</div>
-              <div className="opts" id="jobs" style={{ '--j': 3 } as any}>
-                {JOB_OPTIONS.map((j) => (
-                  <button
-                    key={j}
-                    type="button"
-                    className={`opt ${job.toLowerCase() === j.toLowerCase() ? 'on' : ''}`}
-                    onClick={() => setJob(j)}
-                  >
-                    {j}
-                  </button>
-                ))}
-              </div>
-
-              <div className="gl" style={{ '--j': 4 } as any}>STATUS</div>
-              <div className="opts" id="stat" role="radiogroup" aria-label="Status" style={{ '--j': 5 } as any}>
-                {STAT_OPTIONS.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="radio"
-                    aria-checked={status.toUpperCase() === s}
-                    className={`opt ${status.toUpperCase() === s ? 'on' : ''}`}
-                    onClick={() => setStatus(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
-              </div>
-
-              <div className="fa" style={{ '--j': 6 } as any}>
-                <button
-                  type="button"
-                  className="btn soft"
-                  id="cancel"
-                  onClick={() => {
-                    setName(initialProfile.name);
-                    setEmail(initialProfile.email);
-                    setJob(initialProfile.job);
-                    setStatus(initialProfile.status);
-                    onAddToast('Perubahan dibatalkan');
-                  }}
-                >
-                  Batalkan
-                </button>
-                <button type="submit" className={`btn dark ${isSaving ? 'load' : ''}`} id="save2">
-                  <span>Simpan Profil</span>
-                  <i className="sp" />
-                </button>
-              </div>
-            </form>
+          <div className="chips">
+            <span className="chip lime">Profil {completeness}% lengkap</span>
+            <span className="chip">{job || 'Pekerjaan belum diatur'}</span>
+            <span className="chip lav">{status || 'Status belum dipilih'}</span>
           </div>
-        </section>
-      </main>
 
-      {/* Crop Modal */}
+          <button type="button" className="btn dark" onClick={handleOpenModal}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="4" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            <span>Ubah Foto</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* KARTU KANAN: FORM INFORMASI PROFIL */}
+      <section className="card">
+        <div className="inner">
+          <div className="fh">
+            <div>
+              <div className="eyebrow">Pengaturan</div>
+              <h2 style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>Informasi Profil</h2>
+              <p className="sub">Ubah data yang tampil di akun Anda.</p>
+            </div>
+            <span className={`dirty ${isDirty ? 'on' : ''}`}>
+              <i /> Perubahan belum disimpan
+            </span>
+          </div>
+
+          <form onSubmit={handleSaveProfile} noValidate>
+            <div className="f">
+              <label htmlFor="nameInput">Name</label>
+              <input id="nameInput" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+            </div>
+
+            <div className="f">
+              <label htmlFor="emailInput">Email</label>
+              <input id="emailInput" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+            </div>
+
+            <div className="f">
+              <label htmlFor="jobInput">Pekerjaan</label>
+              <input id="jobInput" value={job} onChange={(e) => setJob(e.target.value)} />
+            </div>
+
+            <div className="gl">Pilih Pekerjaan</div>
+            <div className="opts">
+              {JOB_OPTIONS.map((j) => (
+                <button
+                  key={j}
+                  type="button"
+                  className={`opt ${job.toLowerCase() === j.toLowerCase() ? 'on' : ''}`}
+                  onClick={() => setJob(j)}
+                >
+                  {j}
+                </button>
+              ))}
+            </div>
+
+            <div className="gl">Status</div>
+            <div className="opts">
+              {STAT_OPTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`opt ${status.toUpperCase() === s.toUpperCase() ? 'on' : ''}`}
+                  onClick={() => setStatus(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            <div className="fa">
+              <button
+                type="button"
+                className="btn soft"
+                style={{ width: 'auto', padding: '0 24px' }}
+                onClick={() => {
+                  setName(initialProfile.name);
+                  setEmail(initialProfile.email);
+                  setJob(initialProfile.job);
+                  setStatus(initialProfile.status);
+                  onAddToast('Perubahan dibatalkan');
+                }}
+              >
+                Batalkan
+              </button>
+              <button
+                type="submit"
+                className="btn dark"
+                style={{ width: 'auto', padding: '0 28px' }}
+                disabled={isSaving}
+              >
+                <span>{isSaving ? 'Menyimpan...' : 'Simpan Profil'}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {/* MODAL CROP EDIT FOTO */}
       {isModalOpen && (
-        <div className="ov show" id="ov" onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="mt">
-            <div className="grab" />
+        <div className="ov" onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
+          <div className="modal" role="dialog" aria-modal="true">
             <div className="mh">
-              <h2 id="mt">Edit Foto Profil</h2>
-              <button className="x" id="mx" onClick={() => setIsModalOpen(false)} aria-label="Tutup">
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
-                  <path d="M6 6l12 12M18 6 6 18" />
+              <h2>Edit Foto Profil</h2>
+              <button type="button" className="x" onClick={() => setIsModalOpen(false)} aria-label="Tutup">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                  <line x1="6" y1="6" x2="18" y2="18" />
                 </svg>
               </button>
             </div>
-            <p className="hint">Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.</p>
+            <p className="sub" style={{ fontSize: 13, marginTop: 4 }}>
+              Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.
+            </p>
+
             <div className="stagewrap">
               <div
                 className="crop"
-                id="crop"
-                ref={cropRef}
-                tabIndex={0}
-                role="application"
-                aria-label="Area crop"
+                ref={cropBoxRef}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
               >
-                {cropImageSrc && (
-                  <img
-                    ref={imgRef}
-                    id="cimg"
-                    src={cropImageSrc}
-                    alt="Pratinjau Crop"
-                    draggable="false"
-                    style={{
-                      transform: `translate(${posX}px, ${posY}px) scale(${zoom})`,
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
-                    }}
-                  />
-                )}
-                <div className="grid" />
+                <img
+                  ref={cropImgRef}
+                  src={cropSrc}
+                  alt="Crop"
+                  draggable={false}
+                  onLoad={onCropImgLoaded}
+                  style={{
+                    transform: `translate(${posX}px, ${posY}px) scale(${imgDim.base * zoom})`,
+                    width: `${imgDim.w}px`,
+                    height: `${imgDim.h}px`,
+                  }}
+                />
                 <div className="ring" />
               </div>
+
+              {/* 3 LINGKARAN PRATINJAU */}
+              <div className="prevs">
+                <div className="pv l">
+                  <img
+                    src={cropSrc}
+                    alt="L"
+                    style={{
+                      width: `${imgDim.w}px`,
+                      height: `${imgDim.h}px`,
+                      transform: `translate(${posX * (64 / 240)}px, ${posY * (64 / 240)}px) scale(${imgDim.base * zoom * (64 / 240)})`,
+                    }}
+                  />
+                </div>
+                <div className="pv m">
+                  <img
+                    src={cropSrc}
+                    alt="M"
+                    style={{
+                      width: `${imgDim.w}px`,
+                      height: `${imgDim.h}px`,
+                      transform: `translate(${posX * (42 / 240)}px, ${posY * (42 / 240)}px) scale(${imgDim.base * zoom * (42 / 240)})`,
+                    }}
+                  />
+                </div>
+                <div className="pv s">
+                  <img
+                    src={cropSrc}
+                    alt="S"
+                    style={{
+                      width: `${imgDim.w}px`,
+                      height: `${imgDim.h}px`,
+                      transform: `translate(${posX * (26 / 240)}px, ${posY * (26 / 240)}px) scale(${imgDim.base * zoom * (26 / 240)})`,
+                    }}
+                  />
+                </div>
+                <span>Pratinjau</span>
+              </div>
             </div>
+
+            {/* ALAT PUTAR & BALIK */}
+            <div className="tools">
+              <button type="button" className="tl" onClick={handleRotate}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                </svg>
+                Putar
+              </button>
+              <button type="button" className="tl" onClick={handleFlip}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v20M8 6l-5 6 5 6V6zM16 6l5 6-5 6V6z" />
+                </svg>
+                Balik
+              </button>
+            </div>
+
+            {/* KONTROL SLIDER */}
             <div className="ctl">
               <span>Zoom</span>
-              <button className="z" onClick={() => setZoom(Math.max(1, zoom - 0.1))} aria-label="Perkecil">
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
-                  <path d="M5 12h14" />
-                </svg>
-              </button>
+              <button type="button" className="z" onClick={() => updateZoom(zoom - 0.15)}>-</button>
               <input
-                id="zr"
                 type="range"
                 min="100"
                 max="300"
                 value={Math.round(zoom * 100)}
-                onChange={(e) => setZoom(Number(e.target.value) / 100)}
-                aria-label="Zoom"
+                onChange={(e) => updateZoom(Number(e.target.value) / 100)}
               />
-              <button className="z" onClick={() => setZoom(Math.min(3, zoom + 0.1))} aria-label="Perbesar">
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-              </button>
-              <output id="zo">{Math.round(zoom * 100)}%</output>
+              <button type="button" className="z" onClick={() => updateZoom(zoom + 0.15)}>+</button>
+              <output>{Math.round(zoom * 100)}%</output>
             </div>
+
+            <div className="ctl">
+              <span>Kiri–Kanan</span>
+              <button type="button" className="z" onClick={() => setPosX(clamp(posX + 20, posY, zoom).cx)}>&lt;</button>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={sliderXVal}
+                disabled={maxPanX <= 1}
+                onChange={(e) => {
+                  const x = -(Number(e.target.value) / 100) * maxPanX;
+                  setPosX(x);
+                }}
+              />
+              <button type="button" className="z" onClick={() => setPosX(clamp(posX - 20, posY, zoom).cx)}>&gt;</button>
+              <output>{sliderXVal}%</output>
+            </div>
+
+            <div className="ctl">
+              <span>Atas–Bawah</span>
+              <button type="button" className="z" onClick={() => setPosY(clamp(posX, posY + 20, zoom).cy)}>^</button>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={sliderYVal}
+                disabled={maxPanY <= 1}
+                onChange={(e) => {
+                  const y = -(Number(e.target.value) / 100) * maxPanY;
+                  setPosY(y);
+                }}
+              />
+              <button type="button" className="z" onClick={() => setPosY(clamp(posX, posY - 20, zoom).cy)}>v</button>
+              <output>{sliderYVal}%</output>
+            </div>
+
+            {/* AKSI BAWAH */}
             <div className="mact">
-              <label className="btn soft full" htmlFor="file-upload" style={{ cursor: 'pointer', textAlign: 'center', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" width="17" height="17">
-                  <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
+              <label className="btn soft" htmlFor="uploadModalFile" style={{ cursor: 'pointer' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
                 </svg>
                 Pilih Foto Baru
               </label>
-              <input id="file-upload" type="file" accept="image/*" className="sr" onChange={handleFileChange} />
-              <button className="btn soft" onClick={() => { setZoom(1); setPosX(0); setPosY(0); }}>Reset</button>
-              <button className={`btn dark ${isUploading ? 'load' : ''}`} id="sph" onClick={handleUploadCroppedPhoto}>
-                <span>Simpan Foto</span>
-                <i className="sp" />
-              </button>
+              <input type="file" id="uploadModalFile" accept="image/*" style={{ display: 'none' }} onChange={handleFileInput} />
+
+              <div className="mact-row">
+                <button
+                  type="button"
+                  className="btn soft"
+                  onClick={() => {
+                    setZoom(1);
+                    setPosX((240 - imgDim.w * imgDim.base) / 2);
+                    setPosY((240 - imgDim.h * imgDim.base) / 2);
+                  }}
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  className="btn dark"
+                  onClick={handleSaveCrop}
+                  disabled={isUploading}
+                >
+                  <span>{isUploading ? 'Menyimpan...' : 'Simpan Foto'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
