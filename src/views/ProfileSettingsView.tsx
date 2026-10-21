@@ -27,7 +27,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Modal Crop State (Sesuai Logika PROFILE CROP.html)
+  // Modal Crop State (Sesuai Struktur PROFILE CROP.html)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState<string>('');
   const [origSrc, setOrigSrc] = useState<string>('');
@@ -39,7 +39,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
   const [base, setBase] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
 
-  const cropRef = useRef<HTMLDivElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const pviLRef = useRef<HTMLImageElement>(null);
   const pviMRef = useRef<HTMLImageElement>(null);
@@ -118,8 +118,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     setIsDirty(name !== initialProfile.name || email !== initialProfile.email || job !== initialProfile.job || status !== initialProfile.status);
   }, [name, email, job, status, initialProfile]);
 
-  // Logika Pemotongan Gambar (PROFILE CROP.html)
-  const CS = 240;
+  // Logika Pemotongan Gambar
+  const CS = 280;
 
   const clamp = useCallback((currX: number, currY: number, currZ: number, b = base, w = nw, h = nh) => {
     const scaledW = w * b * currZ;
@@ -188,31 +188,33 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     dragLastRef.current = null;
   };
 
-  // Rotasi & Balik (PROFILE CROP.html)
+  // Rotasi & Balik
   const handleRotate = () => {
-    if (!imgRef.current) return;
-    const c = document.createElement('canvas');
-    const g = c.getContext('2d');
-    if (!g) return;
-    c.width = nh;
-    c.height = nw;
-    g.translate(c.width / 2, c.height / 2);
-    g.rotate(-Math.PI / 2);
-    g.drawImage(imgRef.current, -nw / 2, -nh / 2);
-    setCropSrc(c.toDataURL('image/jpeg', 0.95));
+    const img = imgRef.current;
+    if (!img) return;
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalHeight;
+    cv.height = img.naturalWidth;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.translate(cv.width / 2, cv.height / 2);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    setCropSrc(cv.toDataURL('image/jpeg', 0.95));
   };
 
   const handleFlip = () => {
-    if (!imgRef.current) return;
-    const c = document.createElement('canvas');
-    const g = c.getContext('2d');
-    if (!g) return;
-    c.width = nw;
-    c.height = nh;
-    g.translate(c.width / 2, c.height / 2);
-    g.scale(-1, 1);
-    g.drawImage(imgRef.current, -nw / 2, -nh / 2);
-    setCropSrc(c.toDataURL('image/jpeg', 0.95));
+    const img = imgRef.current;
+    if (!img) return;
+    const cv = document.createElement('canvas');
+    cv.width = img.naturalWidth;
+    cv.height = img.naturalHeight;
+    const ctx = cv.getContext('2d');
+    if (!ctx) return;
+    ctx.translate(cv.width / 2, cv.height / 2);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    setCropSrc(cv.toDataURL('image/jpeg', 0.95));
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -221,10 +223,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     if (!f) return;
     if (!f.type.startsWith('image/')) {
       onAddToast('File harus berupa gambar');
-      return;
-    }
-    if (f.size > 10 * 1048576) {
-      onAddToast('Ukuran foto maksimal 10 MB');
       return;
     }
     const r = new FileReader();
@@ -236,24 +234,32 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     r.readAsDataURL(f);
   };
 
-  // Simpan foto hasil crop dan kirim ke upload.php
+  // Simpan hasil crop ke backend upload.php
   const handleSaveCrop = async () => {
-    if (!imgRef.current) return;
+    const img = imgRef.current;
+    if (!img) return;
     setIsUploading(true);
 
-    const o = document.createElement('canvas');
-    o.width = o.height = 512;
-    const g = o.getContext('2d');
-    if (!g) {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 512;
+    const ctx = cv.getContext('2d');
+    if (!ctx) {
       setIsUploading(false);
       return;
     }
-    const k = 512 / CS;
-    g.drawImage(imgRef.current, 0, 0, nw, nh, posX * k, posY * k, nw * base * zoom * k, nh * base * zoom * k);
 
-    const croppedDataUrl = o.toDataURL('image/jpeg', 0.92);
+    const factor = 512 / CS;
+    ctx.drawImage(
+      img,
+      0, 0, nw, nh,
+      posX * factor, posY * factor,
+      nw * base * zoom * factor,
+      nh * base * zoom * factor
+    );
 
-    o.toBlob(async (blob) => {
+    const croppedBase64 = cv.toDataURL('image/jpeg', 0.92);
+
+    cv.toBlob(async (blob) => {
       if (!blob) {
         setIsUploading(false);
         return;
@@ -270,15 +276,14 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
           body: fd,
         });
         const resJson = await res.json();
-        const finalUrl = resJson.success && resJson.avatar_url ? resJson.avatar_url : croppedDataUrl;
-
+        const finalUrl = resJson.success && resJson.avatar_url ? resJson.avatar_url : croppedBase64;
         setAvatarUrl(finalUrl);
         if (onUpdateUser) {
           onUpdateUser({ email, name, avatar_url: finalUrl });
         }
         onAddToast('Foto profil berhasil disimpan ke server');
       } catch (err) {
-        setAvatarUrl(croppedDataUrl);
+        setAvatarUrl(croppedBase64);
         onAddToast('Foto profil diperbarui secara lokal');
       } finally {
         setIsUploading(false);
@@ -287,7 +292,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     }, 'image/jpeg', 0.92);
   };
 
-  // Simpan Form Data Profil
+  // Simpan Data Profil (save.php)
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -332,7 +337,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     }
   };
 
-  // Hitung Slider Range Pan
   const currentRenderW = nw * base * zoom - CS;
   const currentRenderH = nh * base * zoom - CS;
   const sliderX = currentRenderW > 1 ? Math.round((-posX / currentRenderW) * 100) : 50;
@@ -340,7 +344,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
 
   return (
     <div className="wrap">
-      {/* SISI KIRI: KARTU FOTO PROFIL */}
+      {/* KARTU KIRI: FOTO PROFIL */}
       <aside className="card pc">
         <div className="inner" style={{ width: '100%' }}>
           <div className="pwrap">
@@ -368,7 +372,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
           </div>
 
           <div className="eyebrow">Foto Profil</div>
-          <h1 style={{ fontSize: 28, fontWeight: 600, margin: '4px 0 8px' }}>{name || 'Pengguna'}</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 600, margin: '4px 0 8px' }}>{name || 'Pengguna'}</h1>
           <p className="sub" style={{ margin: '0 auto 16px' }}>
             Foto diedit dari pratinjau utama, lalu disimpan langsung tanpa kartu pratinjau crop tambahan.
           </p>
@@ -390,7 +394,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
         </div>
       </aside>
 
-      {/* SISI KANAN: FORM PROFIL */}
+      {/* KARTU KANAN: FORM INFORMASI PROFIL */}
       <section className="card">
         <div className="inner">
           <div className="fh">
@@ -406,18 +410,18 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
 
           <form onSubmit={handleSaveProfile} noValidate>
             <div className="f">
-              <label htmlFor="fn">Name</label>
-              <input id="fn" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+              <label htmlFor="nameInput">Name</label>
+              <input id="nameInput" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
             </div>
 
             <div className="f">
-              <label htmlFor="fe">Email</label>
-              <input id="fe" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              <label htmlFor="emailInput">Email</label>
+              <input id="emailInput" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             </div>
 
             <div className="f">
-              <label htmlFor="fj">Pekerjaan</label>
-              <input id="fj" value={job} onChange={(e) => setJob(e.target.value)} />
+              <label htmlFor="jobInput">Pekerjaan</label>
+              <input id="jobInput" value={job} onChange={(e) => setJob(e.target.value)} />
             </div>
 
             <div className="gl">PILIH PEKERJAAN</div>
@@ -476,86 +480,80 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
         </div>
       </section>
 
-      {/* MODAL CROP EDIT FOTO PROFIL */}
+      {/* MODAL CROP EDIT FOTO (DESAIN BARU SESUAI REFERENSI CROP SETTING.HTML) */}
       {isModalOpen && (
-        <div
-          className="ov show profile-crop-layer"
-          id="ov"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsModalOpen(false);
-          }}
-        >
-          <div className="modal profile-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="mt">
-            <div className="grab" />
-            <div className="mh">
-              <h2 id="mt">Edit Foto Profil</h2>
-              <button type="button" className="x" id="mx" onClick={() => setIsModalOpen(false)} aria-label="Tutup">
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
-                  <path d="M6 6l12 12M18 6 6 18" />
-                </svg>
+        <div className="ov show pc-ov" onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
+          <div className="modal pc-modal" role="dialog" aria-modal="true">
+            <div className="pc-grab" />
+            <div className="pc-head">
+              <h2>Edit Foto Profil</h2>
+              <button type="button" className="pc-x" onClick={() => setIsModalOpen(false)} aria-label="Tutup">
+                <svg viewBox="0 0 24 24" width="18" height="18"><path d="M6 6l12 12M18 6 6 18" /></svg>
               </button>
             </div>
-            <p className="hint">Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.</p>
+            <p className="pc-hint-t">Seret foto atau pakai tombol arah untuk menggeser kanan, kiri, atas, dan bawah. Atur zoom, lalu klik Simpan Foto.</p>
 
-            <div className="stagewrap">
+            <div className="pc-main">
               <div
-                className="crop"
-                id="crop"
-                ref={cropRef}
+                className="pc-stage"
+                ref={stageRef}
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
                 onPointerCancel={onPointerUp}
               >
-                <img
-                  ref={imgRef}
-                  id="cimg"
-                  src={cropSrc}
-                  alt="Pratinjau Crop"
-                  draggable={false}
-                  onLoad={onImageLoaded}
-                  style={{
-                    transform: `translate(${posX}px, ${posY}px) scale(${base * zoom})`,
-                    width: nw ? `${nw}px` : 'auto',
-                    height: nh ? `${nh}px` : 'auto',
-                  }}
-                />
-                <div className="ring" />
+                {cropSrc && (
+                  <img
+                    ref={imgRef}
+                    src={cropSrc}
+                    alt="Pratinjau Crop"
+                    draggable={false}
+                    onLoad={onImageLoaded}
+                    style={{
+                      transform: `translate(${posX}px, ${posY}px) scale(${base * zoom})`,
+                      width: nw ? `${nw}px` : 'auto',
+                      height: nh ? `${nh}px` : 'auto',
+                    }}
+                  />
+                )}
+                <div className="pc-grid" />
+                <div className="pc-ring" />
+                <div className="pc-tip">Seret untuk menggeser</div>
               </div>
 
-              {/* 3 LINGKARAN PRATINJAU */}
-              <div className="prevs" aria-hidden="true">
-                <div className="pv l">
+              {/* 3 LINGKARAN PRATINJAU (L, M, S) */}
+              <div className="pc-prevs" aria-hidden="true">
+                <div className="pc-pv l">
                   <img
                     ref={pviLRef}
                     src={cropSrc}
                     alt="Preview L"
                     style={{
-                      transform: `translate(${posX * (64 / CS)}px, ${posY * (64 / CS)}px) scale(${base * zoom * (64 / CS)})`,
+                      transform: `translate(${posX * (72 / CS)}px, ${posY * (72 / CS)}px) scale(${base * zoom * (72 / CS)})`,
                       width: nw ? `${nw}px` : 'auto',
                       height: nh ? `${nh}px` : 'auto',
                     }}
                   />
                 </div>
-                <div className="pv m">
+                <div className="pc-pv m">
                   <img
                     ref={pviMRef}
                     src={cropSrc}
                     alt="Preview M"
                     style={{
-                      transform: `translate(${posX * (40 / CS)}px, ${posY * (40 / CS)}px) scale(${base * zoom * (40 / CS)})`,
+                      transform: `translate(${posX * (44 / CS)}px, ${posY * (44 / CS)}px) scale(${base * zoom * (44 / CS)})`,
                       width: nw ? `${nw}px` : 'auto',
                       height: nh ? `${nh}px` : 'auto',
                     }}
                   />
                 </div>
-                <div className="pv s">
+                <div className="pc-pv s">
                   <img
                     ref={pviSRef}
                     src={cropSrc}
                     alt="Preview S"
                     style={{
-                      transform: `translate(${posX * (26 / CS)}px, ${posY * (26 / CS)}px) scale(${base * zoom * (26 / CS)})`,
+                      transform: `translate(${posX * (28 / CS)}px, ${posY * (28 / CS)}px) scale(${base * zoom * (28 / CS)})`,
                       width: nw ? `${nw}px` : 'auto',
                       height: nh ? `${nh}px` : 'auto',
                     }}
@@ -565,108 +563,73 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
               </div>
             </div>
 
-            {/* ALAT PUTAR & BALIK */}
-            <div className="tools">
-              <button type="button" className="tl" id="rl" onClick={handleRotate}>
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M4 9a8 8 0 1 1-1 5M4 4v5h5" />
-                </svg>
-                Putar
-              </button>
-              <button type="button" className="tl" id="fl" onClick={handleFlip}>
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z" />
-                </svg>
-                Balik
-              </button>
+            {/* PANEL KONTROL ZOOM & ORIENTASI */}
+            <div className="pc-panels">
+              <section className="pc-panel" aria-label="Geser posisi foto">
+                <h3>Geser</h3>
+                <div className="pc-dpad">
+                  <button type="button" className="pc-pad" data-d="up" onClick={() => setPosY(clamp(posX, posY + 18, zoom).clampedY)} aria-label="Atas">
+                    <svg viewBox="0 0 24 24"><path d="m6 14 6-6 6 6" /></svg>
+                  </button>
+                  <button type="button" className="pc-pad" data-d="left" onClick={() => setPosX(clamp(posX + 18, posY, zoom).clampedX)} aria-label="Kiri">
+                    <svg viewBox="0 0 24 24"><path d="m14 6-6 6 6 6" /></svg>
+                  </button>
+                  <button type="button" className="pc-pad" data-d="center" onClick={() => { setPosX((CS - nw * base * zoom) / 2); setPosY((CS - nh * base * zoom) / 2); }} aria-label="Pusat">
+                    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M12 3v3M12 18v3M3 12h3M18 12h3" /></svg>
+                  </button>
+                  <button type="button" className="pc-pad" data-d="right" onClick={() => setPosX(clamp(posX - 18, posY, zoom).clampedX)} aria-label="Kanan">
+                    <svg viewBox="0 0 24 24"><path d="m10 6 6 6-6 6" /></svg>
+                  </button>
+                  <button type="button" className="pc-pad" data-d="down" onClick={() => setPosY(clamp(posX, posY - 18, zoom).clampedY)} aria-label="Bawah">
+                    <svg viewBox="0 0 24 24"><path d="m6 10 6 6 6-6" /></svg>
+                  </button>
+                </div>
+                <div className="pc-read" id="pc-read">Posisi <b>X {sliderX}%</b> · <b>Y {sliderY}%</b></div>
+              </section>
+
+              <section className="pc-panel">
+                <h3>Zoom</h3>
+                <div className="pc-zoom">
+                  <button type="button" className="pc-ico" onClick={() => setZoomLevel(zoom - 0.15)} aria-label="Perkecil">
+                    <svg viewBox="0 0 24 24"><path d="M5 12h14" /></svg>
+                  </button>
+                  <input
+                    className="pc-range"
+                    type="range"
+                    min="100"
+                    max="300"
+                    value={Math.round(zoom * 100)}
+                    onChange={(e) => setZoomLevel(Number(e.target.value) / 100)}
+                    aria-label="Zoom"
+                  />
+                  <button type="button" className="pc-ico" onClick={() => setZoomLevel(zoom + 0.15)} aria-label="Perbesar">
+                    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>
+                  </button>
+                  <output>{Math.round(zoom * 100)}%</output>
+                </div>
+                <h3>Orientasi</h3>
+                <div className="pc-tools">
+                  <button type="button" className="pc-tool" onClick={handleRotate}>
+                    <svg viewBox="0 0 24 24"><path d="M4 9a8 8 0 1 1-1 5M4 4v5h5" /></svg>Putar
+                  </button>
+                  <button type="button" className="pc-tool" onClick={handleFlip}>
+                    <svg viewBox="0 0 24 24"><path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z" /></svg>Balik
+                  </button>
+                </div>
+              </section>
             </div>
 
-            {/* KONTROL SLIDER */}
-            <div className="ctl">
-              <span>Zoom</span>
-              <button type="button" className="z" id="zm" onClick={() => setZoomLevel(zoom - 0.15)}>-</button>
-              <input
-                id="zr"
-                type="range"
-                min="100"
-                max="300"
-                value={Math.round(zoom * 100)}
-                onChange={(e) => setZoomLevel(Number(e.target.value) / 100)}
-              />
-              <button type="button" className="z" id="zp" onClick={() => setZoomLevel(zoom + 0.15)}>+</button>
-              <output id="zo">{Math.round(zoom * 100)}%</output>
-            </div>
-
-            <div className="ctl">
-              <span>Kiri–Kanan</span>
-              <button type="button" className="z" id="gl" disabled={currentRenderW <= 1} onClick={() => setPosX(clamp(posX + 18, posY, zoom).clampedX)}>&lt;</button>
-              <input
-                id="hx"
-                type="range"
-                min="0"
-                max="100"
-                value={sliderX}
-                disabled={currentRenderW <= 1}
-                onChange={(e) => {
-                  const newX = -(Number(e.target.value) / 100) * currentRenderW;
-                  setPosX(newX);
-                }}
-              />
-              <button type="button" className="z" id="gr" disabled={currentRenderW <= 1} onClick={() => setPosX(clamp(posX - 18, posY, zoom).clampedX)}>&gt;</button>
-              <output id="xo">{sliderX}%</output>
-            </div>
-
-            <div className="ctl">
-              <span>Atas–Bawah</span>
-              <button type="button" className="z" id="gu" disabled={currentRenderH <= 1} onClick={() => setPosY(clamp(posX, posY + 18, zoom).clampedY)}>^</button>
-              <input
-                id="vy"
-                type="range"
-                min="0"
-                max="100"
-                value={sliderY}
-                disabled={currentRenderH <= 1}
-                onChange={(e) => {
-                  const newY = -(Number(e.target.value) / 100) * currentRenderH;
-                  setPosY(newY);
-                }}
-              />
-              <button type="button" className="z" id="gd" disabled={currentRenderH <= 1} onClick={() => setPosY(clamp(posX, posY - 18, zoom).clampedY)}>v</button>
-              <output id="yo">{sliderY}%</output>
-            </div>
-
-            {/* AKSI TOMBOL BAWAH */}
-            <div className="mact">
-              <label className="btn soft full" htmlFor="fileCropPicker" style={{ cursor: 'pointer' }}>
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
-                </svg>
+            <div className="pc-actions">
+              <label className="pc-b soft pc-full" htmlFor="pc-file" style={{ cursor: 'pointer' }}>
+                <svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" /></svg>
                 Pilih Foto Baru
               </label>
-              <input id="fileCropPicker" type="file" accept="image/*" className="sr" onChange={handleFileChange} />
-
-              <div className="mact-row">
-                <button
-                  type="button"
-                  className="btn soft"
-                  id="rst"
-                  onClick={() => {
-                    setCropSrc(origSrc);
-                  }}
-                >
-                  Reset
-                </button>
-                <button
-                  type="button"
-                  className={`btn dark ${isUploading ? 'load' : ''}`}
-                  id="sph"
-                  onClick={handleSaveCrop}
-                  disabled={isUploading}
-                >
-                  <span>{isUploading ? 'Menyimpan...' : 'Simpan Foto'}</span>
-                  <i className="sp" />
-                </button>
-              </div>
+              <input className="sr-only" id="pc-file" type="file" accept="image/*" onChange={handleFileChange} />
+              <button type="button" className="pc-b soft" onClick={() => { setZoom(1); setPosX((CS - nw * base) / 2); setPosY((CS - nh * base) / 2); }}>Reset</button>
+              <button type="button" className={`pc-b dark ${isUploading ? 'pc-load' : ''}`} onClick={handleSaveCrop} disabled={isUploading}>
+                <span>Simpan Foto</span>
+                <i className="pc-spn" />
+              </button>
             </div>
           </div>
         </div>
