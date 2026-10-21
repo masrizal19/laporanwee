@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import '../profile-edit.css';
 
 interface ProfileSettingsViewProps {
@@ -13,7 +13,7 @@ interface ProfileSettingsViewProps {
 
 const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
 const STAT_OPTIONS = ['KARYAWAN', 'MAGANG', 'PKL SISWA', 'PKL MAHASISWA'];
-const JOB_OPTIONS = ['Fotografer', 'Desainer Grafis', 'Editor', 'Videografer', 'Copywriter', 'Social Media Specialist'];
+const JOB_OPTIONS = ['Art Director', 'Desainer Grafis', 'VIDEO EDITOR', 'Videografer', 'Copywriter', 'Social Media'];
 
 export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddToast, onUpdateUser }) => {
   const [profileId, setProfileId] = useState<number | string>(1);
@@ -27,38 +27,53 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Modal Crop State
+  // Modal Crop State (Sesuai Logika PROFILE CROP.html)
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [cropSrc, setCropSrc] = useState<string>('');
+  const [origSrc, setOrigSrc] = useState<string>('');
   const [zoom, setZoom] = useState(1);
   const [posX, setPosX] = useState(0);
   const [posY, setPosY] = useState(0);
-  const [imgDim, setImgDim] = useState({ w: 480, h: 480, base: 1 });
+  const [nw, setNw] = useState(0);
+  const [nh, setNh] = useState(0);
+  const [base, setBase] = useState(1);
   const [isUploading, setIsUploading] = useState(false);
 
-  const cropBoxRef = useRef<HTMLDivElement>(null);
-  const cropImgRef = useRef<HTMLImageElement>(null);
-  const isDraggingRef = useRef(false);
-  const dragStartRef = useRef({ x: 0, y: 0 });
+  const cropRef = useRef<HTMLDivElement>(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+  const pviLRef = useRef<HTMLImageElement>(null);
+  const pviMRef = useRef<HTMLImageElement>(null);
+  const pviSRef = useRef<HTMLImageElement>(null);
 
-  // Generate fallback avatar canvas
-  const getInitialAvatar = (char: string) => {
+  const isDraggingRef = useRef(false);
+  const dragLastRef = useRef<{ x: number; y: number } | null>(null);
+
+  // Buat avatar inisial canvas jika belum ada foto
+  const getInitialsAvatar = (initialChar: string) => {
     const c = document.createElement('canvas');
     c.width = c.height = 480;
-    const ctx = c.getContext('2d');
-    if (!ctx) return '';
-    const gr = ctx.createLinearGradient(0, 0, 480, 480);
+    const g = c.getContext('2d');
+    if (!g) return '';
+    const gr = g.createLinearGradient(0, 0, 480, 480);
     gr.addColorStop(0, '#cfc6f4');
     gr.addColorStop(0.55, '#e3ddfa');
     gr.addColorStop(1, '#d4ee6b');
-    ctx.fillStyle = gr;
-    ctx.fillRect(0, 0, 480, 480);
-    ctx.fillStyle = '#2a2440';
-    ctx.font = 'bold 200px Outfit, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText((char || 'A').toUpperCase(), 240, 250);
-    return c.toDataURL('image/jpeg');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 480, 480);
+    g.fillStyle = 'rgba(255,255,255,.45)';
+    g.beginPath();
+    g.arc(360, 120, 140, 0, 7);
+    g.fill();
+    g.fillStyle = 'rgba(143,127,224,.35)';
+    g.beginPath();
+    g.arc(90, 420, 170, 0, 7);
+    g.fill();
+    g.fillStyle = '#2a2440';
+    g.font = '500 190px Outfit,system-ui,sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText((initialChar || 'P').toUpperCase(), 240, 262);
+    return c.toDataURL();
   };
 
   // Muat data profil dari backend
@@ -90,108 +105,117 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
           setInitialProfile({ name: n, email: e, job: j, status: s });
         }
       } catch (err) {
-        console.warn('Gagal memuat profil backend, menggunakan data lokal:', err);
         setInitialProfile({ name, email, job, status });
       }
     };
     fetchProfile();
   }, []);
 
-  // Hitung persentase kelengkapan profil (5 parameter = @20%)
   const completeness = [avatarUrl ? 1 : 0, name.trim() ? 1 : 0, email.trim() ? 1 : 0, job.trim() ? 1 : 0, status ? 1 : 0].filter(Boolean).length * 20;
-  const strokeOffset = 553 - (553 * (completeness / 100));
+  const strokeOffset = 553 * (1 - completeness / 100);
 
   useEffect(() => {
     setIsDirty(name !== initialProfile.name || email !== initialProfile.email || job !== initialProfile.job || status !== initialProfile.status);
   }, [name, email, job, status, initialProfile]);
 
-  // Modal buka & hitung rasio crop
-  const handleOpenModal = () => {
-    const src = avatarUrl || getInitialAvatar(name[0]);
-    setCropSrc(src);
+  // Logika Pemotongan Gambar (PROFILE CROP.html)
+  const CS = 240;
+
+  const clamp = useCallback((currX: number, currY: number, currZ: number, b = base, w = nw, h = nh) => {
+    const scaledW = w * b * currZ;
+    const scaledH = h * b * currZ;
+    const clampedX = Math.min(0, Math.max(CS - scaledW, currX));
+    const clampedY = Math.min(0, Math.max(CS - scaledH, currY));
+    return { clampedX, clampedY };
+  }, [base, nw, nh]);
+
+  const setZoomLevel = (newZ: number) => {
+    const nz = Math.min(3, Math.max(1, newZ));
+    const cx = (CS / 2 - posX) / (base * zoom);
+    const cy = (CS / 2 - posY) / (base * zoom);
+    const newX = CS / 2 - cx * base * nz;
+    const newY = CS / 2 - cy * base * nz;
+    const { clampedX, clampedY } = clamp(newX, newY, nz);
+    setZoom(nz);
+    setPosX(clampedX);
+    setPosY(clampedY);
+  };
+
+  const handleOpenCrop = () => {
+    const currentAvatar = avatarUrl || getInitialsAvatar(name[0]);
+    setOrigSrc(currentAvatar);
+    setCropSrc(currentAvatar);
     setIsModalOpen(true);
   };
 
-  const onCropImgLoaded = (e: React.SyntheticEvent<HTMLImageElement>) => {
+  const onImageLoaded = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
-    const nw = img.naturalWidth || 480;
-    const nh = img.naturalHeight || 480;
-    const cs = 240;
-    const base = cs / Math.min(nw, nh);
+    const naturalW = img.naturalWidth || 480;
+    const naturalH = img.naturalHeight || 480;
+    const b = CS / Math.min(naturalW, naturalH);
 
-    setImgDim({ w: nw, h: nh, base });
+    setNw(naturalW);
+    setNh(naturalH);
+    setBase(b);
     setZoom(1);
-    setPosX((cs - nw * base) / 2);
-    setPosY((cs - nh * base) / 2);
+
+    const initX = (CS - naturalW * b) / 2;
+    const initY = (CS - naturalH * b) / 2;
+    setPosX(initX);
+    setPosY(initY);
   };
 
-  // Clamp pergeseran agar tidak keluar dari lingkaran
-  const clamp = (x: number, y: number, currentZoom: number) => {
-    const cs = 240;
-    const rw = imgDim.w * imgDim.base * currentZoom;
-    const rh = imgDim.h * imgDim.base * currentZoom;
-    const cx = Math.min(0, Math.max(cs - rw, x));
-    const cy = Math.min(0, Math.max(cs - rh, y));
-    return { cx, cy };
-  };
-
-  const updateZoom = (newZoom: number) => {
-    const targetZoom = Math.min(3, Math.max(1, newZoom));
-    const { cx, cy } = clamp(posX, posY, targetZoom);
-    setZoom(targetZoom);
-    setPosX(cx);
-    setPosY(cy);
-  };
-
-  // Drag Interaksi Kursor / Touch
-  const handlePointerDown = (e: React.PointerEvent) => {
+  // Pointer Drag Event
+  const onPointerDown = (e: React.PointerEvent) => {
     isDraggingRef.current = true;
-    dragStartRef.current = { x: e.clientX - posX, y: e.clientY - posY };
+    dragLastRef.current = { x: e.clientX, y: e.clientY };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    const { cx, cy } = clamp(e.clientX - dragStartRef.current.x, e.clientY - dragStartRef.current.y, zoom);
-    setPosX(cx);
-    setPosY(cy);
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current || !dragLastRef.current) return;
+    const dx = e.clientX - dragLastRef.current.x;
+    const dy = e.clientY - dragLastRef.current.y;
+    dragLastRef.current = { x: e.clientX, y: e.clientY };
+
+    const { clampedX, clampedY } = clamp(posX + dx, posY + dy, zoom);
+    setPosX(clampedX);
+    setPosY(clampedY);
   };
 
-  const handlePointerUp = () => {
+  const onPointerUp = () => {
     isDraggingRef.current = false;
+    dragLastRef.current = null;
   };
 
-  // Putar & Balik Canvas
+  // Rotasi & Balik (PROFILE CROP.html)
   const handleRotate = () => {
-    const img = cropImgRef.current;
-    if (!img) return;
-    const cv = document.createElement('canvas');
-    cv.width = img.naturalHeight;
-    cv.height = img.naturalWidth;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-    ctx.translate(cv.width / 2, cv.height / 2);
-    ctx.rotate(Math.PI / 2);
-    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-    setCropSrc(cv.toDataURL('image/jpeg', 0.95));
+    if (!imgRef.current) return;
+    const c = document.createElement('canvas');
+    const g = c.getContext('2d');
+    if (!g) return;
+    c.width = nh;
+    c.height = nw;
+    g.translate(c.width / 2, c.height / 2);
+    g.rotate(-Math.PI / 2);
+    g.drawImage(imgRef.current, -nw / 2, -nh / 2);
+    setCropSrc(c.toDataURL('image/jpeg', 0.95));
   };
 
   const handleFlip = () => {
-    const img = cropImgRef.current;
-    if (!img) return;
-    const cv = document.createElement('canvas');
-    cv.width = img.naturalWidth;
-    cv.height = img.naturalHeight;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
-    ctx.translate(cv.width / 2, cv.height / 2);
-    ctx.scale(-1, 1);
-    ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-    setCropSrc(cv.toDataURL('image/jpeg', 0.95));
+    if (!imgRef.current) return;
+    const c = document.createElement('canvas');
+    const g = c.getContext('2d');
+    if (!g) return;
+    c.width = nw;
+    c.height = nh;
+    g.translate(c.width / 2, c.height / 2);
+    g.scale(-1, 1);
+    g.drawImage(imgRef.current, -nw / 2, -nh / 2);
+    setCropSrc(c.toDataURL('image/jpeg', 0.95));
   };
 
-  // Upload file baru dari lokal
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
@@ -199,36 +223,37 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
       onAddToast('File harus berupa gambar');
       return;
     }
+    if (f.size > 10 * 1048576) {
+      onAddToast('Ukuran foto maksimal 10 MB');
+      return;
+    }
     const r = new FileReader();
     r.onload = () => {
-      setCropSrc(r.result as string);
+      if (typeof r.result === 'string') {
+        setCropSrc(r.result);
+      }
     };
     r.readAsDataURL(f);
   };
 
-  // Simpan hasil crop ke backend
+  // Simpan foto hasil crop dan kirim ke upload.php
   const handleSaveCrop = async () => {
-    const img = cropImgRef.current;
-    if (!img) return;
+    if (!imgRef.current) return;
     setIsUploading(true);
 
-    const cv = document.createElement('canvas');
-    cv.width = cv.height = 480;
-    const ctx = cv.getContext('2d');
-    if (!ctx) return;
+    const o = document.createElement('canvas');
+    o.width = o.height = 512;
+    const g = o.getContext('2d');
+    if (!g) {
+      setIsUploading(false);
+      return;
+    }
+    const k = 512 / CS;
+    g.drawImage(imgRef.current, 0, 0, nw, nh, posX * k, posY * k, nw * base * zoom * k, nh * base * zoom * k);
 
-    const factor = 480 / 240;
-    ctx.drawImage(
-      img,
-      0, 0, imgDim.w, imgDim.h,
-      posX * factor, posY * factor,
-      imgDim.w * imgDim.base * zoom * factor,
-      imgDim.h * imgDim.base * zoom * factor
-    );
+    const croppedDataUrl = o.toDataURL('image/jpeg', 0.92);
 
-    const croppedBase64 = cv.toDataURL('image/jpeg', 0.92);
-
-    cv.toBlob(async (blob) => {
+    o.toBlob(async (blob) => {
       if (!blob) {
         setIsUploading(false);
         return;
@@ -241,19 +266,19 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
 
         const res = await fetch(`${API_BASE}/upload.php`, {
           method: 'POST',
-          headers: { 'Authorization': 'Bearer ' + token },
+          headers: { Authorization: 'Bearer ' + token },
           body: fd,
         });
         const resJson = await res.json();
-        const finalUrl = resJson.success && resJson.avatar_url ? resJson.avatar_url : croppedBase64;
+        const finalUrl = resJson.success && resJson.avatar_url ? resJson.avatar_url : croppedDataUrl;
+
         setAvatarUrl(finalUrl);
         if (onUpdateUser) {
           onUpdateUser({ email, name, avatar_url: finalUrl });
         }
         onAddToast('Foto profil berhasil disimpan ke server');
       } catch (err) {
-        console.warn('API upload offline, simpan data URL:', err);
-        setAvatarUrl(croppedBase64);
+        setAvatarUrl(croppedDataUrl);
         onAddToast('Foto profil diperbarui secara lokal');
       } finally {
         setIsUploading(false);
@@ -262,11 +287,11 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     }, 'image/jpeg', 0.92);
   };
 
-  // Simpan data teks profil
+  // Simpan Form Data Profil
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      onAddToast('Nama lengkap wajib diisi.');
+      onAddToast('Name wajib diisi.');
       return;
     }
     setIsSaving(true);
@@ -277,7 +302,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token,
+          Authorization: 'Bearer ' + token,
         },
         body: JSON.stringify({
           id: profileId,
@@ -307,17 +332,15 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
     }
   };
 
-  // Hitung persentase slider X dan Y
-  const renderW = imgDim.w * imgDim.base * zoom;
-  const renderH = imgDim.h * imgDim.base * zoom;
-  const maxPanX = renderW - 240;
-  const maxPanY = renderH - 240;
-  const sliderXVal = maxPanX > 1 ? Math.round((-posX / maxPanX) * 100) : 50;
-  const sliderYVal = maxPanY > 1 ? Math.round((-posY / maxPanY) * 100) : 50;
+  // Hitung Slider Range Pan
+  const currentRenderW = nw * base * zoom - CS;
+  const currentRenderH = nh * base * zoom - CS;
+  const sliderX = currentRenderW > 1 ? Math.round((-posX / currentRenderW) * 100) : 50;
+  const sliderY = currentRenderH > 1 ? Math.round((-posY / currentRenderH) * 100) : 50;
 
   return (
     <div className="wrap">
-      {/* KARTU KIRI: FOTO PROFIL */}
+      {/* SISI KIRI: KARTU FOTO PROFIL */}
       <aside className="card pc">
         <div className="inner" style={{ width: '100%' }}>
           <div className="pwrap">
@@ -333,19 +356,19 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
             </svg>
             <span className="pct">{completeness}%</span>
 
-            <div className="pimg" onClick={handleOpenModal} role="button" tabIndex={0}>
-              <img src={avatarUrl || getInitialAvatar(name[0])} alt="Foto Profil" />
+            <div className="pimg" onClick={handleOpenCrop} role="button" tabIndex={0}>
+              <img src={avatarUrl || getInitialsAvatar(name[0])} alt="Foto Profil" />
             </div>
 
-            <button type="button" className="pen" onClick={handleOpenModal} aria-label="Edit foto">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+            <button type="button" className="pen" onClick={handleOpenCrop} aria-label="Edit foto">
+              <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 20h4L19 9l-4-4L4 16zM13.500 6.500l4 4" />
               </svg>
             </button>
           </div>
 
           <div className="eyebrow">Foto Profil</div>
-          <h1 style={{ fontSize: 26, fontWeight: 700, margin: '6px 0' }}>{name || 'Pengguna'}</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 600, margin: '4px 0 8px' }}>{name || 'Pengguna'}</h1>
           <p className="sub" style={{ margin: '0 auto 16px' }}>
             Foto diedit dari pratinjau utama, lalu disimpan langsung tanpa kartu pratinjau crop tambahan.
           </p>
@@ -356,18 +379,18 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
             <span className="chip lav">{status || 'Status belum dipilih'}</span>
           </div>
 
-          <button type="button" className="btn dark" onClick={handleOpenModal}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <button type="button" className="btn dark" onClick={handleOpenCrop}>
+            <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="3" width="18" height="18" rx="4" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <polyline points="21 15 16 10 5 21" />
+              <circle cx="9" cy="10" r="2" />
+              <path d="m21 16-5-5-8 8" />
             </svg>
             <span>Ubah Foto</span>
           </button>
         </div>
       </aside>
 
-      {/* KARTU KANAN: FORM INFORMASI PROFIL */}
+      {/* SISI KANAN: FORM PROFIL */}
       <section className="card">
         <div className="inner">
           <div className="fh">
@@ -383,21 +406,21 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
 
           <form onSubmit={handleSaveProfile} noValidate>
             <div className="f">
-              <label htmlFor="nameInput">Name</label>
-              <input id="nameInput" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+              <label htmlFor="fn">Name</label>
+              <input id="fn" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
             </div>
 
             <div className="f">
-              <label htmlFor="emailInput">Email</label>
-              <input id="emailInput" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              <label htmlFor="fe">Email</label>
+              <input id="fe" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
             </div>
 
             <div className="f">
-              <label htmlFor="jobInput">Pekerjaan</label>
-              <input id="jobInput" value={job} onChange={(e) => setJob(e.target.value)} />
+              <label htmlFor="fj">Pekerjaan</label>
+              <input id="fj" value={job} onChange={(e) => setJob(e.target.value)} />
             </div>
 
-            <div className="gl">Pilih Pekerjaan</div>
+            <div className="gl">PILIH PEKERJAAN</div>
             <div className="opts">
               {JOB_OPTIONS.map((j) => (
                 <button
@@ -411,7 +434,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
               ))}
             </div>
 
-            <div className="gl">Status</div>
+            <div className="gl">STATUS</div>
             <div className="opts">
               {STAT_OPTIONS.map((s) => (
                 <button
@@ -453,97 +476,106 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
         </div>
       </section>
 
-      {/* MODAL CROP EDIT FOTO */}
+      {/* MODAL CROP EDIT FOTO PROFIL */}
       {isModalOpen && (
-        <div className="ov" onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}>
-          <div className="modal" role="dialog" aria-modal="true">
+        <div
+          className="ov show profile-crop-layer"
+          id="ov"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsModalOpen(false);
+          }}
+        >
+          <div className="modal profile-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="mt">
+            <div className="grab" />
             <div className="mh">
-              <h2>Edit Foto Profil</h2>
-              <button type="button" className="x" onClick={() => setIsModalOpen(false)} aria-label="Tutup">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18" />
-                  <line x1="6" y1="6" x2="18" y2="18" />
+              <h2 id="mt">Edit Foto Profil</h2>
+              <button type="button" className="x" id="mx" onClick={() => setIsModalOpen(false)} aria-label="Tutup">
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6 6 18" />
                 </svg>
               </button>
             </div>
-            <p className="sub" style={{ fontSize: 13, marginTop: 4 }}>
-              Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.
-            </p>
+            <p className="hint">Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.</p>
 
             <div className="stagewrap">
               <div
                 className="crop"
-                ref={cropBoxRef}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
+                id="crop"
+                ref={cropRef}
+                onPointerDown={onPointerDown}
+                onPointerMove={onPointerMove}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerUp}
               >
                 <img
-                  ref={cropImgRef}
+                  ref={imgRef}
+                  id="cimg"
                   src={cropSrc}
-                  alt="Crop"
+                  alt="Pratinjau Crop"
                   draggable={false}
-                  onLoad={onCropImgLoaded}
+                  onLoad={onImageLoaded}
                   style={{
-                    transform: `translate(${posX}px, ${posY}px) scale(${imgDim.base * zoom})`,
-                    width: `${imgDim.w}px`,
-                    height: `${imgDim.h}px`,
+                    transform: `translate(${posX}px, ${posY}px) scale(${base * zoom})`,
+                    width: nw ? `${nw}px` : 'auto',
+                    height: nh ? `${nh}px` : 'auto',
                   }}
                 />
                 <div className="ring" />
               </div>
 
               {/* 3 LINGKARAN PRATINJAU */}
-              <div className="prevs">
+              <div className="prevs" aria-hidden="true">
                 <div className="pv l">
                   <img
+                    ref={pviLRef}
                     src={cropSrc}
-                    alt="L"
+                    alt="Preview L"
                     style={{
-                      width: `${imgDim.w}px`,
-                      height: `${imgDim.h}px`,
-                      transform: `translate(${posX * (64 / 240)}px, ${posY * (64 / 240)}px) scale(${imgDim.base * zoom * (64 / 240)})`,
+                      transform: `translate(${posX * (64 / CS)}px, ${posY * (64 / CS)}px) scale(${base * zoom * (64 / CS)})`,
+                      width: nw ? `${nw}px` : 'auto',
+                      height: nh ? `${nh}px` : 'auto',
                     }}
                   />
                 </div>
                 <div className="pv m">
                   <img
+                    ref={pviMRef}
                     src={cropSrc}
-                    alt="M"
+                    alt="Preview M"
                     style={{
-                      width: `${imgDim.w}px`,
-                      height: `${imgDim.h}px`,
-                      transform: `translate(${posX * (42 / 240)}px, ${posY * (42 / 240)}px) scale(${imgDim.base * zoom * (42 / 240)})`,
+                      transform: `translate(${posX * (40 / CS)}px, ${posY * (40 / CS)}px) scale(${base * zoom * (40 / CS)})`,
+                      width: nw ? `${nw}px` : 'auto',
+                      height: nh ? `${nh}px` : 'auto',
                     }}
                   />
                 </div>
                 <div className="pv s">
                   <img
+                    ref={pviSRef}
                     src={cropSrc}
-                    alt="S"
+                    alt="Preview S"
                     style={{
-                      width: `${imgDim.w}px`,
-                      height: `${imgDim.h}px`,
-                      transform: `translate(${posX * (26 / 240)}px, ${posY * (26 / 240)}px) scale(${imgDim.base * zoom * (26 / 240)})`,
+                      transform: `translate(${posX * (26 / CS)}px, ${posY * (26 / CS)}px) scale(${base * zoom * (26 / CS)})`,
+                      width: nw ? `${nw}px` : 'auto',
+                      height: nh ? `${nh}px` : 'auto',
                     }}
                   />
                 </div>
-                <span>Pratinjau</span>
+                <small>Pratinjau</small>
               </div>
             </div>
 
             {/* ALAT PUTAR & BALIK */}
             <div className="tools">
-              <button type="button" className="tl" onClick={handleRotate}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+              <button type="button" className="tl" id="rl" onClick={handleRotate}>
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 9a8 8 0 1 1-1 5M4 4v5h5" />
                 </svg>
                 Putar
               </button>
-              <button type="button" className="tl" onClick={handleFlip}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 2v20M8 6l-5 6 5 6V6zM16 6l5 6-5 6V6z" />
+              <button type="button" className="tl" id="fl" onClick={handleFlip}>
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z" />
                 </svg>
                 Balik
               </button>
@@ -552,83 +584,87 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onAddT
             {/* KONTROL SLIDER */}
             <div className="ctl">
               <span>Zoom</span>
-              <button type="button" className="z" onClick={() => updateZoom(zoom - 0.15)}>-</button>
+              <button type="button" className="z" id="zm" onClick={() => setZoomLevel(zoom - 0.15)}>-</button>
               <input
+                id="zr"
                 type="range"
                 min="100"
                 max="300"
                 value={Math.round(zoom * 100)}
-                onChange={(e) => updateZoom(Number(e.target.value) / 100)}
+                onChange={(e) => setZoomLevel(Number(e.target.value) / 100)}
               />
-              <button type="button" className="z" onClick={() => updateZoom(zoom + 0.15)}>+</button>
-              <output>{Math.round(zoom * 100)}%</output>
+              <button type="button" className="z" id="zp" onClick={() => setZoomLevel(zoom + 0.15)}>+</button>
+              <output id="zo">{Math.round(zoom * 100)}%</output>
             </div>
 
             <div className="ctl">
               <span>Kiri–Kanan</span>
-              <button type="button" className="z" onClick={() => setPosX(clamp(posX + 20, posY, zoom).cx)}>&lt;</button>
+              <button type="button" className="z" id="gl" disabled={currentRenderW <= 1} onClick={() => setPosX(clamp(posX + 18, posY, zoom).clampedX)}>&lt;</button>
               <input
+                id="hx"
                 type="range"
                 min="0"
                 max="100"
-                value={sliderXVal}
-                disabled={maxPanX <= 1}
+                value={sliderX}
+                disabled={currentRenderW <= 1}
                 onChange={(e) => {
-                  const x = -(Number(e.target.value) / 100) * maxPanX;
-                  setPosX(x);
+                  const newX = -(Number(e.target.value) / 100) * currentRenderW;
+                  setPosX(newX);
                 }}
               />
-              <button type="button" className="z" onClick={() => setPosX(clamp(posX - 20, posY, zoom).cx)}>&gt;</button>
-              <output>{sliderXVal}%</output>
+              <button type="button" className="z" id="gr" disabled={currentRenderW <= 1} onClick={() => setPosX(clamp(posX - 18, posY, zoom).clampedX)}>&gt;</button>
+              <output id="xo">{sliderX}%</output>
             </div>
 
             <div className="ctl">
               <span>Atas–Bawah</span>
-              <button type="button" className="z" onClick={() => setPosY(clamp(posX, posY + 20, zoom).cy)}>^</button>
+              <button type="button" className="z" id="gu" disabled={currentRenderH <= 1} onClick={() => setPosY(clamp(posX, posY + 18, zoom).clampedY)}>^</button>
               <input
+                id="vy"
                 type="range"
                 min="0"
                 max="100"
-                value={sliderYVal}
-                disabled={maxPanY <= 1}
+                value={sliderY}
+                disabled={currentRenderH <= 1}
                 onChange={(e) => {
-                  const y = -(Number(e.target.value) / 100) * maxPanY;
-                  setPosY(y);
+                  const newY = -(Number(e.target.value) / 100) * currentRenderH;
+                  setPosY(newY);
                 }}
               />
-              <button type="button" className="z" onClick={() => setPosY(clamp(posX, posY - 20, zoom).cy)}>v</button>
-              <output>{sliderYVal}%</output>
+              <button type="button" className="z" id="gd" disabled={currentRenderH <= 1} onClick={() => setPosY(clamp(posX, posY - 18, zoom).clampedY)}>v</button>
+              <output id="yo">{sliderY}%</output>
             </div>
 
-            {/* AKSI BAWAH */}
+            {/* AKSI TOMBOL BAWAH */}
             <div className="mact">
-              <label className="btn soft" htmlFor="uploadModalFile" style={{ cursor: 'pointer' }}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              <label className="btn soft full" htmlFor="fileCropPicker" style={{ cursor: 'pointer' }}>
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
                 </svg>
                 Pilih Foto Baru
               </label>
-              <input type="file" id="uploadModalFile" accept="image/*" style={{ display: 'none' }} onChange={handleFileInput} />
+              <input id="fileCropPicker" type="file" accept="image/*" className="sr" onChange={handleFileChange} />
 
               <div className="mact-row">
                 <button
                   type="button"
                   className="btn soft"
+                  id="rst"
                   onClick={() => {
-                    setZoom(1);
-                    setPosX((240 - imgDim.w * imgDim.base) / 2);
-                    setPosY((240 - imgDim.h * imgDim.base) / 2);
+                    setCropSrc(origSrc);
                   }}
                 >
                   Reset
                 </button>
                 <button
                   type="button"
-                  className="btn dark"
+                  className={`btn dark ${isUploading ? 'load' : ''}`}
+                  id="sph"
                   onClick={handleSaveCrop}
                   disabled={isUploading}
                 >
                   <span>{isUploading ? 'Menyimpan...' : 'Simpan Foto'}</span>
+                  <i className="sp" />
                 </button>
               </div>
             </div>
