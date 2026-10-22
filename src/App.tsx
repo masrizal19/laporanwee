@@ -255,10 +255,14 @@ export function App() {
       '/profil',
       '/profile',
       '/profil/crop',
+      '/profil/ubahfoto',
       '/profil/user',
     ];
     if (hashPart && hashPart.startsWith('/profil/user')) {
       return '/profil/user';
+    }
+    if (hashPart && hashPart.includes('/profil/ubahfoto')) {
+      return '/profil/ubahfoto';
     }
     if (validPaths.includes(hashPart)) {
       return hashPart;
@@ -266,6 +270,9 @@ export function App() {
     const path = window.location.pathname.split('?')[0];
     if (path.startsWith('/profil/user')) {
       return '/profil/user';
+    }
+    if (path.includes('/profil/ubahfoto')) {
+      return '/profil/ubahfoto';
     }
     const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
@@ -424,6 +431,7 @@ export function App() {
     '/profil': 'profil',
     '/profile': 'profil',
     '/profil/crop': 'profile-crop',
+    '/profil/ubahfoto': 'profil',
     '/profil/user': 'user-profile',
   };
 

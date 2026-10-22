@@ -96,18 +96,52 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     return createInitialsAvatar(initialChar);
   }, []);
 
-  // Fetch initial profile data from backend
+  // Helper to extract Bearer Token from localStorage ('auth_token' or 'token')
+  const getAuthToken = useCallback(() => {
+    return localStorage.getItem('auth_token') || localStorage.getItem('token') || getStoredToken() || '';
+  }, []);
+
+  // Synchronize modal crop route with browser URL (/profil/ubahfoto)
+  useEffect(() => {
+    const checkRoute = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const full = window.location.href;
+      if (path.includes('/profil/ubahfoto') || hash.includes('/profil/ubahfoto') || full.includes('/profil/ubahfoto')) {
+        setIsModalOpen(true);
+      }
+    };
+    checkRoute();
+
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const full = window.location.href;
+      if (path.includes('/profil/ubahfoto') || hash.includes('/profil/ubahfoto') || full.includes('/profil/ubahfoto')) {
+        setIsModalOpen(true);
+      } else if (path.endsWith('/profil') || hash.endsWith('/profil') || path.endsWith('/profile')) {
+        setIsModalOpen(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Fetch initial profile data from backend PHP REST endpoint (get.php) without hardcoded ID
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const token = getStoredToken() || '';
-        const res = await fetch(`${API_BASE}/get.php?id=1`, {
+        const token = getAuthToken();
+        const res = await fetch(`${API_BASE}/get.php`, {
+          method: 'GET',
           headers: {
-            Accept: 'application/json',
-            Authorization: 'Bearer ' + token,
+            'Accept': 'application/json',
+            'Authorization': 'Bearer ' + token,
           },
         });
         const json = await res.json();
+        // Ekstrak respons get.php secara adaptif: json.data || json.user || json
         const u = json.data || json.user || json;
         if (u) {
           const n = u.full_name || u.name || userName || 'RIZAL FADHILAH';
@@ -115,19 +149,20 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           const j = u.pekerjaan || u.title || 'VIDEO EDITOR';
           const s = (u.status_karyawan || u.employment_status || u.status || userStatus || 'KARYAWAN').toUpperCase();
 
-          setProfileId(u.id || 1);
+          if (u.id) setProfileId(u.id);
           setName(n);
           setEmail(e);
           setJob(j);
           setStatus(s);
 
           const fetchedAvatar = u.avatar_url || u.avatar || null;
-          if (fetchedAvatar && !fetchedAvatar.startsWith('data:image')) {
-            // Paksa tembus cache saat pertama kali dimuat
+          if (fetchedAvatar && typeof fetchedAvatar === 'string' && !fetchedAvatar.startsWith('data:image')) {
             const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
             setAvatarUrl(`${cleanUrl}?t=${Date.now()}`); 
+          } else if (fetchedAvatar && typeof fetchedAvatar === 'string') {
+            setAvatarUrl(fetchedAvatar);
           } else {
-            setAvatarUrl(fetchedAvatar || createInitialsAvatar(n[0]));
+            setAvatarUrl(createInitialsAvatar(n[0]));
           }
           setInitialProfile({ name: n, email: e, job: j, status: s });
         }
@@ -138,17 +173,19 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           setName(stored.name || userName || 'RIZAL FADHILAH');
           setEmail(stored.email || userEmail || 'rizalsaragih498@gmail.com');
           const fetchedAvatar = stored.avatar_url || null;
-          if (fetchedAvatar && !fetchedAvatar.startsWith('data:image')) {
+          if (fetchedAvatar && typeof fetchedAvatar === 'string' && !fetchedAvatar.startsWith('data:image')) {
             const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
             setAvatarUrl(`${cleanUrl}?t=${Date.now()}`);
-          } else if (fetchedAvatar) {
+          } else if (fetchedAvatar && typeof fetchedAvatar === 'string') {
             setAvatarUrl(fetchedAvatar);
+          } else {
+            setAvatarUrl(createInitialsAvatar((stored.name || userName || 'R')[0]));
           }
         }
       }
     };
     fetchProfile();
-  }, [userName, userEmail, userStatus, propAvatarUrl]);
+  }, [userName, userEmail, userStatus, propAvatarUrl, getAuthToken]);
 
   // Track dirty status
   useEffect(() => {
@@ -172,68 +209,115 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
 
   const strokeOffset = 553 * (1 - completeness / 100);
 
-  // Handle open crop modal
+  // Handle open crop modal with window.history.pushState to /profil/ubahfoto
   const handleOpenCrop = () => {
     setIsModalOpen(true);
+    try {
+      const origin = window.location.origin;
+      window.history.pushState({ modalOpen: true }, '', `${origin}/profil/ubahfoto`);
+    } catch (_) {}
   };
 
-  // Refaktor fungsi handleSaveCrop dengan dynamic cache-busting
-  const handleSaveCrop = (resJsonOrUrl: any) => {
-    let resJson = typeof resJsonOrUrl === 'object' && resJsonOrUrl !== null ? resJsonOrUrl : { avatar_url: resJsonOrUrl };
-    let finalUrl = resJson.avatar_url || resJson.avatar;
-    if (!finalUrl && resJson.data) {
-      finalUrl = resJson.data.avatar_url || resJson.data.file_url;
-    }
-    if (!finalUrl && typeof resJsonOrUrl === 'string') {
-      finalUrl = resJsonOrUrl;
+  // Handle close crop modal and restore URL back to /profil
+  const handleCloseCrop = () => {
+    setIsModalOpen(false);
+    try {
+      const origin = window.location.origin;
+      window.history.pushState({ modalOpen: false }, '', `${origin}/profil`);
+    } catch (_) {}
+  };
+
+  // Handle save crop: upload Blob or response data with cache buster ?t=timestamp
+  const handleSaveCrop = async (cropInput: any) => {
+    let finalUrl = '';
+    let resJsonData: any = null;
+
+    if (cropInput instanceof Blob || cropInput instanceof File) {
+      try {
+        setIsSaving(true);
+        const token = getAuthToken();
+        const fd = new FormData();
+        const randomDigits = Math.floor(1000 + Math.random() * 9000);
+        const filename = `avatar_${profileId}_${Math.floor(Date.now() / 1000)}_${randomDigits}.jpg`;
+        fd.append('avatar', cropInput, filename);
+        fd.append('id', String(profileId));
+
+        const res = await fetch(`${API_BASE}/upload.php`, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+          },
+          body: fd,
+        });
+
+        resJsonData = await res.json();
+        const rawUrl = resJsonData?.data?.avatar_url || resJsonData?.avatar_url || resJsonData?.avatar || resJsonData?.data?.file_url;
+        if (rawUrl) {
+          finalUrl = rawUrl;
+        }
+      } catch (err) {
+        onAddToast('Gagal mengunggah foto profil');
+      } finally {
+        setIsSaving(false);
+      }
+    } else {
+      resJsonData = typeof cropInput === 'object' && cropInput !== null ? cropInput : { avatar_url: cropInput };
+      const rawUrl = resJsonData?.data?.avatar_url || resJsonData?.avatar_url || resJsonData?.avatar || (typeof cropInput === 'string' ? cropInput : '');
+      if (rawUrl) {
+        finalUrl = rawUrl;
+      }
     }
 
-    if (finalUrl && !finalUrl.startsWith('data:image') && !finalUrl.startsWith('blob:')) {
-      const cleanUrl = finalUrl.includes('?') ? finalUrl.split('?')[0] : finalUrl;
-      finalUrl = `${cleanUrl}?t=${Date.now()}`;
-    }
     if (finalUrl) {
-      setAvatarUrl(finalUrl); // Ini akan memaksa React me-render ulang elemen <img>
-    }
+      // Perbarui state avatarUrl dengan cache buster: ${resJson.data?.avatar_url || resJson.avatar_url}?t=${Date.now()}
+      if (!finalUrl.startsWith('data:image') && !finalUrl.startsWith('blob:')) {
+        const cleanUrl = finalUrl.includes('?') ? finalUrl.split('?')[0] : finalUrl;
+        finalUrl = `${cleanUrl}?t=${Date.now()}`;
+      }
 
-    // Update session storage & user object
-    const savedUser = getStoredUser();
-    if (savedUser) {
-      const updatedUser = {
-        ...savedUser,
-        avatar_url: finalUrl,
-      };
-      setStoredUser(updatedUser);
-    }
+      setAvatarUrl(finalUrl);
 
-    // Trigger pop effect
-    setAvatarPop(true);
-    setTimeout(() => setAvatarPop(false), 800);
-
-    // Propagate to global state
-    if (onUpdateUser) {
-      onUpdateUser({
-        email,
-        name,
-        role: userRole || 'Administrator',
-        status,
-        avatar_url: finalUrl,
-      });
-    }
-
-    // Dispatch global event for instant header / sidebar avatar update
-    window.dispatchEvent(
-      new CustomEvent('laporanwee-profile-updated', {
-        detail: {
-          id: profileId,
+      // Update session storage & user object
+      const savedUser = getStoredUser();
+      if (savedUser) {
+        const updatedUser = {
+          ...savedUser,
           avatar_url: finalUrl,
-          name,
-          email,
-        },
-      })
-    );
+        };
+        setStoredUser(updatedUser);
+      }
 
-    onAddToast('Foto profil berhasil disimpan ke server');
+      // Trigger pop effect
+      setAvatarPop(true);
+      setTimeout(() => setAvatarPop(false), 800);
+
+      // Propagate to global state
+      if (onUpdateUser) {
+        onUpdateUser({
+          email,
+          name,
+          role: userRole || 'Administrator',
+          status,
+          avatar_url: finalUrl,
+        });
+      }
+
+      // Dispatch global event for instant header / sidebar avatar update
+      window.dispatchEvent(
+        new CustomEvent('laporanwee-profile-updated', {
+          detail: {
+            id: profileId,
+            avatar_url: finalUrl,
+            name,
+            email,
+          },
+        })
+      );
+
+      onAddToast('Foto profil berhasil disimpan ke server');
+    }
+
+    handleCloseCrop();
   };
 
   const handleCropSaved = handleSaveCrop;
@@ -523,7 +607,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         isOpen={isModalOpen}
         initialSrc={avatarUrl || getInitialsAvatar(name[0])}
         profileId={profileId}
-        onClose={() => setIsModalOpen(false)}
+        onClose={handleCloseCrop}
         onSaved={handleSaveCrop}
         onError={(err) => onAddToast(err)}
       />
