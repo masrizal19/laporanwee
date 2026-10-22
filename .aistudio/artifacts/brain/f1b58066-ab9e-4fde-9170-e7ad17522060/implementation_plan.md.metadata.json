@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for rebuilding the profile picture cropper feature connected to route /profil/setting-profile-picture and new endpoint setting-profil-picture/index.php.",
-  "updatedAt":  "2026-10-22T06:35:14.632889859Z",
+  "summary":  "Implementation plan for unlocking the crop save button, connecting canvas export to upload.php REST API, busting avatar cache, and syncing CSS and ProfileSettingsView state.",
+  "updatedAt":  "2026-10-22T06:05:36.967893437Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
