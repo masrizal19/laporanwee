@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import '../profile-edit.css';
 import {
   profileService,
+  getStoredToken,
   getStoredUser,
   syncAuthenticatedUser,
   formatApiErrorMessage,
@@ -79,30 +80,61 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     return () => window.removeEventListener('popstate', checkPath);
   }, [isCropOpen]);
 
-  // Fetch initial profile data from GET /profile/get.php
+  // Real-time GET sync directly from MySQL backend on mount/load
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetchLatestProfile = async () => {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || getStoredToken() || '';
       try {
-        const res = await profileService.getProfile();
-        const json = res?.data || res?.user || res;
-        if (json) {
-          const n = json.full_name || json.name || userName || '';
-          const e = json.email || userEmail || '';
-          const j = json.profile_title || json.title || 'VIDEO EDITOR';
-          const s = validateStatusOption(json.profile_location || json.status || json.location) || 'Karyawan';
+        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php', {
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : '',
+            'Accept': 'application/json',
+          },
+        });
+        const json = await res.json();
+        const u = json.data || json.user || json;
+        if (u) {
+          const rawAvatar = u.avatar_url || u.avatar || u.file_url;
+          const freshAvatar = rawAvatar
+            ? (rawAvatar.startsWith('data:') ? rawAvatar : `${rawAvatar.split('?')[0]}?t=${Date.now()}`)
+            : null;
 
-          if (n) setName(n);
-          if (e) setEmail(e);
-          setJob(j);
-          setStatus(s);
+          const freshName = u.name || u.full_name || userName || '';
+          const freshEmail = u.email || userEmail || '';
+          const freshJob = u.profile_title || u.title || 'VIDEO EDITOR';
+          const freshStatus = validateStatusOption(u.profile_location || u.status) || 'Karyawan';
 
-          const rawAvatar = extractAvatarFromResponse(res);
-          if (rawAvatar !== undefined) {
-            setAvatarUrl(rawAvatar ? withAvatarCacheBust(rawAvatar) : null);
+          if (freshName) setName(freshName);
+          if (freshEmail) setEmail(freshEmail);
+          setJob(freshJob);
+          setStatus(freshStatus);
+          setAvatarUrl(freshAvatar);
+
+          const storedUser = JSON.parse(
+            localStorage.getItem('laporanwee_user') || localStorage.getItem('user') || '{}'
+          );
+          storedUser.avatar_url = freshAvatar;
+          if (freshName) {
+            storedUser.name = freshName;
+            storedUser.full_name = freshName;
           }
-          setInitialProfile({ name: n, email: e, job: j, status: s });
+          localStorage.setItem('laporanwee_user', JSON.stringify(storedUser));
+          localStorage.setItem('user', JSON.stringify(storedUser));
+
+          onUpdateUser?.({
+            email: freshEmail,
+            name: freshName,
+            role: userRole,
+            status: freshStatus,
+            profile_title: freshJob,
+            profile_location: freshStatus,
+            avatar_url: freshAvatar,
+          });
+
+          setInitialProfile({ name: freshName, email: freshEmail, job: freshJob, status: freshStatus });
         }
       } catch (err) {
+        console.warn('Gagal memuat profil real-time:', err);
         const stored = getStoredUser();
         if (stored) {
           if (stored.full_name || stored.name) setName(stored.full_name || stored.name || '');
@@ -113,7 +145,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         }
       }
     };
-    fetchProfile();
+
+    fetchLatestProfile();
   }, [userName, userEmail, userStatus, propAvatarUrl]);
 
   // Track dirty status
@@ -149,7 +182,9 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         const freshName = d.full_name || d.name || name.trim();
         const freshJob = d.profile_title !== undefined ? d.profile_title : job.trim();
         const freshStatus = validateStatusOption(d.profile_location) || cleanStatus;
-        const freshAvatar = d.avatar_url !== undefined ? d.avatar_url : avatarUrl;
+        const freshAvatar = d.avatar_url
+          ? (d.avatar_url.startsWith('data:') ? d.avatar_url : `${d.avatar_url.split('?')[0]}?t=${Date.now()}`)
+          : avatarUrl;
 
         setName(freshName);
         setJob(freshJob);
@@ -260,7 +295,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
                 {avatarUrl ? (
                   <img
                     id="mainAvatarImg"
-                    src={avatarUrl}
+                    src={avatarUrl.includes('?') ? avatarUrl : `${avatarUrl}?t=${Date.now()}`}
                     alt={name || 'Avatar'}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
@@ -402,8 +437,18 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         userEmail={email}
         onClose={closeCropModal}
         onSaved={(newAvatar) => {
-          setAvatarUrl(newAvatar);
-          onAddToast('Foto profil berhasil diperbarui');
+          const freshAvatar = newAvatar.includes('?') ? newAvatar : `${newAvatar}?t=${Date.now()}`;
+          setAvatarUrl(freshAvatar);
+
+          const storedUser = JSON.parse(
+            localStorage.getItem('laporanwee_user') || localStorage.getItem('user') || '{}'
+          );
+          storedUser.avatar_url = freshAvatar;
+          storedUser.name = name.trim();
+          storedUser.full_name = name.trim();
+          localStorage.setItem('laporanwee_user', JSON.stringify(storedUser));
+          localStorage.setItem('user', JSON.stringify(storedUser));
+
           if (onUpdateUser) {
             onUpdateUser({
               email: email.trim(),
@@ -412,18 +457,21 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               status: status.trim(),
               profile_title: job.trim(),
               profile_location: status.trim(),
-              avatar_url: newAvatar,
+              avatar_url: freshAvatar,
             });
           }
+
           window.dispatchEvent(
             new CustomEvent('laporanwee-profile-updated', {
               detail: {
                 id: name,
                 name: name.trim(),
-                avatar_url: newAvatar,
+                avatar_url: freshAvatar,
               },
             })
           );
+
+          onAddToast('Foto profil berhasil diperbarui');
         }}
         onError={(msg) => onAddToast(msg)}
       />

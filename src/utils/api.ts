@@ -255,9 +255,12 @@ export const getStoredUser = () => {
 
 export const setStoredUser = (user: any) => {
   if (user) {
-    localStorage.setItem('laporanwee_user', JSON.stringify(user));
+    const jsonStr = JSON.stringify(user);
+    localStorage.setItem('laporanwee_user', jsonStr);
+    localStorage.setItem('user', jsonStr);
   } else {
     localStorage.removeItem('laporanwee_user');
+    localStorage.removeItem('user');
   }
 };
 
@@ -266,6 +269,7 @@ export const clearStoredAuth = () => {
   localStorage.removeItem('auth_token');
   localStorage.removeItem('token');
   localStorage.removeItem('laporanwee_user');
+  localStorage.removeItem('user');
   localStorage.removeItem('laporanwee_daily_reports_cache');
   localStorage.removeItem('laporanwee_selected_report_id');
   localStorage.removeItem('laporanwee_last_sync');
