@@ -2259,6 +2259,7 @@ export const profileService = {
     full_name?: string;
     profile_title?: string;
     profile_location?: string;
+    avatar_url?: string | null;
     crop_file?: string | File;
     crop_url?: string;
     zoom?: number;

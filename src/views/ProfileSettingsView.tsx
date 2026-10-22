@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import '../profile-edit.css';
-import { getStoredToken, getStoredUser, setStoredUser } from '../utils/api';
+import {
+  profileService,
+  getStoredUser,
+  syncAuthenticatedUser,
+  formatApiErrorMessage,
+  extractAvatarFromResponse,
+  withAvatarCacheBust,
+} from '../utils/api';
+import { validateStatusOption } from './ProfileView';
 import { SettingProfilePictureModal } from '../components/SettingProfilePictureModal';
 
 interface ProfileSettingsViewProps {
@@ -15,20 +23,14 @@ interface ProfileSettingsViewProps {
     name: string;
     role?: string;
     status?: string;
+    profile_title?: string;
+    profile_location?: string;
     avatar_url?: string | null;
   }) => void;
 }
 
-const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
-const STAT_OPTIONS = ['KARYAWAN', 'MAGANG', 'PKL SISWA', 'PKL MAHASISWA'];
-const JOB_OPTIONS = [
-  'Art Director',
-  'Desainer Grafis',
-  'VIDEO EDITOR',
-  'Videografer',
-  'Copywriter',
-  'Social Media',
-];
+const STAT_OPTIONS = ['Karyawan', 'Anak Magang', 'Anak PKL'];
+const JOB_OPTIONS = ['EDITOR', 'VIDEO EDITOR', 'Desainer Grafis', 'Art Director', 'Copywriter', 'Social Media'];
 
 export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   userName,
@@ -39,11 +41,10 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   onAddToast,
   onUpdateUser,
 }) => {
-  const [profileId, setProfileId] = useState<number | string>('');
   const [name, setName] = useState(userName || '');
   const [email, setEmail] = useState(userEmail || '');
   const [job, setJob] = useState('VIDEO EDITOR');
-  const [status, setStatus] = useState(userStatus || 'KARYAWAN');
+  const [status, setStatus] = useState(validateStatusOption(userStatus) || 'Karyawan');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
 
   const [isCropOpen, setIsCropOpen] = useState<boolean>(() => {
@@ -58,7 +59,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     name: userName || '',
     email: userEmail || '',
     job: 'VIDEO EDITOR',
-    status: userStatus || 'KARYAWAN',
+    status: validateStatusOption(userStatus) || 'Karyawan',
   });
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -78,35 +79,26 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     return () => window.removeEventListener('popstate', checkPath);
   }, [isCropOpen]);
 
-  // Fetch initial profile data from backend PHP REST endpoint (get.php)
+  // Fetch initial profile data from GET /profile/get.php
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || getStoredToken() || '';
-        const res = await fetch(`${API_BASE}/get.php`, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            'Authorization': 'Bearer ' + token,
-          },
-        });
-        const json = await res.json();
-        const u = json.data || json.user || json;
-        if (u) {
-          const n = u.full_name || u.name || userName || '';
-          const e = u.email || userEmail || '';
-          const j = u.pekerjaan || u.title || 'VIDEO EDITOR';
-          const s = (u.status_karyawan || u.employment_status || u.status || userStatus || 'KARYAWAN').toUpperCase();
+        const res = await profileService.getProfile();
+        const json = res?.data || res?.user || res;
+        if (json) {
+          const n = json.full_name || json.name || userName || '';
+          const e = json.email || userEmail || '';
+          const j = json.profile_title || json.title || 'VIDEO EDITOR';
+          const s = validateStatusOption(json.profile_location || json.status || json.location) || 'Karyawan';
 
-          if (u.id) setProfileId(u.id);
           if (n) setName(n);
           if (e) setEmail(e);
           setJob(j);
           setStatus(s);
 
-          const fetchedAvatar = u.avatar_url || u.avatar || null;
-          if (fetchedAvatar) {
-            setAvatarUrl(fetchedAvatar);
+          const rawAvatar = extractAvatarFromResponse(res);
+          if (rawAvatar !== undefined) {
+            setAvatarUrl(rawAvatar ? withAvatarCacheBust(rawAvatar) : null);
           }
           setInitialProfile({ name: n, email: e, job: j, status: s });
         }
@@ -115,6 +107,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         if (stored) {
           if (stored.full_name || stored.name) setName(stored.full_name || stored.name || '');
           if (stored.email) setEmail(stored.email);
+          if (stored.profile_title) setJob(stored.profile_title);
+          if (stored.profile_location) setStatus(validateStatusOption(stored.profile_location) || 'Karyawan');
           if (stored.avatar_url) setAvatarUrl(stored.avatar_url);
         }
       }
@@ -132,7 +126,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     );
   }, [name, email, job, status, initialProfile]);
 
-  // Save textual profile info to save.php
+  // Save profile info via single POST /profile/save.php
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -140,79 +134,73 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       return;
     }
 
-    setIsSaving(true);
-    const token = getStoredToken() || '';
+    const cleanStatus = validateStatusOption(status) || 'Karyawan';
 
+    setIsSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/save.php`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: 'Bearer ' + token,
-        },
-        body: JSON.stringify({
-          id: profileId,
-          name: name.trim(),
-          full_name: name.trim(),
-          pekerjaan: job.trim(),
-          status: status,
-        }),
+      const res = await profileService.saveProfile({
+        full_name: name.trim(),
+        profile_title: job.trim(),
+        profile_location: cleanStatus,
       });
 
-      const data = await res.json();
-      if (data && (data.success || data.status === 'success')) {
+      if (res && (res.success || res.status === 'success')) {
+        const d = res.data || res.user || res;
+        const freshName = d.full_name || d.name || name.trim();
+        const freshJob = d.profile_title !== undefined ? d.profile_title : job.trim();
+        const freshStatus = validateStatusOption(d.profile_location) || cleanStatus;
+        const freshAvatar = d.avatar_url !== undefined ? d.avatar_url : avatarUrl;
+
+        setName(freshName);
+        setJob(freshJob);
+        setStatus(freshStatus);
         setInitialProfile({
-          name: name.trim(),
+          name: freshName,
           email: email.trim(),
-          job: job.trim(),
-          status: status.trim(),
+          job: freshJob,
+          status: freshStatus,
         });
         setIsDirty(false);
 
-        const stored = getStoredUser();
-        if (stored) {
-          const updatedUser = {
-            ...stored,
-            name: name.trim(),
-            full_name: name.trim(),
-            status: status.trim(),
-          };
-          setStoredUser(updatedUser);
-        }
+        syncAuthenticatedUser({
+          full_name: freshName,
+          name: freshName,
+          email: email.trim(),
+          profile_title: freshJob,
+          profile_location: freshStatus,
+          avatar_url: freshAvatar,
+        });
 
         if (onUpdateUser) {
           onUpdateUser({
             email: email.trim(),
-            name: name.trim(),
+            name: freshName,
             role: userRole || 'Administrator',
-            status: status.trim(),
-            avatar_url: avatarUrl,
+            status: freshStatus,
+            profile_title: freshJob,
+            profile_location: freshStatus,
+            avatar_url: freshAvatar,
           });
         }
 
         window.dispatchEvent(
           new CustomEvent('laporanwee-profile-updated', {
             detail: {
-              id: profileId,
-              name: name.trim(),
-              avatar_url: avatarUrl,
+              full_name: freshName,
+              name: freshName,
+              profile_title: freshJob,
+              profile_location: freshStatus,
+              avatar_url: freshAvatar,
             },
           })
         );
 
         onAddToast('Profil berhasil disimpan');
       } else {
-        onAddToast(data.message || 'Gagal menyimpan profil');
+        onAddToast(res?.message || 'Gagal menyimpan profil');
       }
-    } catch (err) {
-      setInitialProfile({
-        name: name.trim(),
-        email: email.trim(),
-        job: job.trim(),
-        status: status.trim(),
-      });
-      setIsDirty(false);
-      onAddToast('Profil disimpan secara lokal');
+    } catch (err: any) {
+      onAddToast(formatApiErrorMessage(err));
     } finally {
       setIsSaving(false);
     }
@@ -370,7 +358,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
                 <button
                   key={s}
                   type="button"
-                  className={`opt ${status.toUpperCase() === s.toUpperCase() ? 'on' : ''}`}
+                  className={`opt ${status === s ? 'on' : ''}`}
                   onClick={() => setStatus(s)}
                 >
                   {s}
@@ -422,13 +410,15 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               name: name.trim(),
               role: userRole || 'Administrator',
               status: status.trim(),
+              profile_title: job.trim(),
+              profile_location: status.trim(),
               avatar_url: newAvatar,
             });
           }
           window.dispatchEvent(
             new CustomEvent('laporanwee-profile-updated', {
               detail: {
-                id: profileId,
+                id: name,
                 name: name.trim(),
                 avatar_url: newAvatar,
               },
