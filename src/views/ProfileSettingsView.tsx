@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import '../profile-edit.css';
 import { getStoredToken, getStoredUser, setStoredUser } from '../utils/api';
+import { SettingProfilePictureModal } from '../components/SettingProfilePictureModal';
 
 interface ProfileSettingsViewProps {
   userName?: string;
@@ -45,6 +46,14 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [status, setStatus] = useState(userStatus || 'KARYAWAN');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
 
+  const [isCropOpen, setIsCropOpen] = useState<boolean>(() => {
+    return (
+      typeof window !== 'undefined' &&
+      (window.location.pathname.includes('/setting-profile-picture') ||
+        window.location.hash.includes('/setting-profile-picture'))
+    );
+  });
+
   const [initialProfile, setInitialProfile] = useState({
     name: userName || '',
     email: userEmail || '',
@@ -53,6 +62,21 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   });
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Sync route URL for /profil/setting-profile-picture
+  useEffect(() => {
+    const checkPath = () => {
+      const isCropRoute =
+        window.location.pathname.includes('/setting-profile-picture') ||
+        window.location.hash.includes('/setting-profile-picture');
+      if (isCropRoute && !isCropOpen) {
+        setIsCropOpen(true);
+      }
+    };
+    checkPath();
+    window.addEventListener('popstate', checkPath);
+    return () => window.removeEventListener('popstate', checkPath);
+  }, [isCropOpen]);
 
   // Fetch initial profile data from backend PHP REST endpoint (get.php)
   useEffect(() => {
@@ -194,11 +218,93 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     }
   };
 
+  const openCropModal = () => {
+    try {
+      if (window.history && window.history.pushState) {
+        window.history.pushState({}, '', '/profil/setting-profile-picture');
+      }
+    } catch (_) {}
+    setIsCropOpen(true);
+  };
+
+  const closeCropModal = () => {
+    try {
+      if (window.history && window.history.pushState) {
+        window.history.pushState({}, '', '/profil');
+      }
+    } catch (_) {}
+    setIsCropOpen(false);
+  };
+
   return (
     <div className="wrap" style={{ gridTemplateColumns: '1fr', maxWidth: '800px' }}>
       {/* KARTU FORM INFORMASI PROFIL */}
       <section className="card">
         <div className="inner">
+          {/* HEADER AVATAR PREVIEW + TOMBOL UBAH FOTO */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '16px',
+              padding: '18px 20px',
+              marginBottom: '24px',
+              background: 'var(--glass)',
+              borderRadius: '20px',
+              border: '1px solid var(--line)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div
+                style={{
+                  width: '68px',
+                  height: '68px',
+                  borderRadius: '50%',
+                  overflow: 'hidden',
+                  background: 'var(--lav)',
+                  flexShrink: 0,
+                  boxShadow: '0 8px 20px -6px rgba(0,0,0,0.25)',
+                  display: 'grid',
+                  placeItems: 'center',
+                }}
+              >
+                {avatarUrl ? (
+                  <img
+                    id="mainAvatarImg"
+                    src={avatarUrl}
+                    alt={name || 'Avatar'}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  <span style={{ fontSize: '26px', fontWeight: 700, color: '#2a2440' }}>
+                    {(name[0] || 'P').toUpperCase()}
+                  </span>
+                )}
+              </div>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
+                  {name || 'Pengguna'}
+                </h3>
+                <p style={{ fontSize: '13px', color: 'var(--muted)', margin: '2px 0 0' }}>
+                  {email || 'Belum ada email'} • <span style={{ fontWeight: 600 }}>{job}</span>
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="btn soft"
+              style={{ width: 'auto', padding: '0 18px', height: '42px', fontSize: '13.5px' }}
+              onClick={openCropModal}
+            >
+              <svg viewBox="0 0 24 24" style={{ width: 16, height: 16 }}>
+                <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+              </svg>
+              <span>Ubah Foto</span>
+            </button>
+          </div>
+
           <div className="fh">
             <div>
               <div className="eyebrow">Pengaturan</div>
@@ -299,6 +405,38 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           </form>
         </div>
       </section>
+
+      {/* MODAL CROP SETTING FOTO PROFIL */}
+      <SettingProfilePictureModal
+        isOpen={isCropOpen}
+        initialSrc={avatarUrl}
+        userName={name}
+        userEmail={email}
+        onClose={closeCropModal}
+        onSaved={(newAvatar) => {
+          setAvatarUrl(newAvatar);
+          onAddToast('Foto profil berhasil diperbarui');
+          if (onUpdateUser) {
+            onUpdateUser({
+              email: email.trim(),
+              name: name.trim(),
+              role: userRole || 'Administrator',
+              status: status.trim(),
+              avatar_url: newAvatar,
+            });
+          }
+          window.dispatchEvent(
+            new CustomEvent('laporanwee-profile-updated', {
+              detail: {
+                id: profileId,
+                name: name.trim(),
+                avatar_url: newAvatar,
+              },
+            })
+          );
+        }}
+        onError={(msg) => onAddToast(msg)}
+      />
     </div>
   );
 };
