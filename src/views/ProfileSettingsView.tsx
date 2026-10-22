@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import '../profile-edit.css';
+import { ProfileCropModal } from '../components/ProfileCropModal';
 import { getStoredToken, getStoredUser, setStoredUser } from '../utils/api';
 
 interface ProfileSettingsViewProps {
@@ -19,6 +20,7 @@ interface ProfileSettingsViewProps {
 }
 
 const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
+const SETTING_PICTURE_API = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
 const STAT_OPTIONS = ['KARYAWAN', 'MAGANG', 'PKL SISWA', 'PKL MAHASISWA'];
 const JOB_OPTIONS = [
   'Art Director',
@@ -44,6 +46,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [job, setJob] = useState('VIDEO EDITOR');
   const [status, setStatus] = useState(userStatus || 'KARYAWAN');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
 
   const [initialProfile, setInitialProfile] = useState({
     name: userName || 'RIZAL FADHILAH',
@@ -54,7 +57,29 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Fetch initial profile data from backend PHP REST endpoint (get.php)
+  // Synchronize URL route /profil/setting-profile-picture
+  useEffect(() => {
+    const checkRoute = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const full = window.location.href;
+      if (path.includes('/setting-profile-picture') || hash.includes('/setting-profile-picture') || full.includes('/setting-profile-picture')) {
+        setIsCropModalOpen(true);
+      } else if (path.endsWith('/profil') || hash.endsWith('/profil') || path.endsWith('/profile')) {
+        setIsCropModalOpen(false);
+      }
+    };
+    checkRoute();
+
+    const handlePopState = () => {
+      checkRoute();
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Fetch initial profile data from backend PHP REST endpoint
   useEffect(() => {
     const fetchProfile = async () => {
       try {
@@ -107,6 +132,64 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       status.trim() !== initialProfile.status.trim()
     );
   }, [name, email, job, status, initialProfile]);
+
+  // Open crop modal and pushState to /profil/setting-profile-picture
+  const handleOpenCropModal = () => {
+    setIsCropModalOpen(true);
+    try {
+      if (window.history && window.history.pushState) {
+        window.history.pushState({ modal: 'crop' }, '', '/profil/setting-profile-picture');
+      }
+    } catch (_) {}
+  };
+
+  // Close crop modal and pushState back to /profil
+  const handleCloseCropModal = () => {
+    setIsCropModalOpen(false);
+    try {
+      if (window.history && window.history.pushState) {
+        window.history.pushState({}, '', '/profil');
+      }
+    } catch (_) {}
+  };
+
+  // Handle saved avatar callback from modal
+  const handleSavedAvatar = (newAvatarUrl: string) => {
+    setAvatarUrl(newAvatarUrl);
+
+    // Update stored user in session/localStorage
+    const stored = getStoredUser();
+    if (stored) {
+      const updatedUser = {
+        ...stored,
+        avatar_url: newAvatarUrl,
+      };
+      setStoredUser(updatedUser);
+    }
+
+    if (onUpdateUser) {
+      onUpdateUser({
+        email: email.trim(),
+        name: name.trim(),
+        role: userRole || 'Administrator',
+        status: status.trim(),
+        avatar_url: newAvatarUrl,
+      });
+    }
+
+    window.dispatchEvent(
+      new CustomEvent('laporanwee-profile-updated', {
+        detail: {
+          id: profileId,
+          name: name.trim(),
+          avatar_url: newAvatarUrl,
+        },
+      })
+    );
+
+    onAddToast('Foto profil berhasil diperbarui');
+    handleCloseCropModal();
+  };
 
   // Save textual profile info to save.php
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -199,15 +282,30 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       {/* KARTU FORM INFORMASI PROFIL */}
       <section className="card">
         <div className="inner">
-          <div className="fh">
+          <div className="fh" style={{ marginBottom: 20 }}>
             <div>
               <div className="eyebrow">Pengaturan</div>
               <h2 style={{ fontSize: 24, fontWeight: 700, marginTop: 4 }}>Informasi Profil</h2>
               <p className="sub">Ubah data yang tampil di akun Anda.</p>
             </div>
-            <span className={`dirty ${isDirty ? 'on' : ''}`}>
-              <i /> Perubahan belum disimpan
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+                type="button"
+                className="btn soft"
+                onClick={handleOpenCropModal}
+                style={{ width: 'auto', padding: '0 20px', height: '42px', fontSize: '13.5px' }}
+              >
+                <svg viewBox="0 0 24 24" fill="none" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ width: 16, height: 16 }}>
+                  <rect x="3" y="3" width="18" height="18" rx="4" />
+                  <circle cx="9" cy="10" r="2" />
+                  <path d="m21 16-5-5-8 8" />
+                </svg>
+                <span>Ubah Foto Profil</span>
+              </button>
+              <span className={`dirty ${isDirty ? 'on' : ''}`}>
+                <i /> Perubahan belum disimpan
+              </span>
+            </div>
           </div>
 
           <form onSubmit={handleSaveProfile} noValidate>
@@ -299,6 +397,16 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           </form>
         </div>
       </section>
+
+      {/* MODAL CROP SETTING PROFILE PICTURE */}
+      <ProfileCropModal
+        isOpen={isCropModalOpen}
+        initialSrc={avatarUrl || ''}
+        profileId={profileId}
+        onClose={handleCloseCropModal}
+        onSaved={handleSavedAvatar}
+        onError={(msg) => onAddToast(msg)}
+      />
     </div>
   );
 };
