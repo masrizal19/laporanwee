@@ -361,12 +361,18 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
         if (res && res.success && res.data) {
           const d = res.data;
-          const rawAvatar = extractAvatarFromResponse(res);
-          const activeUrl = rawAvatar ? withAvatarCacheBust(rawAvatar, d.updated_at || Date.now()) : (initialAvatarUrl || '');
-
-          if (activeUrl) {
-            setOrigSrc(activeUrl);
-            loadImage(activeUrl);
+          const u = res.data;
+          const fetchedAvatar = u.avatar_url || u.avatar || extractAvatarFromResponse(res) || null;
+          if (fetchedAvatar && !fetchedAvatar.startsWith('data:image')) {
+            const clean = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
+            const busted = `${clean}?t=${Date.now()}`;
+            setOrigSrc(busted);
+            setSrc(busted);
+            loadImage(busted);
+          } else if (fetchedAvatar) {
+            setOrigSrc(fetchedAvatar);
+            setSrc(fetchedAvatar);
+            loadImage(fetchedAvatar);
           }
 
           setProfileMeta({
@@ -675,12 +681,17 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
         try {
           // Upload to /upload.php
-          const fileToUpload = new File([blob], `avatar_${Date.now()}.jpg`, { type: 'image/jpeg' });
+          const randomDigits = Math.floor(1000 + Math.random() * 9000);
+          const fileToUpload = new File([blob], `avatar_${Date.now()}_${randomDigits}.jpg`, { type: 'image/jpeg' });
           const uploadRes = await profileService.uploadPhoto(fileToUpload);
 
-          let freshAvatarUrl = previewDataUrl;
-          if (uploadRes && uploadRes.success && (uploadRes.avatar_url || uploadRes.data?.avatar_url)) {
-            freshAvatarUrl = uploadRes.avatar_url || uploadRes.data?.avatar_url;
+          let finalUrl = uploadRes?.avatar_url || uploadRes?.avatar || uploadRes?.data?.avatar_url;
+          if (finalUrl && !finalUrl.startsWith('data:image')) {
+            const cleanUrl = finalUrl.includes('?') ? finalUrl.split('?')[0] : finalUrl;
+            finalUrl = `${cleanUrl}?t=${Date.now()}`;
+          }
+          if (!finalUrl) {
+            finalUrl = previewDataUrl;
           }
 
           // Also save metadata via /save.php
@@ -688,14 +699,15 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
             full_name: profileMeta.full_name,
             profile_title: profileMeta.profile_title,
             profile_location: profileMeta.profile_location,
-            crop_url: freshAvatarUrl,
+            crop_url: finalUrl,
             zoom: zoom,
             x: clampedPx,
             y: clampedPy,
           });
 
           recordProfileSaveTimestamp();
-          const cleanAvatar = withAvatarCacheBust(freshAvatarUrl);
+          const cleanAvatar = finalUrl;
+          setSrc(cleanAvatar);
 
           syncAuthenticatedUser({
             avatar_url: cleanAvatar,

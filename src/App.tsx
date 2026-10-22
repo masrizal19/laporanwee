@@ -82,13 +82,20 @@ import {
 export function App() {
   // 1. Session & Routing state
   const [user, setUser] = useState<AuthUser | null>(() => {
-    const token = getStoredToken();
-    const saved = getStoredUser();
-    if (!token || !saved) {
+    try {
+      const token = getStoredToken();
+      const saved = getStoredUser();
+      console.log('[APP INIT STAGE 1: Auth Session Check]', { tokenExists: !!token, savedUserEmail: saved?.email });
+      if (!token || !saved) {
+        clearStoredAuth();
+        return null;
+      }
+      return saved;
+    } catch (err) {
+      console.error('[APP INIT ERROR: Auth Session]', err);
       clearStoredAuth();
       return null;
     }
-    return saved;
   });
 
   // Verify active session on load with valid Bearer token
@@ -272,7 +279,16 @@ export function App() {
     return '/dashboard';
   };
 
-  const [currentPath, setCurrentPath] = useState<string>(getPathFromLocation);
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    try {
+      const resolved = getPathFromLocation();
+      console.log('[APP INIT STAGE 2: Initial Path Resolution]', resolved);
+      return resolved;
+    } catch (err) {
+      console.error('[APP INIT ERROR: Path Resolution]', err);
+      return '/dashboard';
+    }
+  });
 
   // Initialize UI Settings with cached settings or defaults for instant rendering (Rule 8, 11)
   const [uiSettings, setUiSettings] = useState<UISettings>(() => {
@@ -280,10 +296,14 @@ export function App() {
       const cached = localStorage.getItem('laporanwee_ui_settings');
       if (cached) {
         const parsed = JSON.parse(cached);
+        console.log('[APP INIT STAGE 3: Cached UI Settings Loaded]', parsed?.app_title || 'LaporanWee');
         applyUISettingsToDocument(parsed);
         return parsed;
       }
-    } catch (_) {}
+    } catch (err) {
+      console.error('[APP INIT ERROR: Cached UI Settings]', err);
+    }
+    console.log('[APP INIT STAGE 3: Using Default UI Settings]');
     applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
     return DEFAULT_UI_SETTINGS;
   });
@@ -1740,7 +1760,10 @@ export function App() {
     reports.find((r) => String(r.id).trim() === String(selectedReportId).trim()) || reports[0];
 
   // Conditional Rendering for Standalone Export / Edit Views
+  console.log('[APP RENDER STAGE 1: Evaluating View Branch]', { currentView, currentPath, isUserLoggedIn: !!user });
+
   if (currentView === 'export-laporan' || currentPath === '/analitik/exporlaporan') {
+    console.log('[APP RENDER STAGE 2A: Mounting Standalone ExportLaporanView]');
     return (
       <>
         <ExportLaporanStandalone />
@@ -1750,6 +1773,7 @@ export function App() {
   }
 
   if (currentView === 'edit-laporan' || currentPath === '/analitik/editlaporan') {
+    console.log('[APP RENDER STAGE 2B: Mounting Standalone EditLaporanView]');
     return (
       <>
         <EditLaporanStandalone />
@@ -1759,6 +1783,7 @@ export function App() {
   }
 
   if (currentPath === '/verify-email') {
+    console.log('[APP RENDER STAGE 2C: Mounting VerifyEmailView]');
     return (
       <>
         <VerifyEmailView
@@ -1776,6 +1801,7 @@ export function App() {
   }
 
   if (!user && currentPath === '/register') {
+    console.log('[APP RENDER STAGE 2D: Mounting RegisterView]');
     return (
       <>
         <RegisterView
@@ -1792,6 +1818,7 @@ export function App() {
   }
 
   if (!user || currentPath === '/login') {
+    console.log('[APP RENDER STAGE 2E: Mounting LoginView]');
     return (
       <>
         <LoginView
@@ -1834,6 +1861,12 @@ export function App() {
     );
   }
 
+  console.log('[APP RENDER STAGE 3: Mounting Main App Shell Layout]', {
+    currentView,
+    userEmail: user?.email,
+    userName: user?.name || user?.full_name,
+  });
+
   return (
     <div id="app-shell">
       {/* Background Ambient Drifting Blobs */}
@@ -1847,8 +1880,8 @@ export function App() {
         onNavigate={handleNavigate}
         onAddToast={addToast}
         onLogout={handleLogout}
-        userEmail={user.email}
-        userName={user.name}
+        userEmail={user?.email || ''}
+        userName={user?.name || user?.full_name || 'Pengguna'}
         avatarUrl={(user as any)?.avatar_url}
         logoUrl={uiSettings?.logo_url}
         menuIconUrl={uiSettings?.menu_icon_url}
@@ -1866,8 +1899,8 @@ export function App() {
             members={members}
             analytics={analytics}
             tasksCount={tasks.length}
-            userName={user.name}
-            userEmail={user.email}
+            userName={user?.name || user?.full_name || 'Pengguna'}
+            userEmail={user?.email || ''}
             onNavigate={handleNavigate}
             onSelectProject={(id) => setSelectedProjectId(id)}
             onDeleteProject={handleDeleteProject}
@@ -1903,7 +1936,7 @@ export function App() {
             reports={reports}
             isLoading={isReportsLoading}
             isAdmin={isAdmin}
-            currentUserEmail={user.email}
+            currentUserEmail={user?.email || ''}
             reportsError={reportsError}
             onRetry={() => refreshReportsFromApi()}
             onNavigate={handleNavigate}
@@ -1919,8 +1952,8 @@ export function App() {
             reportId={selectedReportId}
             initialReport={reports.find((r) => String(r.id).trim() === String(selectedReportId).trim())}
             projects={projects}
-            userName={user.name}
-            userEmail={user.email}
+            userName={user?.name || user?.full_name || 'Pengguna'}
+            userEmail={user?.email || ''}
             avatarUrl={(user as any)?.avatar_url}
             initialIsEditing={reportInitialEdit}
             onNavigate={handleNavigate}
@@ -1933,8 +1966,8 @@ export function App() {
         {currentView === 'create-report' && (
           <CreateReportView
             projects={projects}
-            userName={user.name}
-            userEmail={user.email}
+            userName={user?.name || user?.full_name || 'Pengguna'}
+            userEmail={user?.email || ''}
             onNavigate={handleNavigate}
             onAddReport={handleAddReport}
             onSelectReport={handleSelectReport}
@@ -1987,7 +2020,7 @@ export function App() {
             events={events}
             members={members}
             isAdmin={isAdmin}
-            userEmail={user.email}
+            userEmail={user?.email || ''}
             onAddEvent={handleAddEvent}
             onDeleteEvent={handleDeleteEvent}
             onResetEvents={handleResetEvents}
@@ -2000,8 +2033,8 @@ export function App() {
           <ProfileCropView
             onNavigate={handleNavigate}
             onAddToast={addToast}
-            userEmail={user.email}
-            userName={user.name}
+            userEmail={user?.email || ''}
+            userName={user?.name || user?.full_name || ''}
             avatarUrl={(user as any)?.avatar_url}
             onUpdateUser={(updated) => {
               setUser((prev) => {
@@ -2044,11 +2077,11 @@ export function App() {
 
         {(currentView === 'profil' || currentView === 'profile') && (
           <ProfileSettingsView
-            userName={user.name}
-            userEmail={user.email}
-            userRole={user.role}
-            userStatus={user.status}
-            avatarUrl={user.avatar_url}
+            userName={user?.name || user?.full_name || ''}
+            userEmail={user?.email || ''}
+            userRole={user?.role || ''}
+            userStatus={user?.status || ''}
+            avatarUrl={user?.avatar_url}
             onAddToast={addToast}
             onUpdateUser={(updated) => {
               setUser((prev) => {

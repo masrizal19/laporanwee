@@ -30,6 +30,35 @@ const JOB_OPTIONS = [
   'Social Media',
 ];
 
+// Generate dynamic canvas placeholder avatar
+const createInitialsAvatar = (initialChar: string) => {
+  if (typeof document === 'undefined') return '';
+  const c = document.createElement('canvas');
+  c.width = c.height = 480;
+  const g = c.getContext('2d');
+  if (!g) return '';
+  const gr = g.createLinearGradient(0, 0, 480, 480);
+  gr.addColorStop(0, '#cfc6f4');
+  gr.addColorStop(0.55, '#e3ddfa');
+  gr.addColorStop(1, '#d4ee6b');
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 480, 480);
+  g.fillStyle = 'rgba(255, 255, 255, 0.45)';
+  g.beginPath();
+  g.arc(360, 120, 140, 0, 7);
+  g.fill();
+  g.fillStyle = 'rgba(143, 127, 224, 0.35)';
+  g.beginPath();
+  g.arc(90, 420, 170, 0, 7);
+  g.fill();
+  g.fillStyle = '#2a2440';
+  g.font = '500 190px Outfit, system-ui, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText((initialChar || 'P').toUpperCase(), 240, 262);
+  return c.toDataURL();
+};
+
 export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   userName,
   userEmail,
@@ -44,7 +73,11 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [email, setEmail] = useState(userEmail || 'rizalsaragih498@gmail.com');
   const [job, setJob] = useState('VIDEO EDITOR');
   const [status, setStatus] = useState(userStatus || 'KARYAWAN');
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
+  const [avatarUrl, setAvatarUrl] = useState<string>(
+    propAvatarUrl
+      ? (propAvatarUrl.startsWith('data:image') ? propAvatarUrl : `${propAvatarUrl}?t=${Date.now()}`)
+      : createInitialsAvatar(userName?.[0] || 'R')
+  );
 
   const [initialProfile, setInitialProfile] = useState({
     name: userName || 'RIZAL FADHILAH',
@@ -59,32 +92,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
 
   const avatarContainerRef = useRef<HTMLDivElement>(null);
 
-  // Generate dynamic canvas placeholder avatar
   const getInitialsAvatar = useCallback((initialChar: string) => {
-    const c = document.createElement('canvas');
-    c.width = c.height = 480;
-    const g = c.getContext('2d');
-    if (!g) return '';
-    const gr = g.createLinearGradient(0, 0, 480, 480);
-    gr.addColorStop(0, '#cfc6f4');
-    gr.addColorStop(0.55, '#e3ddfa');
-    gr.addColorStop(1, '#d4ee6b');
-    g.fillStyle = gr;
-    g.fillRect(0, 0, 480, 480);
-    g.fillStyle = 'rgba(255, 255, 255, 0.45)';
-    g.beginPath();
-    g.arc(360, 120, 140, 0, 7);
-    g.fill();
-    g.fillStyle = 'rgba(143, 127, 224, 0.35)';
-    g.beginPath();
-    g.arc(90, 420, 170, 0, 7);
-    g.fill();
-    g.fillStyle = '#2a2440';
-    g.font = '500 190px Outfit, system-ui, sans-serif';
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.fillText((initialChar || 'P').toUpperCase(), 240, 262);
-    return c.toDataURL();
+    return createInitialsAvatar(initialChar);
   }, []);
 
   // Fetch initial profile data from backend
@@ -105,15 +114,20 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           const e = u.email || userEmail || 'rizalsaragih498@gmail.com';
           const j = u.pekerjaan || u.title || 'VIDEO EDITOR';
           const s = (u.status_karyawan || u.employment_status || u.status || userStatus || 'KARYAWAN').toUpperCase();
-          const av = u.avatar_url || u.avatar || propAvatarUrl || null;
 
           setProfileId(u.id || 1);
           setName(n);
           setEmail(e);
           setJob(j);
           setStatus(s);
-          if (av) {
-            setAvatarUrl(withAvatarCacheBust(av));
+
+          const fetchedAvatar = u.avatar_url || u.avatar || null;
+          if (fetchedAvatar && !fetchedAvatar.startsWith('data:image')) {
+            // Paksa tembus cache saat pertama kali dimuat
+            const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
+            setAvatarUrl(`${cleanUrl}?t=${Date.now()}`); 
+          } else {
+            setAvatarUrl(fetchedAvatar || createInitialsAvatar(n[0]));
           }
           setInitialProfile({ name: n, email: e, job: j, status: s });
         }
@@ -123,7 +137,13 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         if (stored) {
           setName(stored.name || userName || 'RIZAL FADHILAH');
           setEmail(stored.email || userEmail || 'rizalsaragih498@gmail.com');
-          if (stored.avatar_url) setAvatarUrl(stored.avatar_url);
+          const fetchedAvatar = stored.avatar_url || null;
+          if (fetchedAvatar && !fetchedAvatar.startsWith('data:image')) {
+            const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
+            setAvatarUrl(`${cleanUrl}?t=${Date.now()}`);
+          } else if (fetchedAvatar) {
+            setAvatarUrl(fetchedAvatar);
+          }
         }
       }
     };
@@ -158,21 +178,23 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   };
 
   // Refaktor fungsi handleSaveCrop dengan dynamic cache-busting
-  const handleSaveCrop = (cropResult: string | { avatar_url?: string; [key: string]: any }) => {
-    let rawAvatar = typeof cropResult === 'string' ? cropResult : (cropResult?.avatar_url || (cropResult?.data?.avatar_url) || '');
-    let finalUrl = rawAvatar;
-
-    // Tambahkan parameter cache-busting URL dinamis jika bukan base64
-    if (finalUrl && typeof finalUrl === 'string') {
-      const isBase64 = finalUrl.startsWith('data:') || finalUrl.startsWith('blob:');
-      if (!isBase64) {
-        const cleanUrl = finalUrl.split('?')[0];
-        finalUrl = `${cleanUrl}?t=${Date.now()}`;
-      }
+  const handleSaveCrop = (resJsonOrUrl: any) => {
+    let resJson = typeof resJsonOrUrl === 'object' && resJsonOrUrl !== null ? resJsonOrUrl : { avatar_url: resJsonOrUrl };
+    let finalUrl = resJson.avatar_url || resJson.avatar;
+    if (!finalUrl && resJson.data) {
+      finalUrl = resJson.data.avatar_url || resJson.data.file_url;
+    }
+    if (!finalUrl && typeof resJsonOrUrl === 'string') {
+      finalUrl = resJsonOrUrl;
     }
 
-    // Pastikan state avatarUrl langsung di-set dengan finalUrl yang memiliki timestamp
-    setAvatarUrl(finalUrl);
+    if (finalUrl && !finalUrl.startsWith('data:image') && !finalUrl.startsWith('blob:')) {
+      const cleanUrl = finalUrl.includes('?') ? finalUrl.split('?')[0] : finalUrl;
+      finalUrl = `${cleanUrl}?t=${Date.now()}`;
+    }
+    if (finalUrl) {
+      setAvatarUrl(finalUrl); // Ini akan memaksa React me-render ulang elemen <img>
+    }
 
     // Update session storage & user object
     const savedUser = getStoredUser();
@@ -343,8 +365,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               }}
             >
               <img
-                key={avatarUrl || 'initials'}
-                src={avatarUrl || getInitialsAvatar(name[0])}
+                src={avatarUrl}
                 alt="Foto Profil"
                 onError={(e) => {
                   (e.currentTarget as HTMLImageElement).src = getInitialsAvatar(name[0]);
