@@ -10,7 +10,7 @@ interface ProfileCropModalProps {
   onError: (message: string) => void;
 }
 
-const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
+const CROP_API_ENDPOINT = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
 const MAXDIM = 2048;
 const STEP = 34;
 const HOLD_SPEED = 3.4;
@@ -322,15 +322,41 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     [applyTransforms]
   );
 
-  // Initialize on modal open
+  // Initialize on modal open & fetch GET data from backend
   useEffect(() => {
-    if (isOpen && initialSrc) {
-      setOrigSrc(initialSrc);
-      loadImage(initialSrc);
+    if (isOpen) {
       document.documentElement.style.overflow = 'hidden';
       setTimeout(() => {
         if (stageRef.current) stageRef.current.focus({ preventScroll: true });
       }, 180);
+
+      const fetchCurrentAvatar = async () => {
+        try {
+          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+          const res = await fetch(CROP_API_ENDPOINT, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': token ? `Bearer ${token}` : '',
+            },
+          });
+          const json = await res.json();
+          const raw = json?.data?.avatar_url || json?.avatar_url || json?.data?.file_url;
+          if (raw && typeof raw === 'string') {
+            const clean = raw.startsWith('data:') ? raw : `${raw.split('?')[0]}?t=${Date.now()}`;
+            setOrigSrc(clean);
+            loadImage(clean);
+            return;
+          }
+        } catch (_) {}
+
+        if (initialSrc) {
+          setOrigSrc(initialSrc);
+          loadImage(initialSrc);
+        }
+      };
+
+      fetchCurrentAvatar();
     } else {
       document.documentElement.style.overflow = '';
     }
@@ -646,10 +672,10 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
           fd.append('avatar', blob, `avatar_${userId}_${Date.now()}.jpg`);
           fd.append('id', String(userId));
 
-          const res = await fetch(`${API_BASE}/upload.php`, {
+          const res = await fetch(CROP_API_ENDPOINT, {
             method: 'POST',
             headers: {
-              'Authorization': 'Bearer ' + token,
+              'Authorization': token ? `Bearer ${token}` : '',
             },
             body: fd,
           });
