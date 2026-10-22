@@ -11,11 +11,11 @@ interface SettingProfilePictureModalProps {
   onError: (message: string) => void;
 }
 
+const STAGE_SIZE = 280; // Diameter lingkaran crop
+const OUTPUT_SIZE = 512; // Ukuran hasil simpan kanvas
 const CROP_API_ENDPOINT = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
-const MAX_DIMENSION = 2048;
-const STEP_PIXELS = 34;
 
-// Canvas initials avatar helper fallback
+// Helper pembuat avatar inisial kanvas lokal aman tanpa isu CORS
 const createInitialsAvatar = (initialChar: string) => {
   if (typeof document === 'undefined') return '';
   const c = document.createElement('canvas');
@@ -52,77 +52,68 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   onSaved,
   onError,
 }) => {
-  const defaultFallback = initialSrc || createInitialsAvatar(userName[0] || 'P');
-  const [src, setSrc] = useState<string>(defaultFallback);
-  const [origSrc, setOrigSrc] = useState<string>(defaultFallback);
-  const [zoom, setZoom] = useState<number>(1);
-  const [posX, setPosX] = useState<number>(0);
-  const [posY, setPosY] = useState<number>(0);
-  const [nw, setNw] = useState<number>(0);
-  const [nh, setNh] = useState<number>(0);
-  const [base, setBase] = useState<number>(1);
-  const [isUploading, setIsUploading] = useState<boolean>(false);
-  const [hasInteracted, setHasInteracted] = useState<boolean>(false);
+  // State Gambar
+  const [src, setSrc] = useState<string>('');
+  const [origSrc, setOrigSrc] = useState<string>('');
+  const [naturalW, setNaturalW] = useState<number>(0);
+  const [naturalH, setNaturalH] = useState<number>(0);
+
+  // Parameter Transformasi: Zoom 1.0 - 3.0, Pan 0% - 100% (default 50% = tengah)
+  const [zoomLevel, setZoomLevel] = useState<number>(1.0);
+  const [panXPercentage, setPanXPercentage] = useState<number>(50);
+  const [panYPercentage, setPanYPercentage] = useState<number>(50);
+
+  // Status UI & Dragging
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isLoadingImage, setIsLoadingImage] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const [hasInteracted, setHasInteracted] = useState<boolean>(false);
 
+  // Refs
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
-  const previewLRef = useRef<HTMLImageElement>(null);
-  const previewMRef = useRef<HTMLImageElement>(null);
-  const previewSRRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const stateRef = useRef({
-    px: 0,
-    py: 0,
-    z: 1,
-    base: 1,
-    nw: 0,
-    nh: 0,
-    CS: 280,
-    dragging: false,
-    dragStart: { x: 0, y: 0, px: 0, py: 0 },
-    pinch: null as { d: number; z: number } | null,
-    ptrs: new Map<number, { x: number; y: number }>(),
-  });
-
-  const smoothTimerRef = useRef<any>(null);
   const gridTimerRef = useRef<any>(null);
 
-  const clamp = useCallback((val: number, min: number, max: number) => {
-    if (isNaN(val)) return min;
-    return Math.min(max, Math.max(min, val));
-  }, []);
+  // Dragging Tracker Ref
+  const dragTrackerRef = useRef<{
+    startX: number;
+    startY: number;
+    startPanX: number;
+    startPanY: number;
+    maxOffsetX: number;
+    maxOffsetY: number;
+    isDown: boolean;
+  }>({
+    startX: 0,
+    startY: 0,
+    startPanX: 50,
+    startPanY: 50,
+    maxOffsetX: 0,
+    maxOffsetY: 0,
+    isDown: false,
+  });
 
-  const getBounds = useCallback(
-    (
-      curZ = stateRef.current.z,
-      curB = stateRef.current.base,
-      curW = stateRef.current.nw,
-      curH = stateRef.current.nh,
-      curCS = stateRef.current.CS || 280
-    ) => {
-      const scaledW = curW * curB * curZ;
-      const scaledH = curH * curB * curZ;
-      const minX = Math.min(0, curCS - scaledW);
-      const maxX = 0;
-      const minY = Math.min(0, curCS - scaledH);
-      const maxY = 0;
-      return { minX, maxX, minY, maxY, scaledW, scaledH, curCS };
-    },
-    []
-  );
+  // Skala dasar agar gambar selalu menutupi lingkaran penuh (cover fit) tanpa border kosong
+  const baseScale = naturalW > 0 && naturalH > 0
+    ? Math.max(STAGE_SIZE / naturalW, STAGE_SIZE / naturalH)
+    : 1;
 
-  useEffect(() => {
-    stateRef.current.z = zoom;
-    stateRef.current.base = base;
-    stateRef.current.nw = nw;
-    stateRef.current.nh = nh;
-    stateRef.current.px = posX;
-    stateRef.current.py = posY;
-  }, [zoom, base, nw, nh, posX, posY]);
+  const currentScale = baseScale * zoomLevel;
+  const renderedW = naturalW * currentScale;
+  const renderedH = naturalH * currentScale;
 
+  // Batas maksimal geser agar gambar tidak keluar dari lingkaran
+  const maxOffsetX = Math.max(0, (renderedW - STAGE_SIZE) / 2);
+  const maxOffsetY = Math.max(0, (renderedH - STAGE_SIZE) / 2);
+
+  // Konversi nilai slider (0% - 100%) ke offset piksel:
+  // 50% = tengah (clamped = 0), 0% = kiri/atas penuh, 100% = kanan/bawah penuh
+  const clampedX = maxOffsetX > 0 ? ((panXPercentage - 50) / 50) * maxOffsetX : 0;
+  const clampedY = maxOffsetY > 0 ? ((panYPercentage - 50) / 50) * maxOffsetY : 0;
+
+  // Efek kedip grid saat berinteraksi
   const flashGrid = useCallback(() => {
     setHasInteracted(true);
     if (stageRef.current) {
@@ -131,214 +122,95 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       clearTimeout(gridTimerRef.current);
       gridTimerRef.current = setTimeout(() => {
         if (stageRef.current) stageRef.current.classList.remove('pc-act');
-      }, 900);
+      }, 700);
     }
   }, []);
 
-  const triggerSmooth = useCallback(() => {
-    if (stageRef.current) {
-      stageRef.current.classList.add('pc-smooth');
-      clearTimeout(smoothTimerRef.current);
-      smoothTimerRef.current = setTimeout(() => {
-        if (stageRef.current) stageRef.current.classList.remove('pc-smooth');
-      }, 340);
-    }
-  }, []);
-
-  const applyTransforms = useCallback(
-    (x: number, y: number, z: number, b = base) => {
-      const s = b * z;
-      const CS = stateRef.current.CS || 280;
-
-      if (imgRef.current) {
-        imgRef.current.style.transform = `translate(${x}px, ${y}px) scale(${s})`;
-      }
-      if (previewLRef.current) {
-        const rL = 72 / CS;
-        previewLRef.current.style.transform = `translate(${x * rL}px, ${y * rL}px) scale(${s * rL})`;
-      }
-      if (previewMRef.current) {
-        const rM = 44 / CS;
-        previewMRef.current.style.transform = `translate(${x * rM}px, ${y * rM}px) scale(${s * rM})`;
-      }
-      if (previewSRRef.current) {
-        const rS = 28 / CS;
-        previewSRRef.current.style.transform = `translate(${x * rS}px, ${y * rS}px) scale(${s * rS})`;
-      }
-    },
-    [base]
-  );
-
-  const updateZoom = useCallback(
-    (newZ: number, withAnim = false) => {
-      const nz = clamp(newZ, 1, 3);
-      const curZ = stateRef.current.z;
-      const curB = stateRef.current.base;
-      const CS = stateRef.current.CS || 280;
-      const curPx = stateRef.current.px;
-      const curPy = stateRef.current.py;
-
-      const centerImgX = (CS / 2 - curPx) / (curB * curZ);
-      const centerImgY = (CS / 2 - curPy) / (curB * curZ);
-
-      const targetPx = CS / 2 - centerImgX * curB * nz;
-      const targetPy = CS / 2 - centerImgY * curB * nz;
-
-      const bounds = getBounds(nz, curB, stateRef.current.nw, stateRef.current.nh, CS);
-      const finalPx = clamp(targetPx, bounds.minX, bounds.maxX);
-      const finalPy = clamp(targetPy, bounds.minY, bounds.maxY);
-
-      stateRef.current.z = nz;
-      stateRef.current.px = finalPx;
-      stateRef.current.py = finalPy;
-
-      setZoom(nz);
-      setPosX(finalPx);
-      setPosY(finalPy);
-
-      if (withAnim) triggerSmooth();
-      applyTransforms(finalPx, finalPy, nz, curB);
+  // Memuat sumber gambar baru ke DOM dan inisialisasi dimensi
+  const loadNewImageSrc = useCallback((newUrl: string) => {
+    setIsLoadingImage(true);
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const nw = img.naturalWidth || 480;
+      const nh = img.naturalHeight || 480;
+      setNaturalW(nw);
+      setNaturalH(nh);
+      setSrc(newUrl);
+      setZoomLevel(1.0);
+      setPanXPercentage(50);
+      setPanYPercentage(50);
+      setIsLoadingImage(false);
       flashGrid();
-    },
-    [clamp, getBounds, triggerSmooth, applyTransforms, flashGrid]
-  );
+    };
+    img.onerror = () => {
+      setIsLoadingImage(false);
+      onError('Gagal memuat pratinjau foto');
+    };
+    img.src = newUrl;
+  }, [flashGrid, onError]);
 
-  const step = useCallback(
-    (dx: number, dy: number, withAnim = true) => {
-      const bounds = getBounds();
-      const currentX = stateRef.current.px;
-      const currentY = stateRef.current.py;
-      const nextX = clamp(currentX + dx, bounds.minX, bounds.maxX);
-      const nextY = clamp(currentY + dy, bounds.minY, bounds.maxY);
-
-      stateRef.current.px = nextX;
-      stateRef.current.py = nextY;
-      setPosX(nextX);
-      setPosY(nextY);
-
-      if (withAnim) triggerSmooth();
-      applyTransforms(nextX, nextY, stateRef.current.z, stateRef.current.base);
-      flashGrid();
-    },
-    [getBounds, clamp, triggerSmooth, applyTransforms, flashGrid]
-  );
-
-  const setPanPercentageX = useCallback(
-    (pct: number) => {
-      const bounds = getBounds();
-      const ox = -bounds.minX;
-      const targetX = ox > 1 ? -((pct / 100) * ox) : bounds.minX / 2;
-      const finalX = clamp(targetX, bounds.minX, bounds.maxX);
-
-      stateRef.current.px = finalX;
-      setPosX(finalX);
-      applyTransforms(finalX, stateRef.current.py, stateRef.current.z, stateRef.current.base);
-      flashGrid();
-    },
-    [getBounds, clamp, applyTransforms, flashGrid]
-  );
-
-  const setPanPercentageY = useCallback(
-    (pct: number) => {
-      const bounds = getBounds();
-      const oy = -bounds.minY;
-      const targetY = oy > 1 ? -((pct / 100) * oy) : bounds.minY / 2;
-      const finalY = clamp(targetY, bounds.minY, bounds.maxY);
-
-      stateRef.current.py = finalY;
-      setPosY(finalY);
-      applyTransforms(stateRef.current.px, finalY, stateRef.current.z, stateRef.current.base);
-      flashGrid();
-    },
-    [getBounds, clamp, applyTransforms, flashGrid]
-  );
-
-  const loadImage = useCallback(
-    (url: string) => {
-      setSrc(url);
-      const img = new Image();
-      img.onload = () => {
-        const w = img.naturalWidth || 480;
-        const h = img.naturalHeight || 480;
-        const stageEl = stageRef.current;
-        const CS = stageEl?.clientWidth || 280;
-        const b = CS / Math.min(w, h);
-        const initX = (CS - w * b) / 2;
-        const initY = (CS - h * b) / 2;
-
-        setNw(w);
-        setNh(h);
-        setBase(b);
-        setZoom(1);
-        setPosX(initX);
-        setPosY(initY);
-
-        stateRef.current.nw = w;
-        stateRef.current.nh = h;
-        stateRef.current.CS = CS;
-        stateRef.current.base = b;
-        stateRef.current.z = 1;
-        stateRef.current.px = initX;
-        stateRef.current.py = initY;
-
-        applyTransforms(initX, initY, 1, b);
-      };
-      img.src = url;
-    },
-    [applyTransforms]
-  );
-
-  // Fetch initial profile picture from CROP_API_ENDPOINT on mount/open
+  // Buka atau sinkronkan data saat modal dibuka
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+
+    try {
+      if (window.history && window.history.pushState) {
+        window.history.pushState({}, '', '/profil/setting-profile-picture');
+      }
+    } catch (_) {}
+
+    document.documentElement.style.overflow = 'hidden';
+
+    const fetchInitialAvatar = async () => {
+      setIsLoadingImage(true);
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
       try {
-        if (window.history && window.history.pushState) {
-          window.history.pushState({}, '', '/profil/setting-profile-picture');
+        const res = await fetch(CROP_API_ENDPOINT, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': token ? `Bearer ${token}` : '',
+          },
+        });
+        const json = await res.json();
+        const u = json.data || json.user || json;
+        const fetchedUrl = u?.avatar_url || u?.avatar || u?.file_url;
+        if (fetchedUrl && typeof fetchedUrl === 'string') {
+          const cleanUrl = fetchedUrl.includes('?') ? fetchedUrl.split('?')[0] : fetchedUrl;
+          // Ambil gambar sebagai Blob lokal untuk mengamankan canvas dari CORS SecurityError
+          try {
+            const imgRes = await fetch(`${cleanUrl}?t=${Date.now()}`);
+            if (imgRes.ok) {
+              const b = await imgRes.blob();
+              const objectUrl = URL.createObjectURL(b);
+              setOrigSrc(objectUrl);
+              loadNewImageSrc(objectUrl);
+              return;
+            }
+          } catch (_) {
+            // Jika direct fetch blob gagal, gunakan URL langsung dengan timestamp
+            const busted = `${cleanUrl}?t=${Date.now()}`;
+            setOrigSrc(busted);
+            loadNewImageSrc(busted);
+            return;
+          }
         }
       } catch (_) {}
 
-      const fetchAvatar = async () => {
-        try {
-          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-          const res = await fetch(CROP_API_ENDPOINT, {
-            method: 'GET',
-            headers: {
-              'Accept': 'application/json',
-              'Authorization': token ? 'Bearer ' + token : '',
-            },
-          });
-          const json = await res.json();
-          const u = json.data || json.user || json;
-          const fetchedAvatar = u?.avatar_url || u?.avatar || u?.file_url;
-          if (fetchedAvatar && typeof fetchedAvatar === 'string') {
-            const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
-            const busted = cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`;
-            setOrigSrc(busted);
-            loadImage(busted);
-            return;
-          }
-        } catch (_) {}
+      // Fallback inisial jika belum ada di server
+      const fallback = initialSrc || createInitialsAvatar(userName[0] || 'P');
+      setOrigSrc(fallback);
+      loadNewImageSrc(fallback);
+    };
 
-        const fallback = initialSrc || createInitialsAvatar(userName[0] || 'P');
-        setOrigSrc(fallback);
-        loadImage(fallback);
-      };
-
-      fetchAvatar();
-      document.documentElement.style.overflow = 'hidden';
-      setTimeout(() => {
-        if (stageRef.current) stageRef.current.focus({ preventScroll: true });
-      }, 180);
-    } else {
-      document.documentElement.style.overflow = '';
-    }
+    fetchInitialAvatar();
 
     return () => {
       document.documentElement.style.overflow = '';
-      clearTimeout(smoothTimerRef.current);
       clearTimeout(gridTimerRef.current);
     };
-  }, [isOpen, initialSrc, userName, loadImage]);
+  }, [isOpen, initialSrc, userName, loadNewImageSrc]);
 
   const handleClose = () => {
     try {
@@ -349,138 +221,87 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     onClose();
   };
 
-  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+  // Dragging Mouse / Pointer pada stage crop
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button > 0) return;
     const stage = e.currentTarget;
-    stage.setPointerCapture(e.pointerId);
-    stateRef.current.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      stage.setPointerCapture(e.pointerId);
+    } catch (_) {}
 
-    if (stateRef.current.ptrs.size === 1) {
-      stateRef.current.dragStart = {
-        x: e.clientX,
-        y: e.clientY,
-        px: stateRef.current.px,
-        py: stateRef.current.py,
-      };
-      stateRef.current.dragging = true;
-      setIsDragging(true);
-    } else if (stateRef.current.ptrs.size === 2) {
-      const [a, b] = Array.from(stateRef.current.ptrs.values());
-      stateRef.current.pinch = {
-        d: Math.hypot(a.x - b.x, a.y - b.y) || 1,
-        z: stateRef.current.z,
-      };
-      stateRef.current.dragging = false;
-      setIsDragging(false);
-    }
+    dragTrackerRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPanX: panXPercentage,
+      startPanY: panYPercentage,
+      maxOffsetX,
+      maxOffsetY,
+      isDown: true,
+    };
+    setIsDragging(true);
     flashGrid();
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!stateRef.current.ptrs.has(e.pointerId)) return;
-    stateRef.current.ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragTrackerRef.current.isDown) return;
+    const { startX, startY, startPanX, startPanY, maxOffsetX: mX, maxOffsetY: mY } = dragTrackerRef.current;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
 
-    if (stateRef.current.ptrs.size === 2 && stateRef.current.pinch) {
-      const [a, b] = Array.from(stateRef.current.ptrs.values());
-      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
-      const targetZoom = (stateRef.current.pinch.z * dist) / stateRef.current.pinch.d;
-      updateZoom(targetZoom);
-      return;
+    if (mX > 0) {
+      // delta panX dalam persen: dx piksel sebanding dengan ((panX - 50)/50) * mX
+      const deltaPercentX = (dx / mX) * 50;
+      const nextX = Math.min(100, Math.max(0, startPanX + deltaPercentX));
+      setPanXPercentage(nextX);
     }
 
-    if (stateRef.current.ptrs.size === 1 && stateRef.current.dragging) {
-      const dx = e.clientX - stateRef.current.dragStart.x;
-      const dy = e.clientY - stateRef.current.dragStart.y;
-      const bounds = getBounds();
-
-      const nextX = clamp(stateRef.current.dragStart.px + dx, bounds.minX, bounds.maxX);
-      const nextY = clamp(stateRef.current.dragStart.py + dy, bounds.minY, bounds.maxY);
-
-      stateRef.current.px = nextX;
-      stateRef.current.py = nextY;
-      setPosX(nextX);
-      setPosY(nextY);
-
-      applyTransforms(nextX, nextY, stateRef.current.z, stateRef.current.base);
+    if (mY > 0) {
+      const deltaPercentY = (dy / mY) * 50;
+      const nextY = Math.min(100, Math.max(0, startPanY + deltaPercentY));
+      setPanYPercentage(nextY);
     }
   };
 
-  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
-    stateRef.current.ptrs.delete(e.pointerId);
-    stateRef.current.pinch = null;
-
-    if (stateRef.current.ptrs.size === 0) {
-      stateRef.current.dragging = false;
-      setIsDragging(false);
-    } else {
-      const [a] = Array.from(stateRef.current.ptrs.values());
-      stateRef.current.dragStart = {
-        x: a.x,
-        y: a.y,
-        px: stateRef.current.px,
-        py: stateRef.current.py,
-      };
-      stateRef.current.dragging = true;
-      setIsDragging(true);
-    }
+    } catch (_) {}
+    dragTrackerRef.current.isDown = false;
+    setIsDragging(false);
   };
 
-  const onWheel = (e: React.WheelEvent) => {
+  // Zoom menggunakan mouse wheel
+  const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    updateZoom(zoom * Math.exp(-e.deltaY * 0.0015));
+    const delta = e.deltaY < 0 ? 0.08 : -0.08;
+    setZoomLevel((prev) => Math.min(3.0, Math.max(1.0, +(prev + delta).toFixed(2))));
+    flashGrid();
   };
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const s = e.shiftKey ? STEP_PIXELS * 2 : STEP_PIXELS;
-    if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      step(-s, 0);
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      step(s, 0);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      step(0, -s);
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      step(0, s);
-    } else if (e.key === '+' || e.key === '=') {
-      e.preventDefault();
-      updateZoom(zoom + 0.1, true);
-    } else if (e.key === '-') {
-      e.preventDefault();
-      updateZoom(zoom - 0.1, true);
-    } else if (e.key === 'Escape') {
-      handleClose();
-    }
-  };
-
-  const bakeCanvas = (isRotate: boolean) => {
+  // Pemutaran & Pembalikan Kanvas
+  const handleBakeCanvas = (isRotate: boolean) => {
     const img = imgRef.current;
-    if (!img || !nw || !nh) return;
+    if (!img || !naturalW || !naturalH) return;
+
     const c = document.createElement('canvas');
+    c.width = isRotate ? naturalH : naturalW;
+    c.height = isRotate ? naturalW : naturalH;
     const g = c.getContext('2d');
     if (!g) return;
 
-    c.width = isRotate ? nh : nw;
-    c.height = isRotate ? nw : nh;
     g.translate(c.width / 2, c.height / 2);
-
     if (isRotate) {
       g.rotate(-Math.PI / 2);
     } else {
       g.scale(-1, 1);
     }
+    g.drawImage(img, -naturalW / 2, -naturalH / 2);
 
-    g.drawImage(img, -nw / 2, -nh / 2);
-    const newUrl = c.toDataURL('image/jpeg', 0.95);
-    loadImage(newUrl);
-    flashGrid();
+    const bakedUrl = c.toDataURL('image/jpeg', 0.95);
+    loadNewImageSrc(bakedUrl);
   };
 
+  // Baca file gambar baru dari file picker atau drag-and-drop
   const handleReadFile = (file: File | null | undefined) => {
     if (!file) return;
     if (!file.type || !file.type.startsWith('image/')) {
@@ -492,99 +313,86 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       return;
     }
 
+    setIsLoadingImage(true);
     const reader = new FileReader();
-    reader.onerror = () => onError('Gagal membaca file');
+    reader.onerror = () => {
+      setIsLoadingImage(false);
+      onError('Gagal membaca file gambar');
+    };
     reader.onload = () => {
-      const im = new Image();
-      im.onerror = () => onError('Gambar tidak dapat dibuka');
-      im.onload = () => {
-        let resultUrl = reader.result as string;
-        const maxSide = Math.max(im.naturalWidth, im.naturalHeight);
-        if (maxSide > MAX_DIMENSION) {
-          const scaleRatio = MAX_DIMENSION / maxSide;
-          const rescaleCanvas = document.createElement('canvas');
-          rescaleCanvas.width = Math.round(im.naturalWidth * scaleRatio);
-          rescaleCanvas.height = Math.round(im.naturalHeight * scaleRatio);
-          const ctx = rescaleCanvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(im, 0, 0, rescaleCanvas.width, rescaleCanvas.height);
-            resultUrl = rescaleCanvas.toDataURL('image/jpeg', 0.92);
-          }
-        }
-        setOrigSrc(resultUrl);
-        loadImage(resultUrl);
-        flashGrid();
-      };
-      im.src = reader.result as string;
+      if (typeof reader.result === 'string') {
+        setOrigSrc(reader.result);
+        loadNewImageSrc(reader.result);
+      }
     };
     reader.readAsDataURL(file);
   };
 
+  // EKSEKUSI SIMPAN FOTO (PRECISE 512x512 CROP EXPORT)
   const handleSave = async () => {
-    setIsUploading(true);
+    if (isSaving) return;
+    setIsSaving(true);
+
     try {
-      let img = imgRef.current;
-      let currentW = nw;
-      let currentH = nh;
+      let imgElement: HTMLImageElement | null = imgRef.current;
 
-      // Asynchronous fallback image loader if DOM img ref is not natural size ready
-      if (!img || !currentW || !currentH) {
-        if (src) {
-          const loadedImg = new Image();
-          loadedImg.crossOrigin = 'anonymous';
-          await new Promise<void>((resolve, reject) => {
-            loadedImg.onload = () => resolve();
-            loadedImg.onerror = () => reject(new Error('Gagal memuat gambar'));
-            loadedImg.src = src;
-          });
-          img = loadedImg;
-          currentW = loadedImg.naturalWidth || 512;
-          currentH = loadedImg.naturalHeight || 512;
+      // Fallback jika elemen img belum ter-render
+      if (!imgElement || !naturalW || !naturalH) {
+        if (!src) {
+          onError('Belum ada foto untuk disimpan');
+          setIsSaving(false);
+          return;
         }
+        const tempImg = new Image();
+        tempImg.crossOrigin = 'anonymous';
+        await new Promise<void>((resolve, reject) => {
+          tempImg.onload = () => resolve();
+          tempImg.onerror = () => reject(new Error('Gagal memuat elemen gambar'));
+          tempImg.src = src;
+        });
+        imgElement = tempImg;
       }
 
-      if (!img) {
-        onError('Belum ada foto untuk disimpan');
-        setIsUploading(false);
+      const exportCanvas = document.createElement('canvas');
+      exportCanvas.width = OUTPUT_SIZE;
+      exportCanvas.height = OUTPUT_SIZE;
+      const ctx = exportCanvas.getContext('2d');
+      if (!ctx) {
+        setIsSaving(false);
+        onError('Gagal menyiapkan kanvas gambar');
         return;
       }
 
-      const bounds = getBounds();
-      const clampedPx = clamp(posX, bounds.minX, bounds.maxX);
-      const clampedPy = clamp(posY, bounds.minY, bounds.maxY);
-      const CS = stateRef.current.CS || 280;
+      // Hitung rasio terhadap gambar asli
+      const ratioToNatural = 1 / currentScale;
+      const cropSizeOnNatural = STAGE_SIZE * ratioToNatural;
 
-      const outCanvas = document.createElement('canvas');
-      outCanvas.width = 512;
-      outCanvas.height = 512;
-      const g = outCanvas.getContext('2d');
-      if (!g) {
-        setIsUploading(false);
-        onError('Gagal membuat kanvas gambar');
-        return;
-      }
+      // Titik potong awal pada dimensi asli gambar
+      const sourceX = (naturalW - cropSizeOnNatural) / 2 - (clampedX * ratioToNatural);
+      const sourceY = (naturalH - cropSizeOnNatural) / 2 - (clampedY * ratioToNatural);
 
-      const k = 512 / CS;
-      g.fillStyle = '#ffffff';
-      g.fillRect(0, 0, 512, 512);
-      g.drawImage(
-        img,
+      // Bersihkan latar dengan warna putih
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+
+      // Draw potongan gambar secara presisi tanpa distorsi
+      ctx.drawImage(
+        imgElement,
+        Math.max(0, sourceX),
+        Math.max(0, sourceY),
+        Math.min(naturalW, cropSizeOnNatural),
+        Math.min(naturalH, cropSizeOnNatural),
         0,
         0,
-        currentW,
-        currentH,
-        clampedPx * k,
-        clampedPy * k,
-        currentW * base * zoom * k,
-        currentH * base * zoom * k
+        OUTPUT_SIZE,
+        OUTPUT_SIZE
       );
 
-      const previewDataUrl = outCanvas.toDataURL('image/jpeg', 0.92);
-
-      outCanvas.toBlob(
+      // Konversi exportCanvas ke Blob JPEG kualitas 0.92
+      exportCanvas.toBlob(
         async (blob) => {
           if (!blob) {
-            setIsUploading(false);
+            setIsSaving(false);
             onError('Gagal memproses gambar');
             return;
           }
@@ -602,63 +410,61 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               body: fd,
             });
 
-            const resJson = await res.json();
-            if (resJson && (resJson.success || resJson.status === 'success')) {
+            const json = await res.json();
+            if (json && (json.success || json.status === 'success')) {
               const rawAvatar =
-                resJson.data?.avatar_url ||
-                resJson.avatar_url ||
-                resJson.avatar ||
-                resJson.data?.file_url;
+                json.data?.avatar_url ||
+                json.avatar_url ||
+                json.avatar ||
+                json.data?.file_url;
               const cleanUrl = rawAvatar ? rawAvatar.split('?')[0] : '';
-              const freshAvatar = cleanUrl
+              const finalUrl = cleanUrl
                 ? (cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`)
-                : previewDataUrl;
+                : exportCanvas.toDataURL('image/jpeg', 0.92);
 
-              // Direct DOM update for instant visual synchronization across all avatar containers
-              const mainImgs = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
-              mainImgs.forEach((el) => {
-                (el as HTMLImageElement).src = freshAvatar;
+              // Update DOM avatar seketika agar tidak ada jeda visual
+              const mainAvatars = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
+              mainAvatars.forEach((el) => {
+                (el as HTMLImageElement).src = finalUrl;
                 (el as HTMLImageElement).style.display = 'block';
               });
 
-              onSaved(freshAvatar);
+              onSaved(finalUrl);
               handleClose();
             } else {
-              onError(resJson?.message || 'Gagal menyimpan foto profil.');
+              onError(json?.message || 'Gagal menyimpan foto.');
             }
-          } catch (err: any) {
-            onError('Terjadi kesalahan koneksi ke server.');
+          } catch (err) {
+            onError('Terjadi gangguan koneksi saat menyimpan foto.');
           } finally {
-            setIsUploading(false);
+            setIsSaving(false);
           }
         },
         'image/jpeg',
         0.92
       );
     } catch (err: any) {
+      setIsSaving(false);
       onError('Terjadi kesalahan saat memproses gambar.');
-      setIsUploading(false);
     }
   };
 
   if (!isOpen) return null;
 
-  const bounds = getBounds();
-  const ox = -bounds.minX;
-  const oy = -bounds.minY;
-  const cx = clamp(posX, bounds.minX, bounds.maxX);
-  const cy = clamp(posY, bounds.minY, bounds.maxY);
+  // Rasio pratinjau lingkaran kecil (L: 72px, M: 44px, S: 28px)
+  const ratioL = 72 / STAGE_SIZE;
+  const ratioM = 44 / STAGE_SIZE;
+  const ratioS = 28 / STAGE_SIZE;
 
-  const percentX = ox > 1 ? Math.round((-cx / ox) * 100) : 50;
-  const percentY = oy > 1 ? Math.round((-cy / oy) * 100) : 50;
+  const baseTranslateX = (STAGE_SIZE - renderedW) / 2 + clampedX;
+  const baseTranslateY = (STAGE_SIZE - renderedH) / 2 + clampedY;
 
   return createPortal(
     <div
       className="pc-ov pc-show"
       onClick={(e) => {
-        if (e.target === e.currentTarget) handleClose();
+        if (e.target === e.currentTarget && !isSaving) handleClose();
       }}
-      onKeyDown={onKeyDown}
       role="dialog"
       aria-modal="true"
       aria-labelledby="pc-title"
@@ -667,7 +473,13 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
         <div className="pc-grab" />
         <div className="pc-head">
           <h2 id="pc-title">Edit Foto Profil</h2>
-          <button type="button" className="pc-x" onClick={handleClose} aria-label="Tutup">
+          <button
+            type="button"
+            className="pc-x"
+            onClick={handleClose}
+            aria-label="Tutup"
+            disabled={isSaving}
+          >
             <svg viewBox="0 0 24 24">
               <path d="M6 6l12 12M18 6 6 18" />
             </svg>
@@ -677,7 +489,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
           Gunakan foto yang ada atau pilih foto baru. Geser untuk mengatur posisi, atur zoom, lalu klik Simpan Foto.
         </p>
 
-        {/* Stage & 3 Circular Previews matching reference mockup */}
+        {/* Stage & 3 Lingkaran Pratinjau */}
         <div className="pc-main">
           <div
             className={`pc-stage ${isDragging ? 'pc-drag' : ''} ${isDragOver ? 'pc-over' : ''} ${hasInteracted ? 'pc-touched' : ''}`}
@@ -685,13 +497,19 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             tabIndex={0}
             role="application"
             aria-label="Area crop foto profil"
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp}
-            onWheel={onWheel}
-            onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={(e) => { e.preventDefault(); setIsDragOver(false); }}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onWheel={handleWheel}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDragOver(false);
+            }}
             onDrop={(e) => {
               e.preventDefault();
               setIsDragOver(false);
@@ -706,10 +524,13 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 src={src}
                 alt="Pratinjau Crop"
                 draggable={false}
+                crossOrigin="anonymous"
                 style={{
-                  width: nw ? `${nw}px` : 'auto',
-                  height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX}px, ${posY}px) scale(${base * zoom})`,
+                  width: `${renderedW}px`,
+                  height: `${renderedH}px`,
+                  transform: `translate(${baseTranslateX}px, ${baseTranslateY}px)`,
+                  transformOrigin: 'top left',
+                  position: 'absolute',
                 }}
               />
             )}
@@ -717,59 +538,107 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <div className="pc-ring" />
             <div className="pc-tip">Seret untuk menggeser</div>
             <div className="pc-dropmsg">Lepas foto di sini</div>
+
+            {/* Spinner saat memuat foto awal / rotasi */}
+            {isLoadingImage && (
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'rgba(30, 26, 50, 0.45)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  zIndex: 5,
+                  backdropFilter: 'blur(3px)',
+                }}
+              >
+                <div
+                  className="pc-spn"
+                  style={{
+                    opacity: 1,
+                    position: 'static',
+                    width: 34,
+                    height: 34,
+                    borderWidth: 3,
+                    borderColor: '#ffffff',
+                    borderTopColor: 'var(--pc-lime, #d4ee6b)',
+                    animation: 'pc-spin 0.8s linear infinite',
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* 3 Lingkaran Pratinjau (L: 72px, M: 44px, S: 28px) */}
           <div className="pc-prevs" aria-hidden="true">
             <div className="pc-pv l">
-              <img
-                ref={previewLRef}
-                src={src}
-                alt=""
-                style={{
-                  width: nw ? `${nw}px` : 'auto',
-                  height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX * (72 / 280)}px, ${posY * (72 / 280)}px) scale(${base * zoom * (72 / 280)})`,
-                }}
-              />
+              {src && (
+                <img
+                  src={src}
+                  alt=""
+                  style={{
+                    width: `${renderedW * ratioL}px`,
+                    height: `${renderedH * ratioL}px`,
+                    transform: `translate(${baseTranslateX * ratioL}px, ${baseTranslateY * ratioL}px)`,
+                    transformOrigin: 'top left',
+                    position: 'absolute',
+                  }}
+                />
+              )}
             </div>
             <div className="pc-pv m">
-              <img
-                ref={previewMRef}
-                src={src}
-                alt=""
-                style={{
-                  width: nw ? `${nw}px` : 'auto',
-                  height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX * (44 / 280)}px, ${posY * (44 / 280)}px) scale(${base * zoom * (44 / 280)})`,
-                }}
-              />
+              {src && (
+                <img
+                  src={src}
+                  alt=""
+                  style={{
+                    width: `${renderedW * ratioM}px`,
+                    height: `${renderedH * ratioM}px`,
+                    transform: `translate(${baseTranslateX * ratioM}px, ${baseTranslateY * ratioM}px)`,
+                    transformOrigin: 'top left',
+                    position: 'absolute',
+                  }}
+                />
+              )}
             </div>
             <div className="pc-pv s">
-              <img
-                ref={previewSRRef}
-                src={src}
-                alt=""
-                style={{
-                  width: nw ? `${nw}px` : 'auto',
-                  height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX * (28 / 280)}px, ${posY * (28 / 280)}px) scale(${base * zoom * (28 / 280)})`,
-                }}
-              />
+              {src && (
+                <img
+                  src={src}
+                  alt=""
+                  style={{
+                    width: `${renderedW * ratioS}px`,
+                    height: `${renderedH * ratioS}px`,
+                    transform: `translate(${baseTranslateX * ratioS}px, ${baseTranslateY * ratioS}px)`,
+                    transformOrigin: 'top left',
+                    position: 'absolute',
+                  }}
+                />
+              )}
             </div>
             <small>Pratinjau</small>
           </div>
         </div>
 
         {/* Orientation Tools: Putar & Balik */}
-        <div className="pc-tools" style={{ justifyContent: 'center', marginBottom: '18px' }}>
-          <button type="button" className="pc-tool" onClick={() => bakeCanvas(true)}>
+        <div className="pc-tools" style={{ justifyContent: 'center', marginBottom: '16px' }}>
+          <button
+            type="button"
+            className="pc-tool"
+            onClick={() => handleBakeCanvas(true)}
+            disabled={isLoadingImage || isSaving}
+          >
             <svg viewBox="0 0 24 24">
               <path d="M4 9a8 8 0 1 1-1 5M4 4v5h5" />
             </svg>
             Putar
           </button>
-          <button type="button" className="pc-tool" onClick={() => bakeCanvas(false)}>
+          <button
+            type="button"
+            className="pc-tool"
+            onClick={() => handleBakeCanvas(false)}
+            disabled={isLoadingImage || isSaving}
+          >
             <svg viewBox="0 0 24 24">
               <path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z" />
             </svg>
@@ -777,16 +646,19 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
           </button>
         </div>
 
-        {/* Fine-Tuning Sliders: Zoom, Kiri-Kanan, Atas-Bawah */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
-          {/* Zoom Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '90px 32px 1fr 32px 48px', alignItems: 'center', gap: '8px' }}>
+        {/* Controls: Zoom, Kiri-Kanan, Atas-Bawah */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '11px', marginBottom: '18px' }}>
+          {/* Zoom Control */}
+          <div style={{ display: 'grid', gridTemplateColumns: '84px 30px 1fr 30px 46px', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pc-ink)' }}>Zoom</span>
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoom <= 1}
-              onClick={() => updateZoom(zoom - 0.1, true)}
+              disabled={zoomLevel <= 1.0 || isSaving}
+              onClick={() => {
+                setZoomLevel((prev) => Math.max(1.0, +(prev - 0.1).toFixed(2)));
+                flashGrid();
+              }}
               aria-label="Perkecil"
             >
               -
@@ -797,32 +669,42 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="100"
               max="300"
               step="1"
-              value={Math.round(zoom * 100)}
-              onChange={(e) => updateZoom(Number(e.target.value) / 100)}
+              value={Math.round(zoomLevel * 100)}
+              onChange={(e) => {
+                setZoomLevel(Number(e.target.value) / 100);
+                flashGrid();
+              }}
               aria-label="Pengatur Zoom"
+              disabled={isSaving}
             />
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoom >= 3}
-              onClick={() => updateZoom(zoom + 0.1, true)}
+              disabled={zoomLevel >= 3.0 || isSaving}
+              onClick={() => {
+                setZoomLevel((prev) => Math.min(3.0, +(prev + 0.1).toFixed(2)));
+                flashGrid();
+              }}
               aria-label="Perbesar"
             >
               +
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(zoom * 100)}%
+              {Math.round(zoomLevel * 100)}%
             </output>
           </div>
 
-          {/* Kiri-Kanan Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '90px 32px 1fr 32px 48px', alignItems: 'center', gap: '8px' }}>
+          {/* Kiri-Kanan Control */}
+          <div style={{ display: 'grid', gridTemplateColumns: '84px 30px 1fr 30px 46px', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pc-ink)' }}>Kiri–Kanan</span>
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={ox <= 1}
-              onClick={() => step(-STEP_PIXELS, 0)}
+              disabled={maxOffsetX <= 0 || isSaving}
+              onClick={() => {
+                setPanXPercentage((prev) => Math.max(0, prev - 5));
+                flashGrid();
+              }}
               aria-label="Geser kiri"
             >
               &lt;
@@ -832,33 +714,43 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               type="range"
               min="0"
               max="100"
-              disabled={ox <= 1}
-              value={percentX}
-              onChange={(e) => setPanPercentageX(Number(e.target.value))}
+              step="1"
+              disabled={maxOffsetX <= 0 || isSaving}
+              value={Math.round(panXPercentage)}
+              onChange={(e) => {
+                setPanXPercentage(Number(e.target.value));
+                flashGrid();
+              }}
               aria-label="Slider pan horizontal"
             />
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={ox <= 1}
-              onClick={() => step(STEP_PIXELS, 0)}
+              disabled={maxOffsetX <= 0 || isSaving}
+              onClick={() => {
+                setPanXPercentage((prev) => Math.min(100, prev + 5));
+                flashGrid();
+              }}
               aria-label="Geser kanan"
             >
               &gt;
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {percentX}%
+              {Math.round(panXPercentage)}%
             </output>
           </div>
 
-          {/* Atas-Bawah Row */}
-          <div style={{ display: 'grid', gridTemplateColumns: '90px 32px 1fr 32px 48px', alignItems: 'center', gap: '8px' }}>
+          {/* Atas-Bawah Control */}
+          <div style={{ display: 'grid', gridTemplateColumns: '84px 30px 1fr 30px 46px', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--pc-ink)' }}>Atas–Bawah</span>
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={oy <= 1}
-              onClick={() => step(0, -STEP_PIXELS)}
+              disabled={maxOffsetY <= 0 || isSaving}
+              onClick={() => {
+                setPanYPercentage((prev) => Math.max(0, prev - 5));
+                flashGrid();
+              }}
               aria-label="Geser atas"
             >
               ^
@@ -868,33 +760,41 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               type="range"
               min="0"
               max="100"
-              disabled={oy <= 1}
-              value={percentY}
-              onChange={(e) => setPanPercentageY(Number(e.target.value))}
+              step="1"
+              disabled={maxOffsetY <= 0 || isSaving}
+              value={Math.round(panYPercentage)}
+              onChange={(e) => {
+                setPanYPercentage(Number(e.target.value));
+                flashGrid();
+              }}
               aria-label="Slider pan vertikal"
             />
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={oy <= 1}
-              onClick={() => step(0, STEP_PIXELS)}
+              disabled={maxOffsetY <= 0 || isSaving}
+              onClick={() => {
+                setPanYPercentage((prev) => Math.min(100, prev + 5));
+                flashGrid();
+              }}
               aria-label="Geser bawah"
             >
               v
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {percentY}%
+              {Math.round(panYPercentage)}%
             </output>
           </div>
         </div>
 
-        {/* Bottom Actions with programmatic fileInputRef.current.click() */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {/* Action Buttons: Pilih Foto Baru, Reset, Simpan Foto */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           <button
             type="button"
             className="pc-b soft pc-full"
             style={{ cursor: 'pointer', width: '100%' }}
             onClick={() => fileInputRef.current?.click()}
+            disabled={isSaving}
           >
             <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
               <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
@@ -915,24 +815,28 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             }}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
             <button
               type="button"
               className="pc-b soft"
               onClick={() => {
-                loadImage(origSrc);
+                loadNewImageSrc(origSrc);
+                setZoomLevel(1.0);
+                setPanXPercentage(50);
+                setPanYPercentage(50);
                 flashGrid();
               }}
+              disabled={isSaving}
             >
               Reset
             </button>
             <button
               type="button"
-              className={`pc-b dark ${isUploading ? 'pc-load' : ''}`}
+              className={`pc-b dark ${isSaving ? 'pc-load' : ''}`}
               onClick={handleSave}
-              disabled={isUploading}
+              disabled={isSaving || isLoadingImage}
             >
-              <span>{isUploading ? 'Menyimpan...' : 'Simpan Foto'}</span>
+              <span>{isSaving ? 'Menyimpan...' : 'Simpan Foto'}</span>
               <i className="pc-spn" />
             </button>
           </div>
