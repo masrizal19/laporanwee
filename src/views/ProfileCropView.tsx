@@ -109,7 +109,11 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
   const loadImage = useCallback((srcUrl: string) => {
     setPreviewSrc(srcUrl);
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (typeof srcUrl === 'string' && (srcUrl.startsWith('http://') || srcUrl.startsWith('https://'))) {
+      img.crossOrigin = 'anonymous';
+    } else {
+      img.removeAttribute('crossOrigin');
+    }
     img.onload = () => {
       const w = img.naturalWidth || 480;
       const h = img.naturalHeight || 480;
