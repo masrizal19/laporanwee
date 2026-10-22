@@ -11,11 +11,11 @@ interface SettingProfilePictureModalProps {
   onError: (message: string) => void;
 }
 
-const STAGE_SIZE = 280; // Diameter lingkaran crop
-const OUTPUT_SIZE = 512; // Ukuran hasil simpan kanvas
+const STAGE_SIZE = 280; // Diameter lingkaran crop (px)
+const OUTPUT_SIZE = 512; // Ukuran hasil simpan kanvas (px)
 const CROP_API_ENDPOINT = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
 
-// Helper pembuat avatar inisial kanvas lokal aman tanpa isu CORS
+// Generator avatar inisial kanvas lokal aman tanpa isu CORS
 const createInitialsAvatar = (initialChar: string) => {
   if (typeof document === 'undefined') return '';
   const c = document.createElement('canvas');
@@ -52,20 +52,20 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   onSaved,
   onError,
 }) => {
-  // State Gambar
+  // State Sumber Gambar & Dimensi
   const [src, setSrc] = useState<string>('');
   const [origSrc, setOrigSrc] = useState<string>('');
   const [naturalW, setNaturalW] = useState<number>(0);
   const [naturalH, setNaturalH] = useState<number>(0);
 
-  // Parameter Transformasi: Zoom 1.0 - 3.0, Pan 0% - 100% (default 50% = tengah)
-  const [zoomLevel, setZoomLevel] = useState<number>(1.0);
-  const [panXPercentage, setPanXPercentage] = useState<number>(50);
-  const [panYPercentage, setPanYPercentage] = useState<number>(50);
+  // Parameter Slider: Zoom 1.0 - 3.0, PanX 0 - 100 (default 50), PanY 0 - 100 (default 50)
+  const [zoom, setZoom] = useState<number>(1.0);
+  const [panX, setPanX] = useState<number>(50);
+  const [panY, setPanY] = useState<number>(50);
 
-  // Status UI & Dragging
+  // Status Interaksi & Loading
   const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [isLoadingImage, setIsLoadingImage] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
@@ -76,42 +76,25 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const fileInputRef = useRef<HTMLInputElement>(null);
   const gridTimerRef = useRef<any>(null);
 
-  // Dragging Tracker Ref
-  const dragTrackerRef = useRef<{
+  // Dragging Tracker
+  const dragRef = useRef<{
     startX: number;
     startY: number;
     startPanX: number;
     startPanY: number;
-    maxOffsetX: number;
-    maxOffsetY: number;
     isDown: boolean;
   }>({
     startX: 0,
     startY: 0,
     startPanX: 50,
     startPanY: 50,
-    maxOffsetX: 0,
-    maxOffsetY: 0,
     isDown: false,
   });
 
-  // Skala dasar agar gambar selalu menutupi lingkaran penuh (cover fit) tanpa border kosong
+  // Skala dasar agar gambar menutupi penuh stage diameter 280px (cover fit)
   const baseScale = naturalW > 0 && naturalH > 0
     ? Math.max(STAGE_SIZE / naturalW, STAGE_SIZE / naturalH)
     : 1;
-
-  const currentScale = baseScale * zoomLevel;
-  const renderedW = naturalW * currentScale;
-  const renderedH = naturalH * currentScale;
-
-  // Batas maksimal geser agar gambar tidak keluar dari lingkaran
-  const maxOffsetX = Math.max(0, (renderedW - STAGE_SIZE) / 2);
-  const maxOffsetY = Math.max(0, (renderedH - STAGE_SIZE) / 2);
-
-  // Konversi nilai slider (0% - 100%) ke offset piksel:
-  // 50% = tengah (clamped = 0), 0% = kiri/atas penuh, 100% = kanan/bawah penuh
-  const clampedX = maxOffsetX > 0 ? ((panXPercentage - 50) / 50) * maxOffsetX : 0;
-  const clampedY = maxOffsetY > 0 ? ((panYPercentage - 50) / 50) * maxOffsetY : 0;
 
   // Efek kedip grid saat berinteraksi
   const flashGrid = useCallback(() => {
@@ -126,31 +109,38 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     }
   }, []);
 
-  // Memuat sumber gambar baru ke DOM dan inisialisasi dimensi
-  const loadNewImageSrc = useCallback((newUrl: string) => {
-    setIsLoadingImage(true);
+  // Memuat sumber gambar dengan kondisional crossOrigin yang aman (bebas error CORS)
+  const loadNewImageSrc = useCallback((srcUrl: string) => {
+    if (!srcUrl) return;
+    setIsLoading(true);
+
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    // Hanya pasang crossOrigin = 'anonymous' jika URL berasal dari protokol HTTP/HTTPS
+    if (typeof srcUrl === 'string' && (srcUrl.startsWith('http://') || srcUrl.startsWith('https://'))) {
+      img.crossOrigin = 'anonymous';
+    } else {
+      img.removeAttribute('crossOrigin');
+    }
+
     img.onload = () => {
       const nw = img.naturalWidth || 480;
       const nh = img.naturalHeight || 480;
       setNaturalW(nw);
       setNaturalH(nh);
-      setSrc(newUrl);
-      setZoomLevel(1.0);
-      setPanXPercentage(50);
-      setPanYPercentage(50);
-      setIsLoadingImage(false);
+      setSrc(srcUrl);
+      setIsLoading(false);
       flashGrid();
     };
+
     img.onerror = () => {
-      setIsLoadingImage(false);
+      setIsLoading(false);
       onError('Gagal memuat pratinjau foto');
     };
-    img.src = newUrl;
+
+    img.src = srcUrl;
   }, [flashGrid, onError]);
 
-  // Buka atau sinkronkan data saat modal dibuka
+  // Sinkronisasi data saat modal dibuka
   useEffect(() => {
     if (!isOpen) return;
 
@@ -162,8 +152,13 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
 
     document.documentElement.style.overflow = 'hidden';
 
+    // Reset slider ke posisi tengah
+    setZoom(1.0);
+    setPanX(50);
+    setPanY(50);
+
     const fetchInitialAvatar = async () => {
-      setIsLoadingImage(true);
+      setIsLoading(true);
       const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
       try {
         const res = await fetch(CROP_API_ENDPOINT, {
@@ -178,27 +173,14 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
         const fetchedUrl = u?.avatar_url || u?.avatar || u?.file_url;
         if (fetchedUrl && typeof fetchedUrl === 'string') {
           const cleanUrl = fetchedUrl.includes('?') ? fetchedUrl.split('?')[0] : fetchedUrl;
-          // Ambil gambar sebagai Blob lokal untuk mengamankan canvas dari CORS SecurityError
-          try {
-            const imgRes = await fetch(`${cleanUrl}?t=${Date.now()}`);
-            if (imgRes.ok) {
-              const b = await imgRes.blob();
-              const objectUrl = URL.createObjectURL(b);
-              setOrigSrc(objectUrl);
-              loadNewImageSrc(objectUrl);
-              return;
-            }
-          } catch (_) {
-            // Jika direct fetch blob gagal, gunakan URL langsung dengan timestamp
-            const busted = `${cleanUrl}?t=${Date.now()}`;
-            setOrigSrc(busted);
-            loadNewImageSrc(busted);
-            return;
-          }
+          const busted = `${cleanUrl}?t=${Date.now()}`;
+          setOrigSrc(busted);
+          loadNewImageSrc(busted);
+          return;
         }
       } catch (_) {}
 
-      // Fallback inisial jika belum ada di server
+      // Fallback awal jika belum ada foto di server
       const fallback = initialSrc || createInitialsAvatar(userName[0] || 'P');
       setOrigSrc(fallback);
       loadNewImageSrc(fallback);
@@ -221,7 +203,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     onClose();
   };
 
-  // Dragging Mouse / Pointer pada stage crop
+  // Dragging Mouse / Touch pada stage crop secara dinamis
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button > 0) return;
     const stage = e.currentTarget;
@@ -229,13 +211,11 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       stage.setPointerCapture(e.pointerId);
     } catch (_) {}
 
-    dragTrackerRef.current = {
+    dragRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startPanX: panXPercentage,
-      startPanY: panYPercentage,
-      maxOffsetX,
-      maxOffsetY,
+      startPanX: panX,
+      startPanY: panY,
       isDown: true,
     };
     setIsDragging(true);
@@ -243,30 +223,23 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!dragTrackerRef.current.isDown) return;
-    const { startX, startY, startPanX, startPanY, maxOffsetX: mX, maxOffsetY: mY } = dragTrackerRef.current;
+    if (!dragRef.current.isDown) return;
+    const { startX, startY, startPanX, startPanY } = dragRef.current;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
 
-    if (mX > 0) {
-      // delta panX dalam persen: dx piksel sebanding dengan ((panX - 50)/50) * mX
-      const deltaPercentX = (dx / mX) * 50;
-      const nextX = Math.min(100, Math.max(0, startPanX + deltaPercentX));
-      setPanXPercentage(nextX);
-    }
-
-    if (mY > 0) {
-      const deltaPercentY = (dy / mY) * 50;
-      const nextY = Math.min(100, Math.max(0, startPanY + deltaPercentY));
-      setPanYPercentage(nextY);
-    }
+    // Setiap 2px geser pointer = 1 persen slider
+    const nextX = Math.min(100, Math.max(0, startPanX + dx / 2));
+    const nextY = Math.min(100, Math.max(0, startPanY + dy / 2));
+    setPanX(nextX);
+    setPanY(nextY);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
     } catch (_) {}
-    dragTrackerRef.current.isDown = false;
+    dragRef.current.isDown = false;
     setIsDragging(false);
   };
 
@@ -274,7 +247,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
     const delta = e.deltaY < 0 ? 0.08 : -0.08;
-    setZoomLevel((prev) => Math.min(3.0, Math.max(1.0, +(prev + delta).toFixed(2))));
+    setZoom((prev) => Math.min(3.0, Math.max(1.0, +(prev + delta).toFixed(2))));
     flashGrid();
   };
 
@@ -298,12 +271,15 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     g.drawImage(img, -naturalW / 2, -naturalH / 2);
 
     const bakedUrl = c.toDataURL('image/jpeg', 0.95);
+    setOrigSrc(bakedUrl);
     loadNewImageSrc(bakedUrl);
   };
 
-  // Baca file gambar baru dari file picker atau drag-and-drop
-  const handleReadFile = (file: File | null | undefined) => {
+  // Pemilih foto baru via FileReader: Data URL bebas CORS
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
+
     if (!file.type || !file.type.startsWith('image/')) {
       onError('File harus berupa gambar');
       return;
@@ -313,22 +289,52 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       return;
     }
 
-    setIsLoadingImage(true);
+    setIsLoading(true);
     const reader = new FileReader();
     reader.onerror = () => {
-      setIsLoadingImage(false);
+      setIsLoading(false);
       onError('Gagal membaca file gambar');
     };
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setOrigSrc(reader.result);
-        loadNewImageSrc(reader.result);
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === 'string') {
+        setIsLoading(false);
+        setOrigSrc(result);
+        loadNewImageSrc(result);
+        // Reset slider ke posisi tengah
+        setZoom(1.0);
+        setPanX(50);
+        setPanY(50);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Drop handler
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (!file) return;
+
+    setIsLoading(true);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === 'string') {
+        setIsLoading(false);
+        setOrigSrc(result);
+        loadNewImageSrc(result);
+        setZoom(1.0);
+        setPanX(50);
+        setPanY(50);
       }
     };
     reader.readAsDataURL(file);
   };
 
-  // EKSEKUSI SIMPAN FOTO (PRECISE 512x512 CROP EXPORT)
+  // EKSEKUSI SIMPAN FOTO (512x512 Canvas Export & POST FormData)
   const handleSave = async () => {
     if (isSaving) return;
     setIsSaving(true);
@@ -336,7 +342,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     try {
       let imgElement: HTMLImageElement | null = imgRef.current;
 
-      // Fallback jika elemen img belum ter-render
       if (!imgElement || !naturalW || !naturalH) {
         if (!src) {
           onError('Belum ada foto untuk disimpan');
@@ -344,7 +349,11 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
           return;
         }
         const tempImg = new Image();
-        tempImg.crossOrigin = 'anonymous';
+        if (typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'))) {
+          tempImg.crossOrigin = 'anonymous';
+        } else {
+          tempImg.removeAttribute('crossOrigin');
+        }
         await new Promise<void>((resolve, reject) => {
           tempImg.onload = () => resolve();
           tempImg.onerror = () => reject(new Error('Gagal memuat elemen gambar'));
@@ -353,43 +362,35 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
         imgElement = tempImg;
       }
 
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = OUTPUT_SIZE;
-      exportCanvas.height = OUTPUT_SIZE;
-      const ctx = exportCanvas.getContext('2d');
+      // Buat canvas 512x512
+      const canvas = document.createElement('canvas');
+      canvas.width = OUTPUT_SIZE;
+      canvas.height = OUTPUT_SIZE;
+      const ctx = canvas.getContext('2d');
       if (!ctx) {
         setIsSaving(false);
         onError('Gagal menyiapkan kanvas gambar');
         return;
       }
 
-      // Hitung rasio terhadap gambar asli
-      const ratioToNatural = 1 / currentScale;
-      const cropSizeOnNatural = STAGE_SIZE * ratioToNatural;
-
-      // Titik potong awal pada dimensi asli gambar
-      const sourceX = (naturalW - cropSizeOnNatural) / 2 - (clampedX * ratioToNatural);
-      const sourceY = (naturalH - cropSizeOnNatural) / 2 - (clampedY * ratioToNatural);
-
-      // Bersihkan latar dengan warna putih
+      // Gambar latar putih bersih
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
 
-      // Draw potongan gambar secara presisi tanpa distorsi
-      ctx.drawImage(
-        imgElement,
-        Math.max(0, sourceX),
-        Math.max(0, sourceY),
-        Math.min(naturalW, cropSizeOnNatural),
-        Math.min(naturalH, cropSizeOnNatural),
-        0,
-        0,
-        OUTPUT_SIZE,
-        OUTPUT_SIZE
+      // Hitung koordinat crop dan gambar ke canvas secara presisi:
+      // Rasio skala dari stage (280px) ke canvas simpan (512px)
+      const s = OUTPUT_SIZE / STAGE_SIZE;
+      ctx.save();
+      // Pusat kanvas (256, 256) ditambah pergeseran slider
+      ctx.translate(
+        OUTPUT_SIZE / 2 + (panX - 50) * 2 * s,
+        OUTPUT_SIZE / 2 + (panY - 50) * 2 * s
       );
+      ctx.scale(zoom * s * baseScale, zoom * s * baseScale);
+      ctx.drawImage(imgElement, -naturalW / 2, -naturalH / 2);
+      ctx.restore();
 
-      // Konversi exportCanvas ke Blob JPEG kualitas 0.92
-      exportCanvas.toBlob(
+      canvas.toBlob(
         async (blob) => {
           if (!blob) {
             setIsSaving(false);
@@ -420,7 +421,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               const cleanUrl = rawAvatar ? rawAvatar.split('?')[0] : '';
               const finalUrl = cleanUrl
                 ? (cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`)
-                : exportCanvas.toDataURL('image/jpeg', 0.92);
+                : canvas.toDataURL('image/jpeg', 0.92);
 
               // Update DOM avatar seketika agar tidak ada jeda visual
               const mainAvatars = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
@@ -435,7 +436,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               onError(json?.message || 'Gagal menyimpan foto.');
             }
           } catch (err) {
-            onError('Terjadi gangguan koneksi saat menyimpan foto.');
+            onError('Gagal terhubung ke server backend.');
           } finally {
             setIsSaving(false);
           }
@@ -456,8 +457,16 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const ratioM = 44 / STAGE_SIZE;
   const ratioS = 28 / STAGE_SIZE;
 
-  const baseTranslateX = (STAGE_SIZE - renderedW) / 2 + clampedX;
-  const baseTranslateY = (STAGE_SIZE - renderedH) / 2 + clampedY;
+  // Dimensi dasar render cover-fit
+  const baseW = naturalW * baseScale;
+  const baseH = naturalH * baseScale;
+
+  // Transform dinamis real-time tanpa bounding kaku
+  // translateX((panX - 50) * 2px) translateY((panY - 50) * 2px) scale(zoom)
+  const shiftX = (panX - 50) * 2;
+  const shiftY = (panY - 50) * 2;
+
+  const isHttpUrl = typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'));
 
   return createPortal(
     <div
@@ -510,13 +519,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               e.preventDefault();
               setIsDragOver(false);
             }}
-            onDrop={(e) => {
-              e.preventDefault();
-              setIsDragOver(false);
-              if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                handleReadFile(e.dataTransfer.files[0]);
-              }
-            }}
+            onDrop={handleDrop}
           >
             {src && (
               <img
@@ -524,13 +527,17 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 src={src}
                 alt="Pratinjau Crop"
                 draggable={false}
-                crossOrigin="anonymous"
+                crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                 style={{
-                  width: `${renderedW}px`,
-                  height: `${renderedH}px`,
-                  transform: `translate(${baseTranslateX}px, ${baseTranslateY}px)`,
-                  transformOrigin: 'top left',
+                  width: `${baseW}px`,
+                  height: `${baseH}px`,
                   position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: `translate(calc(-50% + ${shiftX}px), calc(-50% + ${shiftY}px)) scale(${zoom})`,
+                  transformOrigin: 'center center',
+                  userSelect: 'none',
+                  pointerEvents: 'none',
                 }}
               />
             )}
@@ -539,8 +546,8 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <div className="pc-tip">Seret untuk menggeser</div>
             <div className="pc-dropmsg">Lepas foto di sini</div>
 
-            {/* Spinner saat memuat foto awal / rotasi */}
-            {isLoadingImage && (
+            {/* Spinner saat memuat foto */}
+            {isLoading && (
               <div
                 style={{
                   position: 'absolute',
@@ -576,12 +583,17 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 <img
                   src={src}
                   alt=""
+                  crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                   style={{
-                    width: `${renderedW * ratioL}px`,
-                    height: `${renderedH * ratioL}px`,
-                    transform: `translate(${baseTranslateX * ratioL}px, ${baseTranslateY * ratioL}px)`,
-                    transformOrigin: 'top left',
+                    width: `${baseW * ratioL}px`,
+                    height: `${baseH * ratioL}px`,
                     position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(calc(-50% + ${shiftX * ratioL}px), calc(-50% + ${shiftY * ratioL}px)) scale(${zoom})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
                   }}
                 />
               )}
@@ -591,12 +603,17 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 <img
                   src={src}
                   alt=""
+                  crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                   style={{
-                    width: `${renderedW * ratioM}px`,
-                    height: `${renderedH * ratioM}px`,
-                    transform: `translate(${baseTranslateX * ratioM}px, ${baseTranslateY * ratioM}px)`,
-                    transformOrigin: 'top left',
+                    width: `${baseW * ratioM}px`,
+                    height: `${baseH * ratioM}px`,
                     position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(calc(-50% + ${shiftX * ratioM}px), calc(-50% + ${shiftY * ratioM}px)) scale(${zoom})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
                   }}
                 />
               )}
@@ -606,12 +623,17 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 <img
                   src={src}
                   alt=""
+                  crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                   style={{
-                    width: `${renderedW * ratioS}px`,
-                    height: `${renderedH * ratioS}px`,
-                    transform: `translate(${baseTranslateX * ratioS}px, ${baseTranslateY * ratioS}px)`,
-                    transformOrigin: 'top left',
+                    width: `${baseW * ratioS}px`,
+                    height: `${baseH * ratioS}px`,
                     position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(calc(-50% + ${shiftX * ratioS}px), calc(-50% + ${shiftY * ratioS}px)) scale(${zoom})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
                   }}
                 />
               )}
@@ -626,7 +648,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             type="button"
             className="pc-tool"
             onClick={() => handleBakeCanvas(true)}
-            disabled={isLoadingImage || isSaving}
+            disabled={isLoading || isSaving}
           >
             <svg viewBox="0 0 24 24">
               <path d="M4 9a8 8 0 1 1-1 5M4 4v5h5" />
@@ -637,7 +659,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             type="button"
             className="pc-tool"
             onClick={() => handleBakeCanvas(false)}
-            disabled={isLoadingImage || isSaving}
+            disabled={isLoading || isSaving}
           >
             <svg viewBox="0 0 24 24">
               <path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z" />
@@ -646,7 +668,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
           </button>
         </div>
 
-        {/* Controls: Zoom, Kiri-Kanan, Atas-Bawah */}
+        {/* Controls: Zoom, Kiri-Kanan, Atas-Bawah (Semua Unlocked & Bergerak Real-Time) */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '11px', marginBottom: '18px' }}>
           {/* Zoom Control */}
           <div style={{ display: 'grid', gridTemplateColumns: '84px 30px 1fr 30px 46px', alignItems: 'center', gap: '8px' }}>
@@ -654,9 +676,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoomLevel <= 1.0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
-                setZoomLevel((prev) => Math.max(1.0, +(prev - 0.1).toFixed(2)));
+                setZoom((prev) => Math.max(1.0, +(prev - 0.1).toFixed(2)));
                 flashGrid();
               }}
               aria-label="Perkecil"
@@ -669,9 +691,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="100"
               max="300"
               step="1"
-              value={Math.round(zoomLevel * 100)}
+              value={Math.round(zoom * 100)}
               onChange={(e) => {
-                setZoomLevel(Number(e.target.value) / 100);
+                setZoom(Number(e.target.value) / 100);
                 flashGrid();
               }}
               aria-label="Pengatur Zoom"
@@ -680,9 +702,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoomLevel >= 3.0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
-                setZoomLevel((prev) => Math.min(3.0, +(prev + 0.1).toFixed(2)));
+                setZoom((prev) => Math.min(3.0, +(prev + 0.1).toFixed(2)));
                 flashGrid();
               }}
               aria-label="Perbesar"
@@ -690,7 +712,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               +
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(zoomLevel * 100)}%
+              {Math.round(zoom * 100)}%
             </output>
           </div>
 
@@ -700,9 +722,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetX <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
-                setPanXPercentage((prev) => Math.max(0, prev - 5));
+                setPanX((prev) => Math.max(0, prev - 5));
                 flashGrid();
               }}
               aria-label="Geser kiri"
@@ -715,10 +737,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="0"
               max="100"
               step="1"
-              disabled={maxOffsetX <= 0 || isSaving}
-              value={Math.round(panXPercentage)}
+              disabled={isSaving}
+              value={Math.round(panX)}
               onChange={(e) => {
-                setPanXPercentage(Number(e.target.value));
+                setPanX(Number(e.target.value));
                 flashGrid();
               }}
               aria-label="Slider pan horizontal"
@@ -726,9 +748,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetX <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
-                setPanXPercentage((prev) => Math.min(100, prev + 5));
+                setPanX((prev) => Math.min(100, prev + 5));
                 flashGrid();
               }}
               aria-label="Geser kanan"
@@ -736,7 +758,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               &gt;
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(panXPercentage)}%
+              {Math.round(panX)}%
             </output>
           </div>
 
@@ -746,9 +768,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetY <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
-                setPanYPercentage((prev) => Math.max(0, prev - 5));
+                setPanY((prev) => Math.max(0, prev - 5));
                 flashGrid();
               }}
               aria-label="Geser atas"
@@ -761,10 +783,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="0"
               max="100"
               step="1"
-              disabled={maxOffsetY <= 0 || isSaving}
-              value={Math.round(panYPercentage)}
+              disabled={isSaving}
+              value={Math.round(panY)}
               onChange={(e) => {
-                setPanYPercentage(Number(e.target.value));
+                setPanY(Number(e.target.value));
                 flashGrid();
               }}
               aria-label="Slider pan vertikal"
@@ -772,9 +794,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetY <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
-                setPanYPercentage((prev) => Math.min(100, prev + 5));
+                setPanY((prev) => Math.min(100, prev + 5));
                 flashGrid();
               }}
               aria-label="Geser bawah"
@@ -782,7 +804,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               v
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(panYPercentage)}%
+              {Math.round(panY)}%
             </output>
           </div>
         </div>
@@ -806,13 +828,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             type="file"
             accept="image/*"
             style={{ display: 'none' }}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) {
-                handleReadFile(file);
-                e.target.value = '';
-              }
-            }}
+            onChange={handleFileChange}
           />
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -820,10 +836,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               type="button"
               className="pc-b soft"
               onClick={() => {
-                loadNewImageSrc(origSrc);
-                setZoomLevel(1.0);
-                setPanXPercentage(50);
-                setPanYPercentage(50);
+                if (origSrc) loadNewImageSrc(origSrc);
+                setZoom(1.0);
+                setPanX(50);
+                setPanY(50);
                 flashGrid();
               }}
               disabled={isSaving}
@@ -834,7 +850,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               type="button"
               className={`pc-b dark ${isSaving ? 'pc-load' : ''}`}
               onClick={handleSave}
-              disabled={isSaving || isLoadingImage}
+              disabled={isSaving || isLoading}
             >
               <span>{isSaving ? 'Menyimpan...' : 'Simpan Foto'}</span>
               <i className="pc-spn" />

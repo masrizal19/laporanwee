@@ -46,32 +46,18 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     startY: number;
     startPanX: number;
     startPanY: number;
-    maxOffsetX: number;
-    maxOffsetY: number;
     isDown: boolean;
   }>({
     startX: 0,
     startY: 0,
     startPanX: 50,
     startPanY: 50,
-    maxOffsetX: 0,
-    maxOffsetY: 0,
     isDown: false,
   });
 
   const baseScale = naturalW > 0 && naturalH > 0
     ? Math.max(STAGE_SIZE / naturalW, STAGE_SIZE / naturalH)
     : 1;
-
-  const currentScale = baseScale * zoomLevel;
-  const renderedW = naturalW * currentScale;
-  const renderedH = naturalH * currentScale;
-
-  const maxOffsetX = Math.max(0, (renderedW - STAGE_SIZE) / 2);
-  const maxOffsetY = Math.max(0, (renderedH - STAGE_SIZE) / 2);
-
-  const clampedX = maxOffsetX > 0 ? ((panXPercentage - 50) / 50) * maxOffsetX : 0;
-  const clampedY = maxOffsetY > 0 ? ((panYPercentage - 50) / 50) * maxOffsetY : 0;
 
   const flashGrid = useCallback(() => {
     setHasInteracted(true);
@@ -85,19 +71,22 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     }
   }, []);
 
+  // Memuat gambar dengan pengamanan CORS: jangan pasang crossOrigin pada data: atau blob:
   const loadNewImageSrc = useCallback((newUrl: string) => {
+    if (!newUrl) return;
     setIsLoadingImage(true);
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (typeof newUrl === 'string' && (newUrl.startsWith('http://') || newUrl.startsWith('https://'))) {
+      img.crossOrigin = 'anonymous';
+    } else {
+      img.removeAttribute('crossOrigin');
+    }
     img.onload = () => {
       const nw = img.naturalWidth || 480;
       const nh = img.naturalHeight || 480;
       setNaturalW(nw);
       setNaturalH(nh);
       setSrc(newUrl);
-      setZoomLevel(1.0);
-      setPanXPercentage(50);
-      setPanYPercentage(50);
       setIsLoadingImage(false);
       flashGrid();
     };
@@ -119,6 +108,10 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
 
     document.documentElement.style.overflow = 'hidden';
 
+    setZoomLevel(1.0);
+    setPanXPercentage(50);
+    setPanYPercentage(50);
+
     const fetchInitial = async () => {
       setIsLoadingImage(true);
       const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
@@ -135,21 +128,10 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
         const fetchedUrl = u?.avatar_url || u?.avatar || u?.file_url;
         if (fetchedUrl && typeof fetchedUrl === 'string') {
           const cleanUrl = fetchedUrl.includes('?') ? fetchedUrl.split('?')[0] : fetchedUrl;
-          try {
-            const imgRes = await fetch(`${cleanUrl}?t=${Date.now()}`);
-            if (imgRes.ok) {
-              const b = await imgRes.blob();
-              const objectUrl = URL.createObjectURL(b);
-              setOrigSrc(objectUrl);
-              loadNewImageSrc(objectUrl);
-              return;
-            }
-          } catch (_) {
-            const busted = `${cleanUrl}?t=${Date.now()}`;
-            setOrigSrc(busted);
-            loadNewImageSrc(busted);
-            return;
-          }
+          const busted = `${cleanUrl}?t=${Date.now()}`;
+          setOrigSrc(busted);
+          loadNewImageSrc(busted);
+          return;
         }
       } catch (_) {}
 
@@ -188,8 +170,6 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
       startY: e.clientY,
       startPanX: panXPercentage,
       startPanY: panYPercentage,
-      maxOffsetX,
-      maxOffsetY,
       isDown: true,
     };
     setIsDragging(true);
@@ -198,21 +178,14 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!dragTrackerRef.current.isDown) return;
-    const { startX, startY, startPanX, startPanY, maxOffsetX: mX, maxOffsetY: mY } = dragTrackerRef.current;
+    const { startX, startY, startPanX, startPanY } = dragTrackerRef.current;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
 
-    if (mX > 0) {
-      const deltaPercentX = (dx / mX) * 50;
-      const nextX = Math.min(100, Math.max(0, startPanX + deltaPercentX));
-      setPanXPercentage(nextX);
-    }
-
-    if (mY > 0) {
-      const deltaPercentY = (dy / mY) * 50;
-      const nextY = Math.min(100, Math.max(0, startPanY + deltaPercentY));
-      setPanYPercentage(nextY);
-    }
+    const nextX = Math.min(100, Math.max(0, startPanX + dx / 2));
+    const nextY = Math.min(100, Math.max(0, startPanY + dy / 2));
+    setPanXPercentage(nextX);
+    setPanYPercentage(nextY);
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -249,6 +222,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     g.drawImage(img, -naturalW / 2, -naturalH / 2);
 
     const bakedUrl = c.toDataURL('image/jpeg', 0.95);
+    setOrigSrc(bakedUrl);
     loadNewImageSrc(bakedUrl);
   };
 
@@ -269,10 +243,15 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
       setIsLoadingImage(false);
       onError('Gagal membaca file gambar');
     };
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setOrigSrc(reader.result);
-        loadNewImageSrc(reader.result);
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === 'string') {
+        setIsLoadingImage(false);
+        setOrigSrc(result);
+        loadNewImageSrc(result);
+        setZoomLevel(1.0);
+        setPanXPercentage(50);
+        setPanYPercentage(50);
       }
     };
     reader.readAsDataURL(file);
@@ -292,7 +271,11 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
           return;
         }
         const tempImg = new Image();
-        tempImg.crossOrigin = 'anonymous';
+        if (typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'))) {
+          tempImg.crossOrigin = 'anonymous';
+        } else {
+          tempImg.removeAttribute('crossOrigin');
+        }
         await new Promise<void>((resolve, reject) => {
           tempImg.onload = () => resolve();
           tempImg.onerror = () => reject(new Error('Gagal memuat elemen gambar'));
@@ -301,38 +284,30 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
         imgElement = tempImg;
       }
 
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = OUTPUT_SIZE;
-      exportCanvas.height = OUTPUT_SIZE;
-      const ctx = exportCanvas.getContext('2d');
+      const canvas = document.createElement('canvas');
+      canvas.width = OUTPUT_SIZE;
+      canvas.height = OUTPUT_SIZE;
+      const ctx = canvas.getContext('2d');
       if (!ctx) {
         setIsSaving(false);
         onError('Gagal menyiapkan kanvas gambar');
         return;
       }
 
-      const ratioToNatural = 1 / currentScale;
-      const cropSizeOnNatural = STAGE_SIZE * ratioToNatural;
-
-      const sourceX = (naturalW - cropSizeOnNatural) / 2 - (clampedX * ratioToNatural);
-      const sourceY = (naturalH - cropSizeOnNatural) / 2 - (clampedY * ratioToNatural);
-
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
 
-      ctx.drawImage(
-        imgElement,
-        Math.max(0, sourceX),
-        Math.max(0, sourceY),
-        Math.min(naturalW, cropSizeOnNatural),
-        Math.min(naturalH, cropSizeOnNatural),
-        0,
-        0,
-        OUTPUT_SIZE,
-        OUTPUT_SIZE
+      const s = OUTPUT_SIZE / STAGE_SIZE;
+      ctx.save();
+      ctx.translate(
+        OUTPUT_SIZE / 2 + (panXPercentage - 50) * 2 * s,
+        OUTPUT_SIZE / 2 + (panYPercentage - 50) * 2 * s
       );
+      ctx.scale(zoomLevel * s * baseScale, zoomLevel * s * baseScale);
+      ctx.drawImage(imgElement, -naturalW / 2, -naturalH / 2);
+      ctx.restore();
 
-      exportCanvas.toBlob(
+      canvas.toBlob(
         async (blob) => {
           if (!blob) {
             setIsSaving(false);
@@ -363,7 +338,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
               const cleanUrl = rawAvatar ? rawAvatar.split('?')[0] : '';
               const finalUrl = cleanUrl
                 ? (cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`)
-                : exportCanvas.toDataURL('image/jpeg', 0.92);
+                : canvas.toDataURL('image/jpeg', 0.92);
 
               const mainAvatars = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
               mainAvatars.forEach((el) => {
@@ -397,8 +372,11 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
   const ratioM = 44 / STAGE_SIZE;
   const ratioS = 28 / STAGE_SIZE;
 
-  const baseTranslateX = (STAGE_SIZE - renderedW) / 2 + clampedX;
-  const baseTranslateY = (STAGE_SIZE - renderedH) / 2 + clampedY;
+  const baseW = naturalW * baseScale;
+  const baseH = naturalH * baseScale;
+  const shiftX = (panXPercentage - 50) * 2;
+  const shiftY = (panYPercentage - 50) * 2;
+  const isHttpUrl = typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'));
 
   return createPortal(
     <div
@@ -464,13 +442,17 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 src={src}
                 alt="Pratinjau Crop"
                 draggable={false}
-                crossOrigin="anonymous"
+                crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                 style={{
-                  width: `${renderedW}px`,
-                  height: `${renderedH}px`,
-                  transform: `translate(${baseTranslateX}px, ${baseTranslateY}px)`,
-                  transformOrigin: 'top left',
+                  width: `${baseW}px`,
+                  height: `${baseH}px`,
                   position: 'absolute',
+                  left: '50%',
+                  top: '50%',
+                  transform: `translate(calc(-50% + ${shiftX}px), calc(-50% + ${shiftY}px)) scale(${zoomLevel})`,
+                  transformOrigin: 'center center',
+                  userSelect: 'none',
+                  pointerEvents: 'none',
                 }}
               />
             )}
@@ -514,12 +496,17 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <img
                   src={src}
                   alt=""
+                  crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                   style={{
-                    width: `${renderedW * ratioL}px`,
-                    height: `${renderedH * ratioL}px`,
-                    transform: `translate(${baseTranslateX * ratioL}px, ${baseTranslateY * ratioL}px)`,
-                    transformOrigin: 'top left',
+                    width: `${baseW * ratioL}px`,
+                    height: `${baseH * ratioL}px`,
                     position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(calc(-50% + ${shiftX * ratioL}px), calc(-50% + ${shiftY * ratioL}px)) scale(${zoomLevel})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
                   }}
                 />
               )}
@@ -529,12 +516,17 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <img
                   src={src}
                   alt=""
+                  crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                   style={{
-                    width: `${renderedW * ratioM}px`,
-                    height: `${renderedH * ratioM}px`,
-                    transform: `translate(${baseTranslateX * ratioM}px, ${baseTranslateY * ratioM}px)`,
-                    transformOrigin: 'top left',
+                    width: `${baseW * ratioM}px`,
+                    height: `${baseH * ratioM}px`,
                     position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(calc(-50% + ${shiftX * ratioM}px), calc(-50% + ${shiftY * ratioM}px)) scale(${zoomLevel})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
                   }}
                 />
               )}
@@ -544,12 +536,17 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 <img
                   src={src}
                   alt=""
+                  crossOrigin={isHttpUrl ? 'anonymous' : undefined}
                   style={{
-                    width: `${renderedW * ratioS}px`,
-                    height: `${renderedH * ratioS}px`,
-                    transform: `translate(${baseTranslateX * ratioS}px, ${baseTranslateY * ratioS}px)`,
-                    transformOrigin: 'top left',
+                    width: `${baseW * ratioS}px`,
+                    height: `${baseH * ratioS}px`,
                     position: 'absolute',
+                    left: '50%',
+                    top: '50%',
+                    transform: `translate(calc(-50% + ${shiftX * ratioS}px), calc(-50% + ${shiftY * ratioS}px)) scale(${zoomLevel})`,
+                    transformOrigin: 'center center',
+                    userSelect: 'none',
+                    pointerEvents: 'none',
                   }}
                 />
               )}
@@ -589,7 +586,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoomLevel <= 1.0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
                 setZoomLevel((prev) => Math.max(1.0, +(prev - 0.1).toFixed(2)));
                 flashGrid();
@@ -615,7 +612,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoomLevel >= 3.0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
                 setZoomLevel((prev) => Math.min(3.0, +(prev + 0.1).toFixed(2)));
                 flashGrid();
@@ -634,7 +631,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetX <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
                 setPanXPercentage((prev) => Math.max(0, prev - 5));
                 flashGrid();
@@ -649,7 +646,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
               min="0"
               max="100"
               step="1"
-              disabled={maxOffsetX <= 0 || isSaving}
+              disabled={isSaving}
               value={Math.round(panXPercentage)}
               onChange={(e) => {
                 setPanXPercentage(Number(e.target.value));
@@ -660,7 +657,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetX <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
                 setPanXPercentage((prev) => Math.min(100, prev + 5));
                 flashGrid();
@@ -679,7 +676,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetY <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
                 setPanYPercentage((prev) => Math.max(0, prev - 5));
                 flashGrid();
@@ -694,7 +691,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
               min="0"
               max="100"
               step="1"
-              disabled={maxOffsetY <= 0 || isSaving}
+              disabled={isSaving}
               value={Math.round(panYPercentage)}
               onChange={(e) => {
                 setPanYPercentage(Number(e.target.value));
@@ -705,7 +702,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetY <= 0 || isSaving}
+              disabled={isSaving}
               onClick={() => {
                 setPanYPercentage((prev) => Math.min(100, prev + 5));
                 flashGrid();
