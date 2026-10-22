@@ -254,15 +254,10 @@ export function App() {
       '/ui-settings',
       '/profil',
       '/profile',
-      '/profil/crop',
-      '/profil/ubahfoto',
       '/profil/user',
     ];
     if (hashPart && hashPart.startsWith('/profil/user')) {
       return '/profil/user';
-    }
-    if (hashPart && hashPart.includes('/profil/ubahfoto')) {
-      return '/profil/ubahfoto';
     }
     if (validPaths.includes(hashPart)) {
       return hashPart;
@@ -270,9 +265,6 @@ export function App() {
     const path = window.location.pathname.split('?')[0];
     if (path.startsWith('/profil/user')) {
       return '/profil/user';
-    }
-    if (path.includes('/profil/ubahfoto')) {
-      return '/profil/ubahfoto';
     }
     const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
@@ -430,7 +422,7 @@ export function App() {
     '/social-media': 'social-media',
     '/profil': 'profil',
     '/profile': 'profil',
-    '/profil/crop': 'profile-crop',
+    '/profil/crop': 'profil',
     '/profil/ubahfoto': 'profil',
     '/profil/user': 'user-profile',
   };
@@ -447,7 +439,7 @@ export function App() {
     'create-report': '/laporan',
     'profile': '/profil',
     'profil': '/profil',
-    'profile-crop': '/profil/crop',
+    'profile-crop': '/profil',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
     'social-media': '/sosial-media',
