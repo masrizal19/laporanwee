@@ -432,11 +432,12 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       {/* MODAL CROP SETTING FOTO PROFIL */}
       <SettingProfilePictureModal
         isOpen={isCropOpen}
+        currentAvatarUrl={avatarUrl}
         initialSrc={avatarUrl}
         userName={name}
         userEmail={email}
         onClose={closeCropModal}
-        onSaved={(newAvatar) => {
+        onSuccess={(newAvatar) => {
           const freshAvatar = newAvatar.includes('?') ? newAvatar : `${newAvatar}?t=${Date.now()}`;
           setAvatarUrl(freshAvatar);
 
@@ -472,6 +473,10 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           );
 
           onAddToast('Foto profil berhasil diperbarui');
+        }}
+        onSaved={(newAvatar) => {
+          const freshAvatar = newAvatar.includes('?') ? newAvatar : `${newAvatar}?t=${Date.now()}`;
+          setAvatarUrl(freshAvatar);
         }}
         onError={(msg) => onAddToast(msg)}
       />

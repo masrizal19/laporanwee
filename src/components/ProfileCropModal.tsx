@@ -3,9 +3,11 @@ import { createPortal } from 'react-dom';
 
 interface ProfileCropModalProps {
   isOpen: boolean;
+  currentAvatarUrl?: string | null;
   initialSrc?: string;
   profileId?: number | string;
   onClose: () => void;
+  onSuccess?: (avatarUrl: string) => void;
   onSaved: (avatarUrl: string) => void;
   onError?: (message: string) => void;
 }
@@ -14,8 +16,10 @@ const CROP_SETTING_API = 'https://api-laporanwe.mkverse.my.id/api/profile/settin
 
 export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
   isOpen,
+  currentAvatarUrl,
   initialSrc = '',
   onClose,
+  onSuccess,
   onSaved,
   onError,
 }) => {
@@ -78,53 +82,14 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     setPanY(50);
     setImageError(false);
 
-    if (initialSrc) {
-      setImageSrc(initialSrc);
-      setOrigSrc(initialSrc);
-      loadImage(initialSrc);
+    // Utamakan foto profil aktif yang dikirim dari props
+    const activePhoto = (currentAvatarUrl || initialSrc || '').trim();
+    if (activePhoto) {
+      setImageSrc(activePhoto);
+      setOrigSrc(activePhoto);
+      loadImage(activePhoto);
     }
-
-    const fetchServerAvatar = async () => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-      try {
-        const res = await fetch(CROP_SETTING_API, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-          },
-        });
-        const json = await res.json();
-        const u = json.data || json.user || json;
-        const fetchedAvatar = u?.avatar_url || u?.avatar || u?.file_url;
-
-        if (fetchedAvatar && typeof fetchedAvatar === 'string') {
-          const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
-          const freshUrl = cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`;
-
-          try {
-            const imgRes = await fetch(freshUrl, { mode: 'cors' });
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const blobUrl = URL.createObjectURL(blob);
-              setOrigSrc(blobUrl);
-              loadImage(blobUrl);
-              return;
-            }
-          } catch (_) {}
-
-          setOrigSrc(freshUrl);
-          loadImage(freshUrl);
-        }
-      } catch (_) {}
-    };
-
-    fetchServerAvatar();
-
-    return () => {
-      document.documentElement.style.overflow = '';
-    };
-  }, [isOpen, initialSrc, loadImage]);
+  }, [isOpen, currentAvatarUrl, initialSrc, loadImage]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button > 0) return;
@@ -277,6 +242,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
               (el as HTMLImageElement).style.display = 'block';
             });
 
+            onSuccess?.(finalUrl);
             onSaved(finalUrl);
             onClose();
           } else {

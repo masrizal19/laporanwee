@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 
-interface SettingProfilePictureModalProps {
+export interface SettingProfilePictureModalProps {
   isOpen: boolean;
+  currentAvatarUrl?: string | null;
   initialSrc?: string | null;
   userName?: string;
   userEmail?: string;
   onClose: () => void;
-  onSaved: (newAvatarUrl: string) => void;
-  onError: (message: string) => void;
+  onSuccess?: (newAvatarUrl: string) => void;
+  onSaved?: (newAvatarUrl: string) => void;
+  onError?: (message: string) => void;
 }
 
 const CROP_API_ENDPOINT = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
@@ -44,9 +46,11 @@ const createInitialsAvatar = (initialChar: string) => {
 
 export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProps> = ({
   isOpen,
+  currentAvatarUrl,
   initialSrc,
   userName = 'Pengguna',
   onClose,
+  onSuccess,
   onSaved,
   onError,
 }) => {
@@ -55,8 +59,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const [panX, setPanX] = useState<number>(50); // Range 0 to 100, default 50
   const [panY, setPanY] = useState<number>(50); // Range 0 to 100, default 50
 
-  const [imageSrc, setImageSrc] = useState<string>(() => initialSrc || createInitialsAvatar(userName[0] || 'P'));
-  const [origSrc, setOrigSrc] = useState<string>(() => initialSrc || createInitialsAvatar(userName[0] || 'P'));
+  const activeInitial = (currentAvatarUrl || initialSrc || '').trim();
+  const [imageSrc, setImageSrc] = useState<string>(() => activeInitial || createInitialsAvatar(userName[0] || 'P'));
+  const [origSrc, setOrigSrc] = useState<string>(() => activeInitial || createInitialsAvatar(userName[0] || 'P'));
   const [imageError, setImageError] = useState<boolean>(false);
 
   // Natural image dimensions
@@ -86,24 +91,21 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
 
   // Safe image loader
   const loadImage = useCallback((srcUrl: string) => {
-    setImageError(false);
     setImageSrc(srcUrl);
 
     const testImg = new Image();
-    testImg.crossOrigin = 'anonymous';
     testImg.onload = () => {
       setNaturalW(testImg.naturalWidth || 480);
       setNaturalH(testImg.naturalHeight || 480);
+      setImageError(false);
     };
     testImg.onerror = () => {
-      // Keep state resilient
-      setNaturalW(480);
-      setNaturalH(480);
+      console.warn('Image preload warning for:', srcUrl);
     };
     testImg.src = srcUrl;
   }, []);
 
-  // Sync state on modal open
+  // Sync state on modal open: Utamakan foto profil aktif dari props
   useEffect(() => {
     if (!isOpen) {
       document.documentElement.style.overflow = '';
@@ -124,54 +126,24 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     setPanY(50);
     setImageError(false);
 
-    const initialAvatar = initialSrc || createInitialsAvatar(userName[0] || 'P');
-    setImageSrc(initialAvatar);
-    setOrigSrc(initialAvatar);
-    loadImage(initialAvatar);
-
-    // Fetch latest avatar from server
-    const fetchServerAvatar = async () => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-      try {
-        const res = await fetch(CROP_API_ENDPOINT, {
-          method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-          },
-        });
-        const json = await res.json();
-        const u = json.data || json.user || json;
-        const fetchedAvatar = u?.avatar_url || u?.avatar || u?.file_url;
-
-        if (fetchedAvatar && typeof fetchedAvatar === 'string') {
-          const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
-          const freshUrl = cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`;
-
-          // Pre-fetch as blob for CORS safety on canvas operations
-          try {
-            const imgRes = await fetch(freshUrl, { mode: 'cors' });
-            if (imgRes.ok) {
-              const blob = await imgRes.blob();
-              const blobUrl = URL.createObjectURL(blob);
-              setOrigSrc(blobUrl);
-              loadImage(blobUrl);
-              return;
-            }
-          } catch (_) {}
-
-          setOrigSrc(freshUrl);
-          loadImage(freshUrl);
-        }
-      } catch (_) {}
-    };
-
-    fetchServerAvatar();
+    // Utamakan foto profil aktif yang dikirim dari props
+    const activePhoto = (currentAvatarUrl || initialSrc || '').trim();
+    if (activePhoto) {
+      setImageSrc(activePhoto);
+      setOrigSrc(activePhoto);
+      loadImage(activePhoto);
+    } else {
+      // Jika memang user baru dan tidak punya avatar sama sekali, baru gunakan starter inisial
+      const fallback = createInitialsAvatar(userName[0] || 'P');
+      setImageSrc(fallback);
+      setOrigSrc(fallback);
+      loadImage(fallback);
+    }
 
     return () => {
       document.documentElement.style.overflow = '';
     };
-  }, [isOpen, initialSrc, userName, loadImage]);
+  }, [isOpen, currentAvatarUrl, initialSrc, userName, loadImage]);
 
   const handleClose = () => {
     try {
@@ -256,16 +228,16 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const handleReadFile = (file: File | null | undefined) => {
     if (!file) return;
     if (!file.type || !file.type.startsWith('image/')) {
-      onError('File harus berupa gambar');
+      onError?.('File harus berupa gambar');
       return;
     }
     if (file.size > 12 * 1024 * 1024) {
-      onError('Ukuran foto maksimal 12 MB');
+      onError?.('Ukuran foto maksimal 12 MB');
       return;
     }
 
     const reader = new FileReader();
-    reader.onerror = () => onError('Gagal membaca file gambar');
+    reader.onerror = () => onError?.('Gagal membaca file gambar');
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setOrigSrc(reader.result);
@@ -282,8 +254,38 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const handleSave = async () => {
     const imgElement = imgRef.current;
     if (!imgElement || !imageSrc || imageError) {
-      onError('Belum ada foto untuk disimpan');
+      onError?.('Belum ada foto untuk disimpan');
       return;
+    }
+
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+
+    // If source is a remote HTTP URL, fetch it safely as a local Blob to avoid tainted canvas on toBlob()
+    let drawSource: HTMLImageElement = imgElement;
+    if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
+      try {
+        const resp = await fetch(imageSrc, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (resp.ok) {
+          const imgBlob = await resp.blob();
+          const blobDataUrl = await new Promise<string>((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(r.result as string);
+            r.onerror = reject;
+            r.readAsDataURL(imgBlob);
+          });
+          const safeImg = new Image();
+          await new Promise<void>((resolve, reject) => {
+            safeImg.onload = () => resolve();
+            safeImg.onerror = reject;
+            safeImg.src = blobDataUrl;
+          });
+          drawSource = safeImg;
+        }
+      } catch (err) {
+        console.warn('Fallback direct draw:', err);
+      }
     }
 
     const outCanvas = document.createElement('canvas');
@@ -291,7 +293,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     outCanvas.height = 512;
     const ctx = outCanvas.getContext('2d');
     if (!ctx) {
-      onError('Gagal membuat kanvas gambar');
+      onError?.('Gagal membuat kanvas gambar');
       return;
     }
 
@@ -302,26 +304,25 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     // Pindahkan origin ke tengah canvas 512x512
     ctx.translate(256 + translateX * (512 / 280), 256 + translateY * (512 / 280));
     ctx.scale(zoom * (512 / 280), zoom * (512 / 280));
-    ctx.drawImage(imgElement, -baseW / 2, -baseH / 2, baseW, baseH);
+    ctx.drawImage(drawSource, -baseW / 2, -baseH / 2, baseW, baseH);
     ctx.restore();
 
     outCanvas.toBlob(
       async (blob) => {
         if (!blob) {
-          onError('Gagal memproses gambar');
+          onError?.('Gagal memproses gambar');
           return;
         }
 
         setIsSaving(true);
         try {
-          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
           const fd = new FormData();
           fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
 
           const res = await fetch(CROP_API_ENDPOINT, {
             method: 'POST',
             headers: {
-              'Authorization': token ? `Bearer ${token}` : '',
+              ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
             },
             body: fd,
           });
@@ -339,13 +340,14 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               (el as HTMLImageElement).style.display = 'block';
             });
 
-            onSaved(finalUrl);
+            onSuccess?.(finalUrl);
+            onSaved?.(finalUrl);
             handleClose();
           } else {
-            onError(json.message || 'Gagal menyimpan foto.');
+            onError?.(json.message || 'Gagal menyimpan foto.');
           }
         } catch (err) {
-          onError('Terjadi gangguan koneksi saat menyimpan foto.');
+          onError?.('Terjadi gangguan koneksi saat menyimpan foto.');
         } finally {
           setIsSaving(false);
         }
@@ -421,12 +423,13 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               <img
                 ref={imgRef}
                 src={imageSrc}
-                crossOrigin="anonymous"
                 alt="Pratinjau Crop"
                 draggable={false}
                 onError={() => {
-                  console.warn('Gagal memuat URL avatar');
-                  setImageError(true);
+                  console.warn('Gagal memuat URL avatar:', imageSrc);
+                  if (!imageSrc) {
+                    setImageError(true);
+                  }
                 }}
                 style={{
                   position: 'absolute',
@@ -481,7 +484,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 {imageSrc && !imageError ? (
                   <img
                     src={imageSrc}
-                    crossOrigin="anonymous"
                     alt=""
                     draggable={false}
                     style={{
