@@ -107,21 +107,16 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       const path = window.location.pathname;
       const hash = window.location.hash;
       const full = window.location.href;
-      if (path.includes('/profil/ubahfoto') || hash.includes('/profil/ubahfoto') || full.includes('/profil/ubahfoto')) {
+      if (path.includes('/ubahfoto') || hash.includes('/ubahfoto') || full.includes('/ubahfoto')) {
         setIsModalOpen(true);
+      } else if (path.endsWith('/profil') || hash.endsWith('/profil') || path.endsWith('/profile')) {
+        setIsModalOpen(false);
       }
     };
     checkRoute();
 
     const handlePopState = () => {
-      const path = window.location.pathname;
-      const hash = window.location.hash;
-      const full = window.location.href;
-      if (path.includes('/profil/ubahfoto') || hash.includes('/profil/ubahfoto') || full.includes('/profil/ubahfoto')) {
-        setIsModalOpen(true);
-      } else if (path.endsWith('/profil') || hash.endsWith('/profil') || path.endsWith('/profile')) {
-        setIsModalOpen(false);
-      }
+      checkRoute();
     };
 
     window.addEventListener('popstate', handlePopState);
@@ -132,7 +127,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   useEffect(() => {
     const fetchProfile = async () => {
       try {
-        const token = getAuthToken();
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || getStoredToken() || '';
         const res = await fetch(`${API_BASE}/get.php`, {
           method: 'GET',
           headers: {
@@ -144,14 +139,14 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         // Ekstrak respons get.php secara adaptif: json.data || json.user || json
         const u = json.data || json.user || json;
         if (u) {
-          const n = u.full_name || u.name || userName || 'RIZAL FADHILAH';
-          const e = u.email || userEmail || 'rizalsaragih498@gmail.com';
+          const n = u.full_name || u.name || userName || '';
+          const e = u.email || userEmail || '';
           const j = u.pekerjaan || u.title || 'VIDEO EDITOR';
           const s = (u.status_karyawan || u.employment_status || u.status || userStatus || 'KARYAWAN').toUpperCase();
 
           if (u.id) setProfileId(u.id);
-          setName(n);
-          setEmail(e);
+          if (n) setName(n);
+          if (e) setEmail(e);
           setJob(j);
           setStatus(s);
 
@@ -161,7 +156,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             setAvatarUrl(`${cleanUrl}?t=${Date.now()}`); 
           } else if (fetchedAvatar && typeof fetchedAvatar === 'string') {
             setAvatarUrl(fetchedAvatar);
-          } else {
+          } else if (n) {
             setAvatarUrl(createInitialsAvatar(n[0]));
           }
           setInitialProfile({ name: n, email: e, job: j, status: s });
@@ -170,8 +165,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         // Fallback to existing session
         const stored = getStoredUser();
         if (stored) {
-          setName(stored.name || userName || 'RIZAL FADHILAH');
-          setEmail(stored.email || userEmail || 'rizalsaragih498@gmail.com');
+          if (stored.full_name || stored.name) setName(stored.full_name || stored.name || '');
+          if (stored.email) setEmail(stored.email);
           const fetchedAvatar = stored.avatar_url || null;
           if (fetchedAvatar && typeof fetchedAvatar === 'string' && !fetchedAvatar.startsWith('data:image')) {
             const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
@@ -185,7 +180,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       }
     };
     fetchProfile();
-  }, [userName, userEmail, userStatus, propAvatarUrl, getAuthToken]);
+  }, [userName, userEmail, userStatus, propAvatarUrl]);
 
   // Track dirty status
   useEffect(() => {
@@ -213,8 +208,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const handleOpenCrop = () => {
     setIsModalOpen(true);
     try {
-      const origin = window.location.origin;
-      window.history.pushState({ modalOpen: true }, '', `${origin}/profil/ubahfoto`);
+      window.history.pushState({}, '', '/profil/ubahfoto');
     } catch (_) {}
   };
 
@@ -222,8 +216,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const handleCloseCrop = () => {
     setIsModalOpen(false);
     try {
-      const origin = window.location.origin;
-      window.history.pushState({ modalOpen: false }, '', `${origin}/profil`);
+      window.history.pushState({}, '', '/profil');
     } catch (_) {}
   };
 

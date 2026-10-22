@@ -640,37 +640,34 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
         }
 
         try {
+          const userId = profileId || 1;
           const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
           const fd = new FormData();
-          const randomDigits = Math.floor(1000 + Math.random() * 9000);
-          fd.append('avatar', blob, `avatar_${profileId}_${Math.floor(Date.now() / 1000)}_${randomDigits}.jpg`);
-          fd.append('id', String(profileId));
+          fd.append('avatar', blob, `avatar_${userId}_${Date.now()}.jpg`);
+          fd.append('id', String(userId));
 
           const res = await fetch(`${API_BASE}/upload.php`, {
             method: 'POST',
             headers: {
-              Authorization: 'Bearer ' + token,
+              'Authorization': 'Bearer ' + token,
             },
             body: fd,
           });
 
-          const json = await res.json();
-          let finalAvatarUrl = previewDataUrl;
-          const returnedUrl = json?.avatar_url || json?.data?.avatar_url || json?.data?.file_url;
-          if (json && (json.success || json.status === 'success') && returnedUrl) {
-            finalAvatarUrl = returnedUrl;
-            if (typeof finalAvatarUrl === 'string' && !finalAvatarUrl.startsWith('data:')) {
-              const cleanUrl = finalAvatarUrl.split('?')[0];
-              finalAvatarUrl = `${cleanUrl}?t=${Date.now()}`;
-            }
-          }
+          const resJson = await res.json();
+          if (resJson && (resJson.success || resJson.status === 'success')) {
+            const rawAvatar = resJson.data?.avatar_url || resJson.avatar_url || resJson.avatar || resJson.data?.file_url;
+            const newAvatar = rawAvatar
+              ? (rawAvatar.startsWith('data:') ? rawAvatar : `${rawAvatar.split('?')[0]}?t=${Date.now()}`)
+              : previewDataUrl;
 
-          onSaved(finalAvatarUrl);
-          onClose();
-        } catch (err) {
-          // Offline fallback
-          onSaved(previewDataUrl);
-          onClose();
+            onSaved(newAvatar);
+            onClose();
+          } else {
+            onError(resJson?.message || 'Gagal mengunggah foto profil');
+          }
+        } catch (err: any) {
+          onError('Gagal terhubung ke server upload foto');
         } finally {
           setIsUploading(false);
         }
