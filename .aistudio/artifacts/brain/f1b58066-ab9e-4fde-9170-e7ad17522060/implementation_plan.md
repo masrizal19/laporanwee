@@ -1,85 +1,98 @@
-# Unlocking Profile Crop Save Button & Backend Integration Plan
+# Rangka Ulang Fitur Foto Profil ke Routing `/profil/setting-profile-picture`
 
-Implementation plan to unlock the "Simpan Foto" button in the crop modal, connect canvas export to `https://api-laporanwe.mkverse.my.id/api/profile/upload.php`, apply timestamp cache-busting, and synchronize React state across `ProfileCropModal.tsx`, `ProfileSettingsView.tsx`, and `profile-edit.css`.
+Plan for connecting the profile picture crop cropper to the `/profil/setting-profile-picture` route, fetching initial avatar data, posting cropped 512x512 canvas Blobs to `https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php`, applying cache-busting, and synchronizing state across `ProfileSettingsView.tsx`, `ProfileCropModal.tsx`, `App.tsx`, and `profile-edit.css`.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
 > The following choices were confirmed during Phase 1 interactive clarification:
 
-- **Confirmed Error Handling**: Upon backend error or network issue, display an informative Toast notification and unlock the "Simpan Foto" button so the user can re-try immediately without stuck loading spinners.
-- **Confirmed File Naming**: Retain the original filename from the user's selected file or construct a file string based on the user's uploaded filename (`avatar_${Date.now()}.jpg` / selected file name) for FormData upload.
+- **Confirmed Trigger Placement**: Place a prominent "Ubah Foto Profil" button above the Profile Information Form in `ProfileSettingsView.tsx`.
+- **Confirmed Default Avatar**: Generate a dynamic starter canvas with the user's name initial when no avatar URL exists on the server.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Resolves the issue where clicking "Simpan Foto" (#pc-save) in the profile crop modal gets stuck in a loading state or uses mock timers. Replaces mock logic with a real asynchronous flow: renders 512x512 JPEG canvas blob, posts via FormData with Bearer authentication to `upload.php`, appends `?t=${Date.now()}` cache-buster to the returned URL, updates profile avatar state instantly, closes the modal, and resets the URL path to `/profil`.
-- **Target Audience / Persona**: Application users and administrators managing their profile pictures.
-- **Key Value**: Instant real-time profile picture update without browser image stale-cache lockups or button freezing.
+- **What It Does**: Re-architects the profile avatar edit feature to operate seamlessly via `/profil/setting-profile-picture`. Opens a crop modal with D-pad pan, zoom, rotate, and flip controls. Synchronizes URL navigation, fetches initial image from `index.php`, posts 512x512 cropped Blobs to `https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php`, appends `?t=${Date.now()}` cache-busters, updates global avatar state, and restores URL path to `/profil`.
+- **Target Audience / Persona**: Users updating their account avatars with real-time feedback and route bookmarking.
+- **Key Value**: Direct API synchronization with zero stale browser image cache and seamless URL routing.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. User opens crop modal (`/profil/ubahfoto`) by clicking "Ubah Foto" or avatar icon in `ProfileSettingsView.tsx`.
-  2. User adjusts pan/zoom/rotation using D-pad or gestures.
-  3. User clicks "Simpan Foto":
-     - Button displays loading indicator while `.pc-b.pc-load` CSS permits pointer interaction (`pointer-events: auto`).
-     - Canvas renders 512x512 JPEG (0.92 quality) and extracts Blob.
-     - Async `fetch` POST sends FormData (`avatar` blob & Bearer token) to `https://api-laporanwe.mkverse.my.id/api/profile/upload.php`.
-     - On success: `avatar_url` is updated with `?t=${Date.now()}` query string, DOM `#mainAvatarImg` and `.pimg img` are updated, global event `laporanwee-profile-updated` is dispatched, modal closes, and browser URL updates to `/profil`.
-     - On error: Toast message notifies the user and `finally` block turns off loading state (`setIsUploading(false)`), allowing re-submission.
+  1. **Trigger / Route Access**:
+     - User clicks "Ubah Foto Profil" button above the form in `ProfileSettingsView.tsx` OR navigates directly to `https://laporanwe.mkverse.my.id/profil/setting-profile-picture`.
+     - Route sync executes: `window.history.pushState({ modal: 'crop' }, '', '/profil/setting-profile-picture')`.
+  2. **Initial Data Load (GET)**:
+     - Component fetches `https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php` with Bearer token.
+     - If `res.data.avatar_url` exists, loads image onto cropper stage; otherwise initializes starter canvas with initial char.
+  3. **Cropping & Saving (POST)**:
+     - User adjusts zoom (100%–300%), D-pad panning, rotation, or file drag & drop.
+     - User clicks "Simpan Foto" (#pc-save):
+       - Canvas renders 512x512 JPEG (0.92 quality) and extracts Blob.
+       - FormData sends `avatar` blob to `setting-profil-picture/index.php` with Bearer header.
+       - On success: updates React state `avatarUrl` with `res.data.avatar_url + '?t=' + Date.now()`, updates DOM `#mainAvatarImg` / `.pimg img`, dispatches global update event, closes modal, restores route to `/profil`, and shows Toast "Foto profil berhasil diperbarui".
+       - In `finally`: unlocks loading indicator (`setIsUploading(false)`).
 
 - **Visual Identity & Theme**:
-  - Unlocked button interactions: `.pc-b.pc-load` CSS changed from `pointer-events: none` to `pointer-events: auto` to prevent permanent UI lockups on network timeouts.
-  - Smooth 200ms transitions and pop animation (`.pf-pop`) on avatar updating.
+  - `profile-edit.css`: `.pc-b.pc-load` uses `pointer-events: auto` to prevent permanent UI lockup during network requests.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Direct Fetch in `ProfileCropModal.tsx` & `handleSaveCrop`**
-  - *Chosen Approach*: `ProfileCropModal.tsx` converts canvas to Blob and posts to `upload.php`, passing the resulting cache-busted URL to `onSaved`.
-  - *Why*: Ensures a single source of truth for canvas export and direct HTTP communication without duplicate mock timers.
+- **Decision 1: Direct Route Sync in `ProfileSettingsView` and `App.tsx`**
+  - *Chosen Approach*: `App.tsx` and `ProfileSettingsView.tsx` listen for `/profil/setting-profile-picture` in `window.location` and `popstate`, opening the crop modal and managing `pushState` transitions.
+  - *Why*: Enables deep linking directly to `/profil/setting-profile-picture` while keeping clean modal overlay behavior.
 
-- **Decision 2: CSS `pointer-events: auto` on `.pc-b.pc-load`**
-  - *Chosen Approach*: Replace `pointer-events: none` in `profile-edit.css` with `pointer-events: auto`.
-  - *Why*: Prevents the browser button element from becoming permanently unresponsive if network fetches fail or hang.
+- **Decision 2: Dedicated Endpoint `setting-profil-picture/index.php`**
+  - *Chosen Approach*: Point GET and POST calls directly to `https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php`.
+  - *Why*: Matches the updated backend API specification.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy (Technical Reference)
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                  ProfileSettingsView                    │
-│  - Receives/fetches user data from get.php              │
-│  - Stores avatarUrl with ?t=${Date.now()} cache-buster │
-│  - Listens to window popstate & URL route /profil       │
-└────────────────────────────┬────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────┐
-│                   ProfileCropModal                      │
-│  1. HTMLCanvasElement render 512x512 JPEG (0.92 quality)│
-│  2. canvas.toBlob() -> FormData ('avatar', blob)        │
-│  3. fetch POST upload.php with Bearer Authorization     │
-│  4. resJson.success -> avatar_url + ?t=${Date.now()}    │
-│  5. onSaved(finalUrl) -> onClose() -> pushState /profil │
-│  6. try-catch-finally -> setIsUploading(false)          │
-└─────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        App.tsx & Routing                               │
+│  - Recognizes /profil/setting-profile-picture route                    │
+│  - Maps route to ProfileSettingsView                                   │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                       ProfileSettingsView                              │
+│  - Displays "Ubah Foto Profil" button above Profile Form               │
+│  - Listens to route /profil/setting-profile-picture                     │
+│  - Renders ProfileCropModal                                            │
+└──────────────────────────────────┬─────────────────────────────────────┘
+                                   │
+                                   ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        ProfileCropModal                                │
+│  1. GET setting-profil-picture/index.php -> loads initial avatar_url   │
+│  2. Interactive Cropper (512x512 Canvas Export)                        │
+│  3. POST setting-profil-picture/index.php via FormData ('avatar')       │
+│  4. res.success -> avatar_url + ?t=${Date.now()} -> onSaved()          │
+│  5. Restores URL to /profil & dispatches profile update event          │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Interactive Component & State Mapping**:
-  1. `src/profile-edit.css`:
-     - Update `.pc-b.pc-load` selector: change `pointer-events: none;` to `pointer-events: auto;`.
+  1. `src/App.tsx`:
+     - Register `/profil/setting-profile-picture` in `validPaths` and route maps (`pathToViewMap`, `viewToPathMap`).
   2. `src/components/ProfileCropModal.tsx`:
-     - `handleSave`: 512x512 canvas drawing, `toBlob`, POST to `https://api-laporanwe.mkverse.my.id/api/profile/upload.php`.
-     - `try-catch-finally` guarantees `setIsUploading(false)` executes.
-     - `onSaved(newAvatarWithTimestamp)` called; `window.history.pushState({}, '', '/profil')` restored.
+     - Update API endpoint to `https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php`.
+     - Fetch GET on open to retrieve `res.data.avatar_url`.
+     - Export 512x512 JPEG Blob, POST to `setting-profil-picture/index.php`.
+     - Apply cache-buster `?t=${Date.now()}` on success, restore route to `/profil`.
   3. `src/views/ProfileSettingsView.tsx`:
-     - Reactive state update for `avatarUrl` with timestamp.
-     - Direct update to DOM `#mainAvatarImg` / `.pimg img` if rendered.
-     - Event listener for `laporanwee-profile-updated` keeps header/sidebar synced.
+     - Add "Ubah Foto Profil" button above form.
+     - Render `ProfileCropModal` when route includes `/setting-profile-picture` or modal state is active.
+     - Update React `avatarUrl` state and dispatch `laporanwee-profile-updated` event.
+  4. `src/profile-edit.css`:
+     - Ensure `.pc-b.pc-load` has `pointer-events: auto;`.

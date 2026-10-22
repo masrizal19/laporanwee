@@ -254,10 +254,14 @@ export function App() {
       '/ui-settings',
       '/profil',
       '/profile',
+      '/profil/setting-profile-picture',
       '/profil/user',
     ];
     if (hashPart && hashPart.startsWith('/profil/user')) {
       return '/profil/user';
+    }
+    if (hashPart && hashPart.includes('/setting-profile-picture')) {
+      return '/profil/setting-profile-picture';
     }
     if (validPaths.includes(hashPart)) {
       return hashPart;
@@ -265,6 +269,9 @@ export function App() {
     const path = window.location.pathname.split('?')[0];
     if (path.startsWith('/profil/user')) {
       return '/profil/user';
+    }
+    if (path.includes('/setting-profile-picture')) {
+      return '/profil/setting-profile-picture';
     }
     const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
@@ -424,6 +431,7 @@ export function App() {
     '/profile': 'profil',
     '/profil/crop': 'profil',
     '/profil/ubahfoto': 'profil',
+    '/profil/setting-profile-picture': 'profil',
     '/profil/user': 'user-profile',
   };
 
