@@ -12,8 +12,6 @@ interface SettingProfilePictureModalProps {
 }
 
 const CROP_API_ENDPOINT = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
-const STAGE_SIZE = 280; // Diameter lingkaran crop
-const OUTPUT_SIZE = 512; // Ukuran hasil simpan kanvas
 
 // Canvas initials avatar helper fallback
 const createInitialsAvatar = (initialChar: string) => {
@@ -52,17 +50,14 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   onSaved,
   onError,
 }) => {
-  const defaultFallback = initialSrc || createInitialsAvatar(userName[0] || 'P');
-  const [src, setSrc] = useState<string>(defaultFallback);
-  const [origSrc, setOrigSrc] = useState<string>(defaultFallback);
+  // Strategy: CSS Center-Based Positioning
+  const [zoom, setZoom] = useState<number>(1); // Range 1 to 3
+  const [panX, setPanX] = useState<number>(50); // Range 0 to 100, default 50
+  const [panY, setPanY] = useState<number>(50); // Range 0 to 100, default 50
 
-  // Core Zoom & Pan percentage states
-  // zoomLevel: 1.0 to 3.0 (default 1.0)
-  const [zoomLevel, setZoomLevel] = useState<number>(1.0);
-  // panXPercentage: 0 to 100 (50 is center)
-  const [panXPercentage, setPanXPercentage] = useState<number>(50);
-  // panYPercentage: 0 to 100 (50 is center)
-  const [panYPercentage, setPanYPercentage] = useState<number>(50);
+  const [imageSrc, setImageSrc] = useState<string>(() => initialSrc || createInitialsAvatar(userName[0] || 'P'));
+  const [origSrc, setOrigSrc] = useState<string>(() => initialSrc || createInitialsAvatar(userName[0] || 'P'));
+  const [imageError, setImageError] = useState<boolean>(false);
 
   // Natural image dimensions
   const [naturalW, setNaturalW] = useState<number>(480);
@@ -72,58 +67,43 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [isDragOver, setIsDragOver] = useState<boolean>(false);
-  const [hasInteracted, setHasInteracted] = useState<boolean>(false);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLImageElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragStartRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
 
-  // Mathematical Bounding & Clamping calculation
-  // Base scale covers the STAGE_SIZE (280px) circle fully without background bleed
-  const baseScale = Math.max(STAGE_SIZE / (naturalW || 1), STAGE_SIZE / (naturalH || 1));
-  const currentScale = baseScale * zoomLevel;
-  const renderedW = naturalW * currentScale;
-  const renderedH = naturalH * currentScale;
+  // Pixel shift calculation:
+  // (pan - 50) maps 0..100 to -50..+50, scaled by zoom * 2.5
+  const translateX = (panX - 50) * (zoom * 2.5);
+  const translateY = (panY - 50) * (zoom * 2.5);
 
-  // Maximum offset to keep image edges firmly covering the 280px stage circle
-  const maxOffsetX = Math.max(0, (renderedW - STAGE_SIZE) / 2);
-  const maxOffsetY = Math.max(0, (renderedH - STAGE_SIZE) / 2);
+  // Base cover scale calculation so the image nicely covers the 280px circle
+  const minDim = Math.min(naturalW || 280, naturalH || 280);
+  const baseScale = 280 / (minDim || 280);
+  const baseW = (naturalW || 280) * baseScale;
+  const baseH = (naturalH || 280) * baseScale;
 
-  // Clamped pixel offsets based on 0-100% sliders (50% is center = 0px offset)
-  const clampedX = maxOffsetX > 0 ? ((panXPercentage - 50) / 50) * maxOffsetX : 0;
-  const clampedY = maxOffsetY > 0 ? ((panYPercentage - 50) / 50) * maxOffsetY : 0;
+  // Safe image loader
+  const loadImage = useCallback((srcUrl: string) => {
+    setImageError(false);
+    setImageSrc(srcUrl);
 
-  // Previews scaling relative to STAGE_SIZE
-  const previewRatioL = 72 / STAGE_SIZE;
-  const previewRatioM = 44 / STAGE_SIZE;
-  const previewRatioS = 28 / STAGE_SIZE;
-
-  // Safe image loader to prevent CORS canvas tainting
-  const loadImage = useCallback((imageUrl: string) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-
-    img.onload = () => {
-      const w = img.naturalWidth || 480;
-      const h = img.naturalHeight || 480;
-      setNaturalW(w);
-      setNaturalH(h);
-      setSrc(imageUrl);
-      setZoomLevel(1.0);
-      setPanXPercentage(50);
-      setPanYPercentage(50);
+    const testImg = new Image();
+    testImg.crossOrigin = 'anonymous';
+    testImg.onload = () => {
+      setNaturalW(testImg.naturalWidth || 480);
+      setNaturalH(testImg.naturalHeight || 480);
     };
-
-    img.onerror = () => {
-      // Fallback
-      setSrc(imageUrl);
+    testImg.onerror = () => {
+      // Keep state resilient
+      setNaturalW(480);
+      setNaturalH(480);
     };
-
-    img.src = imageUrl;
+    testImg.src = srcUrl;
   }, []);
 
-  // Fetch initial profile image from server endpoint or fallback on open
+  // Sync state on modal open
   useEffect(() => {
     if (!isOpen) {
       document.documentElement.style.overflow = '';
@@ -138,6 +118,18 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
 
     document.documentElement.style.overflow = 'hidden';
 
+    // Reset controls to clean default
+    setZoom(1);
+    setPanX(50);
+    setPanY(50);
+    setImageError(false);
+
+    const initialAvatar = initialSrc || createInitialsAvatar(userName[0] || 'P');
+    setImageSrc(initialAvatar);
+    setOrigSrc(initialAvatar);
+    loadImage(initialAvatar);
+
+    // Fetch latest avatar from server
     const fetchServerAvatar = async () => {
       const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
       try {
@@ -156,7 +148,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
           const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
           const freshUrl = cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`;
 
-          // Pre-fetch as blob to guarantee CORS immunity on canvas operations
+          // Pre-fetch as blob for CORS safety on canvas operations
           try {
             const imgRes = await fetch(freshUrl, { mode: 'cors' });
             if (imgRes.ok) {
@@ -166,19 +158,12 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               loadImage(blobUrl);
               return;
             }
-          } catch (_) {
-            // If direct blob fetch fails, use clean URL with crossOrigin
-          }
+          } catch (_) {}
 
           setOrigSrc(freshUrl);
           loadImage(freshUrl);
-          return;
         }
       } catch (_) {}
-
-      const fallback = initialSrc || createInitialsAvatar(userName[0] || 'P');
-      setOrigSrc(fallback);
-      loadImage(fallback);
     };
 
     fetchServerAvatar();
@@ -200,13 +185,12 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   // Dragging gesture on circle stage
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.button > 0) return;
-    setHasInteracted(true);
     e.currentTarget.setPointerCapture(e.pointerId);
     dragStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
-      startPanX: panXPercentage,
-      startPanY: panYPercentage,
+      startPanX: panX,
+      startPanY: panY,
     };
     setIsDragging(true);
   };
@@ -216,14 +200,12 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     const dx = e.clientX - dragStartRef.current.startX;
     const dy = e.clientY - dragStartRef.current.startY;
 
-    if (maxOffsetX > 0) {
-      const nextPanX = dragStartRef.current.startPanX + (dx / maxOffsetX) * 50;
-      setPanXPercentage(Math.max(0, Math.min(100, Math.round(nextPanX))));
-    }
-
-    if (maxOffsetY > 0) {
-      const nextPanY = dragStartRef.current.startPanY + (dy / maxOffsetY) * 50;
-      setPanYPercentage(Math.max(0, Math.min(100, Math.round(nextPanY))));
+    const shiftFactor = zoom * 2.5;
+    if (shiftFactor > 0) {
+      const nextPanX = dragStartRef.current.startPanX + dx / shiftFactor;
+      const nextPanY = dragStartRef.current.startPanY + dy / shiftFactor;
+      setPanX(Math.max(0, Math.min(100, Math.round(nextPanX))));
+      setPanY(Math.max(0, Math.min(100, Math.round(nextPanY))));
     }
   };
 
@@ -237,8 +219,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
 
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    setHasInteracted(true);
-    setZoomLevel((prev) => {
+    setZoom((prev) => {
       const delta = e.deltaY < 0 ? 0.08 : -0.08;
       const next = Math.max(1.0, Math.min(3.0, prev + delta));
       return Number(next.toFixed(2));
@@ -247,13 +228,16 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
 
   // Rotate & Flip image using in-memory canvas
   const bakeCanvas = (isRotate: boolean) => {
-    if (!imgRef.current || !naturalW || !naturalH) return;
+    const img = imgRef.current;
+    if (!img) return;
+    const nw = img.naturalWidth || naturalW || 480;
+    const nh = img.naturalHeight || naturalH || 480;
     const c = document.createElement('canvas');
     const g = c.getContext('2d');
     if (!g) return;
 
-    c.width = isRotate ? naturalH : naturalW;
-    c.height = isRotate ? naturalW : naturalH;
+    c.width = isRotate ? nh : nw;
+    c.height = isRotate ? nw : nh;
     g.translate(c.width / 2, c.height / 2);
 
     if (isRotate) {
@@ -262,11 +246,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       g.scale(-1, 1);
     }
 
-    g.drawImage(imgRef.current, -naturalW / 2, -naturalH / 2);
+    g.drawImage(img, -nw / 2, -nh / 2);
     const newUrl = c.toDataURL('image/jpeg', 0.95);
     setOrigSrc(newUrl);
     loadImage(newUrl);
-    setHasInteracted(true);
   };
 
   // File Picker reader
@@ -287,117 +270,89 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       if (typeof reader.result === 'string') {
         setOrigSrc(reader.result);
         loadImage(reader.result);
-        setHasInteracted(true);
+        setZoom(1);
+        setPanX(50);
+        setPanY(50);
       }
     };
     reader.readAsDataURL(file);
   };
 
-  // Render & Save Cropped 512x512 Image
+  // Render & Save Cropped 512x512 Image (Center-based)
   const handleSave = async () => {
-    setIsSaving(true);
+    const imgElement = imgRef.current;
+    if (!imgElement || !imageSrc || imageError) {
+      onError('Belum ada foto untuk disimpan');
+      return;
+    }
 
-    try {
-      const imgElement = imgRef.current;
-      if (!imgElement || !naturalW || !naturalH) {
-        onError('Belum ada foto untuk disimpan');
-        setIsSaving(false);
-        return;
-      }
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = 512;
+    outCanvas.height = 512;
+    const ctx = outCanvas.getContext('2d');
+    if (!ctx) {
+      onError('Gagal membuat kanvas gambar');
+      return;
+    }
 
-      const exportCanvas = document.createElement('canvas');
-      exportCanvas.width = OUTPUT_SIZE;
-      exportCanvas.height = OUTPUT_SIZE;
-      const ctx = exportCanvas.getContext('2d');
-      if (!ctx) {
-        onError('Gagal membuat kanvas gambar');
-        setIsSaving(false);
-        return;
-      }
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, 512, 512);
 
-      // Hitung rasio terhadap gambar asli
-      const ratioToNatural = 1 / currentScale;
-      const cropSizeOnNatural = STAGE_SIZE * ratioToNatural;
+    ctx.save();
+    // Pindahkan origin ke tengah canvas 512x512
+    ctx.translate(256 + translateX * (512 / 280), 256 + translateY * (512 / 280));
+    ctx.scale(zoom * (512 / 280), zoom * (512 / 280));
+    ctx.drawImage(imgElement, -baseW / 2, -baseH / 2, baseW, baseH);
+    ctx.restore();
 
-      // Titik potong awal pada dimensi asli gambar
-      const sourceX = (naturalW - cropSizeOnNatural) / 2 - (clampedX * ratioToNatural);
-      const sourceY = (naturalH - cropSizeOnNatural) / 2 - (clampedY * ratioToNatural);
+    outCanvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          onError('Gagal memproses gambar');
+          return;
+        }
 
-      // Pastikan batas potong aman dalam koordinat gambar asli
-      const safeSourceX = Math.max(0, Math.min(naturalW - 1, sourceX));
-      const safeSourceY = Math.max(0, Math.min(naturalH - 1, sourceY));
-      const safeCropW = Math.max(1, Math.min(naturalW - safeSourceX, cropSizeOnNatural));
-      const safeCropH = Math.max(1, Math.min(naturalH - safeSourceY, cropSizeOnNatural));
+        setIsSaving(true);
+        try {
+          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+          const fd = new FormData();
+          fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
 
-      // Bersihkan latar dengan warna putih
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+          const res = await fetch(CROP_API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+              'Authorization': token ? `Bearer ${token}` : '',
+            },
+            body: fd,
+          });
 
-      // Draw potongan gambar secara presisi tanpa distorsi
-      ctx.drawImage(
-        imgElement,
-        safeSourceX,
-        safeSourceY,
-        safeCropW,
-        safeCropH,
-        0,
-        0,
-        OUTPUT_SIZE,
-        OUTPUT_SIZE
-      );
+          const json = await res.json();
+          if (json.success && (json.data?.avatar_url || json.avatar_url)) {
+            const returnedAvatar = json.data?.avatar_url || json.avatar_url;
+            const cleanUrl = returnedAvatar.split('?')[0];
+            const finalUrl = `${cleanUrl}?t=${Date.now()}`;
 
-      exportCanvas.toBlob(
-        async (blob) => {
-          if (!blob) {
-            setIsSaving(false);
-            onError('Gagal memproses gambar');
-            return;
-          }
-
-          try {
-            const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-            const fd = new FormData();
-            fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
-
-            const res = await fetch(CROP_API_ENDPOINT, {
-              method: 'POST',
-              headers: {
-                'Authorization': token ? `Bearer ${token}` : '',
-              },
-              body: fd,
+            // Direct DOM update for instant visual synchronization across all avatar containers
+            const avatarImgs = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
+            avatarImgs.forEach((el) => {
+              (el as HTMLImageElement).src = finalUrl;
+              (el as HTMLImageElement).style.display = 'block';
             });
 
-            const json = await res.json();
-            if (json.success && (json.data?.avatar_url || json.avatar_url)) {
-              const returnedAvatar = json.data?.avatar_url || json.avatar_url;
-              const cleanUrl = returnedAvatar.split('?')[0];
-              const finalUrl = `${cleanUrl}?t=${Date.now()}`;
-
-              // Direct DOM update for instant visual synchronization across all avatar containers
-              const avatarImgs = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
-              avatarImgs.forEach((el) => {
-                (el as HTMLImageElement).src = finalUrl;
-                (el as HTMLImageElement).style.display = 'block';
-              });
-
-              onSaved(finalUrl);
-              handleClose();
-            } else {
-              onError(json.message || 'Gagal menyimpan foto.');
-            }
-          } catch (err: any) {
-            onError('Terjadi gangguan koneksi saat menyimpan foto.');
-          } finally {
-            setIsSaving(false);
+            onSaved(finalUrl);
+            handleClose();
+          } else {
+            onError(json.message || 'Gagal menyimpan foto.');
           }
-        },
-        'image/jpeg',
-        0.92
-      );
-    } catch (err: any) {
-      onError('Terjadi kesalahan saat memproses gambar.');
-      setIsSaving(false);
-    }
+        } catch (err) {
+          onError('Terjadi gangguan koneksi saat menyimpan foto.');
+        } finally {
+          setIsSaving(false);
+        }
+      },
+      'image/jpeg',
+      0.92
+    );
   };
 
   if (!isOpen) return null;
@@ -429,14 +384,14 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
         {/* Stage & 3 Circular Previews matching reference mockup */}
         <div className="pc-main">
           <div
-            className={`pc-stage ${isDragging ? 'pc-drag' : ''} ${isDragOver ? 'pc-over' : ''} ${hasInteracted ? 'pc-touched' : ''}`}
+            className={`pc-stage ${isDragging ? 'pc-drag' : ''} ${isDragOver ? 'pc-over' : ''}`}
             ref={stageRef}
             tabIndex={0}
             role="application"
             aria-label="Area crop foto profil"
             style={{
-              width: `${STAGE_SIZE}px`,
-              height: `${STAGE_SIZE}px`,
+              width: '280px',
+              height: '280px',
               position: 'relative',
               overflow: 'hidden',
               borderRadius: '50%',
@@ -462,23 +417,46 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               }
             }}
           >
-            {src && (
+            {imageSrc && !imageError ? (
               <img
                 ref={imgRef}
-                src={src}
+                src={imageSrc}
                 crossOrigin="anonymous"
                 alt="Pratinjau Crop"
                 draggable={false}
+                onError={() => {
+                  console.warn('Gagal memuat URL avatar');
+                  setImageError(true);
+                }}
                 style={{
-                  width: `${renderedW}px`,
-                  height: `${renderedH}px`,
-                  transform: `translate(${(STAGE_SIZE - renderedW) / 2 + clampedX}px, ${(STAGE_SIZE - renderedH) / 2 + clampedY}px)`,
-                  transformOrigin: 'top left',
                   position: 'absolute',
-                  pointerEvents: 'none',
+                  top: '50%',
+                  left: '50%',
+                  width: `${baseW}px`,
+                  height: `${baseH}px`,
+                  transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${zoom})`,
+                  transformOrigin: 'center center',
+                  maxWidth: 'none',
                   userSelect: 'none',
+                  pointerEvents: 'none',
                 }}
               />
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'linear-gradient(135deg, #cfc6f4 0%, #e3ddfa 55%, #d4ee6b 100%)',
+                  color: '#2a2440',
+                  fontSize: '84px',
+                  fontWeight: 700,
+                }}
+              >
+                {(userName || 'P').trim().charAt(0).toUpperCase()}
+              </div>
             )}
             <div className="pc-grid" />
             <div className="pc-ring" />
@@ -486,50 +464,58 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <div className="pc-dropmsg">Lepas foto di sini</div>
           </div>
 
-          {/* 3 Lingkaran Pratinjau (L: 72px, M: 44px, S: 28px) */}
+          {/* 3 Lingkaran Pratinjau (72px, 44px, 28px) */}
           <div className="pc-prevs" aria-hidden="true">
-            <div className="pc-pv l" style={{ width: '72px', height: '72px', position: 'relative', overflow: 'hidden' }}>
-              <img
-                src={src}
-                crossOrigin="anonymous"
-                alt=""
+            {[72, 44, 28].map((size) => (
+              <div
+                key={size}
+                className={`pc-pv ${size === 72 ? 'l' : size === 44 ? 'm' : 's'}`}
                 style={{
-                  width: `${renderedW * previewRatioL}px`,
-                  height: `${renderedH * previewRatioL}px`,
-                  transform: `translate(${((72 - renderedW * previewRatioL) / 2) + clampedX * previewRatioL}px, ${((72 - renderedH * previewRatioL) / 2) + clampedY * previewRatioL}px)`,
-                  transformOrigin: 'top left',
-                  position: 'absolute',
+                  width: `${size}px`,
+                  height: `${size}px`,
+                  position: 'relative',
+                  overflow: 'hidden',
+                  borderRadius: '50%',
                 }}
-              />
-            </div>
-            <div className="pc-pv m" style={{ width: '44px', height: '44px', position: 'relative', overflow: 'hidden' }}>
-              <img
-                src={src}
-                crossOrigin="anonymous"
-                alt=""
-                style={{
-                  width: `${renderedW * previewRatioM}px`,
-                  height: `${renderedH * previewRatioM}px`,
-                  transform: `translate(${((44 - renderedW * previewRatioM) / 2) + clampedX * previewRatioM}px, ${((44 - renderedH * previewRatioM) / 2) + clampedY * previewRatioM}px)`,
-                  transformOrigin: 'top left',
-                  position: 'absolute',
-                }}
-              />
-            </div>
-            <div className="pc-pv s" style={{ width: '28px', height: '28px', position: 'relative', overflow: 'hidden' }}>
-              <img
-                src={src}
-                crossOrigin="anonymous"
-                alt=""
-                style={{
-                  width: `${renderedW * previewRatioS}px`,
-                  height: `${renderedH * previewRatioS}px`,
-                  transform: `translate(${((28 - renderedW * previewRatioS) / 2) + clampedX * previewRatioS}px, ${((28 - renderedH * previewRatioS) / 2) + clampedY * previewRatioS}px)`,
-                  transformOrigin: 'top left',
-                  position: 'absolute',
-                }}
-              />
-            </div>
+              >
+                {imageSrc && !imageError ? (
+                  <img
+                    src={imageSrc}
+                    crossOrigin="anonymous"
+                    alt=""
+                    draggable={false}
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      width: `${baseW}px`,
+                      height: `${baseH}px`,
+                      transform: `translate(calc(-50% + ${translateX * (size / 280)}px), calc(-50% + ${translateY * (size / 280)}px)) scale(${zoom * (size / 280)})`,
+                      transformOrigin: 'center center',
+                      maxWidth: 'none',
+                      userSelect: 'none',
+                      pointerEvents: 'none',
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'linear-gradient(135deg, #cfc6f4 0%, #e3ddfa 55%, #d4ee6b 100%)',
+                      color: '#2a2440',
+                      fontSize: `${Math.round(size * 0.4)}px`,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {(userName || 'P').trim().charAt(0).toUpperCase()}
+                  </div>
+                )}
+              </div>
+            ))}
             <small>Pratinjau</small>
           </div>
         </div>
@@ -558,11 +544,8 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoomLevel <= 1.0}
-              onClick={() => {
-                setHasInteracted(true);
-                setZoomLevel((z) => Math.max(1.0, Number((z - 0.1).toFixed(2))));
-              }}
+              disabled={zoom <= 1.0}
+              onClick={() => setZoom((z) => Math.max(1.0, Number((z - 0.1).toFixed(2))))}
               aria-label="Perkecil"
             >
               -
@@ -573,27 +556,21 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="100"
               max="300"
               step="1"
-              value={Math.round(zoomLevel * 100)}
-              onChange={(e) => {
-                setHasInteracted(true);
-                setZoomLevel(Number(e.target.value) / 100);
-              }}
+              value={Math.round(zoom * 100)}
+              onChange={(e) => setZoom(Number(e.target.value) / 100)}
               aria-label="Pengatur Zoom"
             />
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={zoomLevel >= 3.0}
-              onClick={() => {
-                setHasInteracted(true);
-                setZoomLevel((z) => Math.min(3.0, Number((z + 0.1).toFixed(2))));
-              }}
+              disabled={zoom >= 3.0}
+              onClick={() => setZoom((z) => Math.min(3.0, Number((z + 0.1).toFixed(2))))}
               aria-label="Perbesar"
             >
               +
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {Math.round(zoomLevel * 100)}%
+              {Math.round(zoom * 100)}%
             </output>
           </div>
 
@@ -603,11 +580,8 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetX <= 0 || panXPercentage <= 0}
-              onClick={() => {
-                setHasInteracted(true);
-                setPanXPercentage((p) => Math.max(0, p - 5));
-              }}
+              disabled={panX <= 0}
+              onClick={() => setPanX((p) => Math.max(0, p - 5))}
               aria-label="Geser kiri"
             >
               &lt;
@@ -618,28 +592,21 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="0"
               max="100"
               step="1"
-              disabled={maxOffsetX <= 0}
-              value={panXPercentage}
-              onChange={(e) => {
-                setHasInteracted(true);
-                setPanXPercentage(Number(e.target.value));
-              }}
+              value={panX}
+              onChange={(e) => setPanX(Number(e.target.value))}
               aria-label="Slider pan horizontal"
             />
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetX <= 0 || panXPercentage >= 100}
-              onClick={() => {
-                setHasInteracted(true);
-                setPanXPercentage((p) => Math.min(100, p + 5));
-              }}
+              disabled={panX >= 100}
+              onClick={() => setPanX((p) => Math.min(100, p + 5))}
               aria-label="Geser kanan"
             >
               &gt;
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {panXPercentage}%
+              {panX}%
             </output>
           </div>
 
@@ -649,11 +616,8 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetY <= 0 || panYPercentage <= 0}
-              onClick={() => {
-                setHasInteracted(true);
-                setPanYPercentage((p) => Math.max(0, p - 5));
-              }}
+              disabled={panY <= 0}
+              onClick={() => setPanY((p) => Math.max(0, p - 5))}
               aria-label="Geser atas"
             >
               ^
@@ -664,28 +628,21 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               min="0"
               max="100"
               step="1"
-              disabled={maxOffsetY <= 0}
-              value={panYPercentage}
-              onChange={(e) => {
-                setHasInteracted(true);
-                setPanYPercentage(Number(e.target.value));
-              }}
+              value={panY}
+              onChange={(e) => setPanY(Number(e.target.value))}
               aria-label="Slider pan vertikal"
             />
             <button
               type="button"
               className="pc-pan-btn"
-              disabled={maxOffsetY <= 0 || panYPercentage >= 100}
-              onClick={() => {
-                setHasInteracted(true);
-                setPanYPercentage((p) => Math.min(100, p + 5));
-              }}
+              disabled={panY >= 100}
+              onClick={() => setPanY((p) => Math.min(100, p + 5))}
               aria-label="Geser bawah"
             >
               v
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {panYPercentage}%
+              {panY}%
             </output>
           </div>
         </div>
@@ -723,10 +680,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               className="pc-b soft"
               onClick={() => {
                 loadImage(origSrc);
-                setZoomLevel(1.0);
-                setPanXPercentage(50);
-                setPanYPercentage(50);
-                setHasInteracted(true);
+                setZoom(1);
+                setPanX(50);
+                setPanY(50);
               }}
             >
               Reset
