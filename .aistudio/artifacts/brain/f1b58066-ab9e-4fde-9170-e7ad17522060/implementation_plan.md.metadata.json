@@ -1,6 +1,6 @@
 {
-  "summary": "Rencana perbaikan menyeluruh Pengaturan Profil: menambahkan tombol 'Simpan Profil' di header atas DAN di bawah kartu Informasi Profil, memperbaiki pengeditan baris profil (Nama, Email, Pekerjaan, Status) dengan tombol Terapkan & Batal, mengaktifkan modal Crop Foto dengan drag/zoom/preview dialog tambahan sebelum disimpan ke backend MySQL, serta sinkronisasi avatar real-time ke top bar.",
-  "updatedAt": "2026-10-19T09:24:17.558982191Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Implementation plan for unlocking the crop save button, connecting canvas export to upload.php REST API, busting avatar cache, and syncing CSS and ProfileSettingsView state.",
+  "updatedAt":  "2026-10-22T06:05:36.967893437Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

@@ -230,8 +230,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         setIsSaving(true);
         const token = getAuthToken();
         const fd = new FormData();
-        const randomDigits = Math.floor(1000 + Math.random() * 9000);
-        const filename = `avatar_${profileId}_${Math.floor(Date.now() / 1000)}_${randomDigits}.jpg`;
+        const filename = (cropInput instanceof File && cropInput.name) ? cropInput.name : `avatar_${Date.now()}.jpg`;
         fd.append('avatar', cropInput, filename);
         fd.append('id', String(profileId));
 

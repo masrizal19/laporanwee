@@ -657,9 +657,29 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
           const resJson = await res.json();
           if (resJson && (resJson.success || resJson.status === 'success')) {
             const rawAvatar = resJson.data?.avatar_url || resJson.avatar_url || resJson.avatar || resJson.data?.file_url;
-            const newAvatar = rawAvatar
-              ? (rawAvatar.startsWith('data:') ? rawAvatar : `${rawAvatar.split('?')[0]}?t=${Date.now()}`)
+            const cleanUrl = rawAvatar ? rawAvatar.split('?')[0] : '';
+            const newAvatar = cleanUrl
+              ? (cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`)
               : previewDataUrl;
+
+            // Direct DOM update for instant visual synchronization
+            const mainImg = (document.querySelector('#mainAvatarImg') || document.querySelector('.pimg img')) as HTMLImageElement | null;
+            if (mainImg) {
+              mainImg.src = newAvatar;
+              mainImg.style.display = 'block';
+            }
+
+            const mainInit = (document.querySelector('#mainAvatarInit') || document.querySelector('.pimg .init')) as HTMLElement | null;
+            if (mainInit) {
+              mainInit.style.display = 'none';
+            }
+
+            // Restore route URL back to /profil
+            try {
+              if (window.history && window.history.pushState) {
+                window.history.pushState({}, '', '/profil');
+              }
+            } catch (_) {}
 
             onSaved(newAvatar);
             onClose();

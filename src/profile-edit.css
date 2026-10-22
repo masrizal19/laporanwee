@@ -1123,7 +1123,7 @@
 }
 
 .pc-b.pc-load {
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .pc-b.pc-load > *:not(.pc-spn) {
