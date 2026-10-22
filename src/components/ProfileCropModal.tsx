@@ -10,7 +10,7 @@ interface ProfileCropModalProps {
   onError: (message: string) => void;
 }
 
-const ENDPOINT_API = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
+const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
 const MAXDIM = 2048;
 const STEP = 34;
 const HOLD_SPEED = 3.4;
@@ -322,46 +322,19 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     [applyTransforms]
   );
 
-  // Initialize on modal open & fetch GET latest avatar from backend
+  // Initialize on modal open
   useEffect(() => {
-    let isSubscribed = true;
-    if (isOpen) {
+    if (isOpen && initialSrc) {
+      setOrigSrc(initialSrc);
+      loadImage(initialSrc);
       document.documentElement.style.overflow = 'hidden';
       setTimeout(() => {
         if (stageRef.current) stageRef.current.focus({ preventScroll: true });
       }, 180);
-
-      const fetchInitialAvatar = async () => {
-        const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-        if (token) {
-          try {
-            const res = await fetch(ENDPOINT_API, {
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Accept': 'application/json',
-              },
-            });
-            const json = await res.json();
-            if (isSubscribed && json && json.success && json.data && json.data.avatar_url) {
-              const freshUrl = `${json.data.avatar_url.split('?')[0]}?t=${Date.now()}`;
-              setOrigSrc(freshUrl);
-              loadImage(freshUrl);
-              return;
-            }
-          } catch (_) {}
-        }
-        if (isSubscribed && initialSrc) {
-          setOrigSrc(initialSrc);
-          loadImage(initialSrc);
-        }
-      };
-
-      fetchInitialAvatar();
     } else {
       document.documentElement.style.overflow = '';
     }
     return () => {
-      isSubscribed = false;
       document.documentElement.style.overflow = '';
       if (stateRef.current.raf) {
         cancelAnimationFrame(stateRef.current.raf);
@@ -673,10 +646,10 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
           fd.append('avatar', blob, `avatar_${userId}_${Date.now()}.jpg`);
           fd.append('id', String(userId));
 
-          const res = await fetch(ENDPOINT_API, {
+          const res = await fetch(`${API_BASE}/upload.php`, {
             method: 'POST',
             headers: {
-              'Authorization': token ? `Bearer ${token}` : '',
+              'Authorization': 'Bearer ' + token,
             },
             body: fd,
           });
