@@ -642,7 +642,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
         try {
           const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
           const fd = new FormData();
-          fd.append('avatar', blob, `avatar_${profileId}_${Date.now()}.jpg`);
+          const randomDigits = Math.floor(1000 + Math.random() * 9000);
+          fd.append('avatar', blob, `avatar_${profileId}_${Math.floor(Date.now() / 1000)}_${randomDigits}.jpg`);
           fd.append('id', String(profileId));
 
           const res = await fetch(`${API_BASE}/upload.php`, {
@@ -655,8 +656,13 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
 
           const json = await res.json();
           let finalAvatarUrl = previewDataUrl;
-          if (json && json.success && json.avatar_url) {
-            finalAvatarUrl = json.avatar_url;
+          const returnedUrl = json?.avatar_url || json?.data?.avatar_url || json?.data?.file_url;
+          if (json && (json.success || json.status === 'success') && returnedUrl) {
+            finalAvatarUrl = returnedUrl;
+            if (typeof finalAvatarUrl === 'string' && !finalAvatarUrl.startsWith('data:')) {
+              const cleanUrl = finalAvatarUrl.split('?')[0];
+              finalAvatarUrl = `${cleanUrl}?t=${Date.now()}`;
+            }
           }
 
           onSaved(finalAvatarUrl);

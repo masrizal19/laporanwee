@@ -1,5 +1,9 @@
 <?php
 // profile/save.php - Save Profile & Cropped Avatar Endpoint
+header("Cache-Control: no-cache, no-store, must-revalidate");
+header("Pragma: no-cache");
+header("Expires: 0");
+
 require_once __DIR__ . '/auth-helper.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -91,7 +95,7 @@ try {
             mkdir($destDir, 0755, true);
         }
 
-        $finalFileName = 'avatar_' . $userId . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.jpg';
+        $finalFileName = 'avatar_' . $userId . '_' . time() . '_' . rand(1000, 9999) . '.jpg';
         $finalDestPath = $destDir . $finalFileName;
 
         // Convert / save as optimized JPEG

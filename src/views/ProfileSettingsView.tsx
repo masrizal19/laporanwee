@@ -157,17 +157,29 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     setIsModalOpen(true);
   };
 
-  // Handle photo crop saved callback
-  const handleCropSaved = (freshAvatarUrl: string) => {
-    const cleanAvatar = withAvatarCacheBust(freshAvatarUrl);
-    setAvatarUrl(cleanAvatar);
+  // Refaktor fungsi handleSaveCrop dengan dynamic cache-busting
+  const handleSaveCrop = (cropResult: string | { avatar_url?: string; [key: string]: any }) => {
+    let rawAvatar = typeof cropResult === 'string' ? cropResult : (cropResult?.avatar_url || (cropResult?.data?.avatar_url) || '');
+    let finalUrl = rawAvatar;
+
+    // Tambahkan parameter cache-busting URL dinamis jika bukan base64
+    if (finalUrl && typeof finalUrl === 'string') {
+      const isBase64 = finalUrl.startsWith('data:') || finalUrl.startsWith('blob:');
+      if (!isBase64) {
+        const cleanUrl = finalUrl.split('?')[0];
+        finalUrl = `${cleanUrl}?t=${Date.now()}`;
+      }
+    }
+
+    // Pastikan state avatarUrl langsung di-set dengan finalUrl yang memiliki timestamp
+    setAvatarUrl(finalUrl);
 
     // Update session storage & user object
     const savedUser = getStoredUser();
     if (savedUser) {
       const updatedUser = {
         ...savedUser,
-        avatar_url: cleanAvatar,
+        avatar_url: finalUrl,
       };
       setStoredUser(updatedUser);
     }
@@ -183,7 +195,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         name,
         role: userRole || 'Administrator',
         status,
-        avatar_url: cleanAvatar,
+        avatar_url: finalUrl,
       });
     }
 
@@ -192,7 +204,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
       new CustomEvent('laporanwee-profile-updated', {
         detail: {
           id: profileId,
-          avatar_url: cleanAvatar,
+          avatar_url: finalUrl,
           name,
           email,
         },
@@ -201,6 +213,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
 
     onAddToast('Foto profil berhasil disimpan ke server');
   };
+
+  const handleCropSaved = handleSaveCrop;
 
   // Save textual profile info to save.php
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -329,8 +343,12 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               }}
             >
               <img
+                key={avatarUrl || 'initials'}
                 src={avatarUrl || getInitialsAvatar(name[0])}
                 alt="Foto Profil"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = getInitialsAvatar(name[0]);
+                }}
               />
             </div>
 
@@ -485,7 +503,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         initialSrc={avatarUrl || getInitialsAvatar(name[0])}
         profileId={profileId}
         onClose={() => setIsModalOpen(false)}
-        onSaved={handleCropSaved}
+        onSaved={handleSaveCrop}
         onError={(err) => onAddToast(err)}
       />
     </div>
