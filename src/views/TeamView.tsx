@@ -126,41 +126,66 @@ export const TeamView: React.FC<TeamViewProps> = ({
     onAddToast('Tautan undangan tim berhasil disalin!');
   };
 
-  // Helper to render dynamic member avatar or clean initial badge
-  const renderMemberAvatar = (m: { name?: string; img?: string; avatar_url?: string | null }, size: string = '36px', fontSize: string = '13px') => {
-    const avatarSrc = m && (m.img || (m.avatar_url ? getAbsoluteAvatarUrl(m.avatar_url, m.name) : undefined));
-    if (avatarSrc) {
-      return (
-        <img
-          src={avatarSrc}
-          alt={m.name || 'Anggota'}
-          style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }}
-          onError={(e) => {
-            (e.currentTarget as HTMLElement).style.display = 'none';
-          }}
-        />
-      );
-    }
-    const initial = (m?.name || 'U').trim().charAt(0).toUpperCase();
+  // Helper to render dynamic member avatar with img and initial fallback
+  const renderMemberAvatar = (
+    m: { name?: string; full_name?: string; img?: string; avatar_url?: string | null },
+    size: string = '38px',
+    fontSize: string = '13px'
+  ) => {
+    const displayName = m?.full_name || m?.name || 'Anggota';
+    const avatarUrl = m?.avatar_url ? getAbsoluteAvatarUrl(m.avatar_url, displayName) : (m?.img ? getAbsoluteAvatarUrl(m.img, displayName) : null);
+    const initial = displayName.trim().charAt(0).toUpperCase() || 'U';
+
     return (
       <div
+        className="avatar"
         style={{
           width: size,
           height: size,
           borderRadius: '50%',
+          overflow: 'hidden',
           background: 'var(--primary-color, #4A55FF)',
-          color: '#fff',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
-          fontSize: fontSize,
-          fontWeight: 700,
-          border: '1px solid rgba(0,0,0,0.06)',
           flexShrink: 0,
+          position: 'relative',
+          border: '1px solid rgba(0,0,0,0.06)',
         }}
-        title={m?.name || 'Anggota'}
+        title={displayName}
       >
-        {initial}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={displayName}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+              const parent = e.currentTarget.parentElement;
+              if (parent) {
+                const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                if (initialEl) initialEl.style.display = 'flex';
+              }
+            }}
+          />
+        ) : null}
+        <span
+          className="avatar-initial"
+          style={{
+            display: avatarUrl ? 'none' : 'flex',
+            width: '100%',
+            height: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#ffffff',
+            fontSize: fontSize,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            lineHeight: 1,
+          }}
+        >
+          {initial}
+        </span>
       </div>
     );
   };

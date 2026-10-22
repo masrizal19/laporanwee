@@ -227,17 +227,50 @@ export const Navbar: React.FC<NavbarProps> = ({
             title={`Pengaturan Profil: ${userName || userEmail || 'Pengguna'}`}
             role="button"
             tabIndex={0}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '50%',
+              overflow: 'hidden',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              position: 'relative',
+              cursor: 'pointer',
+            }}
           >
             {avatarUrl ? (
               <img
                 src={avatarUrl}
                 alt={userName || 'Avatar'}
                 className="avatar-img"
-                style={{ borderRadius: '50%' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                  const parent = e.currentTarget.parentElement;
+                  if (parent) {
+                    const fallback = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                    if (fallback) fallback.style.display = 'flex';
+                  }
+                }}
               />
-            ) : (
-              <span>{userInitials}</span>
-            )}
+            ) : null}
+            <span
+              className="avatar-initial"
+              style={{
+                display: avatarUrl ? 'none' : 'flex',
+                width: '100%',
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 700,
+                fontSize: '15px',
+                color: '#2a2440',
+                lineHeight: 1,
+              }}
+            >
+              {(userName || userEmail || 'AD').trim().charAt(0).toUpperCase()}
+            </span>
           </div>
         </div>
       </header>

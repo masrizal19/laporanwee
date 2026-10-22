@@ -827,8 +827,10 @@ body {
 /* Avatar Stack */
 .stack {
   display: flex;
+  align-items: center;
 }
-.stack i {
+.stack i,
+.stack .avatar {
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -840,8 +842,11 @@ body {
   color: #2a2440;
   border: 2px solid var(--glass-solid);
   margin-left: -8px;
+  overflow: hidden;
+  flex-shrink: 0;
 }
-.stack i:first-child {
+.stack i:first-child,
+.stack .avatar:first-child {
   margin-left: 0;
 }
 

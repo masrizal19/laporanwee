@@ -660,6 +660,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                       return (
                         <div
                           key={String(tm.user_id)}
+                          className="avatar"
                           onClick={() => {
                             if (onSelectUserProfile) {
                               onSelectUserProfile(tm.user_id);
@@ -667,36 +668,53 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                               onNavigate('user-profile');
                             }
                           }}
-                          style={{ cursor: 'pointer', display: 'inline-block' }}
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            overflow: 'hidden',
+                            background: 'var(--primary-color, #4A55FF)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative',
+                            cursor: 'pointer',
+                            flexShrink: 0,
+                          }}
                           title={`${tm.full_name}${tm.profile_title ? ` (${tm.profile_title})` : ''}`}
                         >
                           {avatarSrc ? (
                             <img
                               src={avatarSrc}
                               alt={tm.full_name}
-                              style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }}
+                              style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
                               onError={(e) => {
                                 (e.currentTarget as HTMLElement).style.display = 'none';
+                                const parent = e.currentTarget.parentElement;
+                                if (parent) {
+                                  const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                                  if (initialEl) initialEl.style.display = 'flex';
+                                }
                               }}
                             />
-                          ) : (
-                            <div
-                              style={{
-                                width: '32px',
-                                height: '32px',
-                                borderRadius: '50%',
-                                background: 'var(--primary-color, #4A55FF)',
-                                color: '#fff',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '11px',
-                                fontWeight: 700,
-                              }}
-                            >
-                              {(tm.full_name || 'U').trim().charAt(0).toUpperCase()}
-                            </div>
-                          )}
+                          ) : null}
+                          <span
+                            className="avatar-initial"
+                            style={{
+                              display: avatarSrc ? 'none' : 'flex',
+                              width: '100%',
+                              height: '100%',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: '#fff',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              lineHeight: 1,
+                              textTransform: 'uppercase',
+                            }}
+                          >
+                            {(tm.full_name || 'U').trim().charAt(0).toUpperCase()}
+                          </span>
                         </div>
                       );
                     })}

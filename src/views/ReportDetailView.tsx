@@ -887,7 +887,54 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {comments.map((c) => (
                 <div key={c.id} className="comment-row">
-                  <img src={c.avatar} alt={c.name} />
+                  <div
+                    className="avatar"
+                    style={{
+                      width: '38px',
+                      height: '38px',
+                      borderRadius: '50%',
+                      overflow: 'hidden',
+                      background: 'var(--primary-color, #4A55FF)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      position: 'relative',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {c.avatar ? (
+                      <img
+                        src={getAbsoluteAvatarUrl(c.avatar, c.name)}
+                        alt={c.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                          const parent = e.currentTarget.parentElement;
+                          if (parent) {
+                            const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                            if (initialEl) initialEl.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <span
+                      className="avatar-initial"
+                      style={{
+                        display: c.avatar ? 'none' : 'flex',
+                        width: '100%',
+                        height: '100%',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#ffffff',
+                        fontSize: '13px',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        lineHeight: 1,
+                      }}
+                    >
+                      {c.name.trim().charAt(0).toUpperCase()}
+                    </span>
+                  </div>
                   <div className="cb">
                     <b>{c.name}</b>
                     <span className="ctime">{c.time}</span>

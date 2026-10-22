@@ -470,43 +470,70 @@ export const TasksView: React.FC<TasksViewProps> = ({
       ? (foundMember.img || (foundMember.avatar_url ? getAbsoluteAvatarUrl(foundMember.avatar_url, foundMember.name) : undefined))
       : undefined;
 
-    if (memberAvatar) {
-      return (
-        <img
-          src={memberAvatar}
-          alt={assignee}
-          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }}
-          onError={(e) => {
-            (e.currentTarget as HTMLElement).style.display = 'none';
-          }}
-        />
-      );
-    }
+    const avatarUrl = memberAvatar || (
+      assignee.startsWith('http://') ||
+      assignee.startsWith('https://') ||
+      assignee.startsWith('data:') ||
+      assignee.startsWith('blob:')
+        ? assignee
+        : undefined
+    );
 
-    const initials = (foundMember?.full_name || foundMember?.name || assignee)
-      .substring(0, 2)
-      .toUpperCase();
+    const initial = (foundMember?.full_name || foundMember?.name || assignee)
+      .trim()
+      .charAt(0)
+      .toUpperCase() || 'U';
 
     return (
       <div
-        className="kcard-avatar-fallback"
+        className="avatar kcard-avatar-fallback"
         style={{
-          width: 22,
-          height: 22,
+          width: 24,
+          height: 24,
           borderRadius: '50%',
+          overflow: 'hidden',
           background: 'var(--violet-bg, #ede9fe)',
-          color: 'var(--violet, #7c3aed)',
-          fontSize: '10px',
-          fontWeight: 600,
-          display: 'flex',
+          display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
           border: '1px solid rgba(0,0,0,0.06)',
           flexShrink: 0,
+          position: 'relative',
         }}
         title={assignee}
       >
-        {initials}
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={assignee}
+            style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+              const parent = e.currentTarget.parentElement;
+              if (parent) {
+                const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                if (initialEl) initialEl.style.display = 'flex';
+              }
+            }}
+          />
+        ) : null}
+        <span
+          className="avatar-initial"
+          style={{
+            display: avatarUrl ? 'none' : 'flex',
+            width: '100%',
+            height: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--violet, #7c3aed)',
+            fontSize: '10px',
+            fontWeight: 700,
+            textTransform: 'uppercase',
+            lineHeight: 1,
+          }}
+        >
+          {initial}
+        </span>
       </div>
     );
   };

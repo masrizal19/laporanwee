@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../types';
 import { getUserFirstName } from '../utils/userUtils';
+import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -272,6 +273,98 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
   };
 
+  // Helper to match an assignee identifier to full team member profile from database
+  const resolveMember = (identifier?: any) => {
+    if (!identifier) return null;
+    if (typeof identifier === 'object') {
+      if (identifier.avatar_url) return identifier;
+      const targetName = (identifier.name || identifier.initial || '').toLowerCase();
+      const match = members.find((m) =>
+        (m.name && m.name.toLowerCase().includes(targetName)) ||
+        (m.full_name && m.full_name.toLowerCase().includes(targetName)) ||
+        (identifier.initial && m.name.slice(0, 2).toLowerCase() === identifier.initial.toLowerCase())
+      );
+      return match || identifier;
+    }
+    const clean = String(identifier).trim().toLowerCase();
+    return (
+      members.find(
+        (m) =>
+          (m.name && m.name.toLowerCase().includes(clean)) ||
+          (m.full_name && m.full_name.toLowerCase().includes(clean)) ||
+          (clean.length <= 2 && m.name.slice(0, 2).toLowerCase() === clean)
+      ) || null
+    );
+  };
+
+  // Dynamic avatar circle renderer according to conditional avatar rules
+  const renderAvatarCircle = (
+    item: { name?: string; full_name?: string; avatar_url?: string | null; initial?: string; bg?: string } | string,
+    key?: string | number,
+    size: string = '28px'
+  ) => {
+    const rawObj = typeof item === 'string' ? resolveMember(item) || { name: item, initial: item } : item;
+    const memberObj = resolveMember(rawObj) || rawObj;
+    const displayName = (memberObj as any)?.full_name || (memberObj as any)?.name || (typeof item === 'string' ? item : (item as any)?.initial) || 'User';
+    const rawAvatar = (memberObj as any)?.avatar_url || (memberObj as any)?.img || (typeof item === 'object' ? (item as any)?.avatar_url : null);
+    const avatarUrl = rawAvatar ? getAbsoluteAvatarUrl(rawAvatar, displayName) : null;
+    const initialText = ((memberObj as any)?.initial || displayName.charAt(0) || 'U').toUpperCase();
+
+    return (
+      <div
+        key={key}
+        className="avatar"
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          background: (rawObj as any)?.bg || 'var(--lav)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          position: 'relative',
+          border: '2px solid var(--glass-solid, #ffffff)',
+          flexShrink: 0,
+        }}
+        title={displayName}
+      >
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={displayName}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+              const parent = e.currentTarget.parentElement;
+              if (parent) {
+                const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                if (initialEl) initialEl.style.display = 'flex';
+              }
+            }}
+          />
+        ) : null}
+        <span
+          className="avatar-initial"
+          style={{
+            display: avatarUrl ? 'none' : 'flex',
+            width: '100%',
+            height: '100%',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '10.5px',
+            fontWeight: 700,
+            color: '#2a2440',
+            lineHeight: 1,
+            textTransform: 'uppercase',
+          }}
+        >
+          {initialText}
+        </span>
+      </div>
+    );
+  };
+
   return (
     <div>
       {/* 1. Greeting Header & Inline Micro KPIs */}
@@ -355,11 +448,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <small>{t.subtitle} &bull; {t.time}</small>
                 </div>
                 <div className="stack">
-                  {t.assignees.map((a, i) => (
-                    <i key={i} style={{ background: a.bg || (i % 2 === 0 ? 'var(--lav)' : 'var(--lime-soft)') }}>
-                      {a.initial}
-                    </i>
-                  ))}
+                  {t.assignees.map((a, i) => renderAvatarCircle(a, i, '28px'))}
                 </div>
               </div>
             ))}
@@ -407,8 +496,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <small>Google Meet</small>
                 </div>
                 <div className="stack" style={{ marginLeft: 'auto' }}>
-                  <i style={{ background: '#f6e6cf' }}>Sa</i>
-                  <i style={{ background: '#d6ecdf' }}>Ba</i>
+                  {renderAvatarCircle('Sa', 0, '26px')}
+                  {renderAvatarCircle('Ba', 1, '26px')}
                 </div>
               </div>
 
@@ -431,8 +520,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <small>Figma Workspace</small>
                 </div>
                 <div className="stack" style={{ marginLeft: 'auto' }}>
-                  <i style={{ background: '#e3ddfa' }}>Ri</i>
-                  <i style={{ background: '#f1d8e4' }}>Ti</i>
+                  {renderAvatarCircle('Ri', 0, '26px')}
+                  {renderAvatarCircle('Ti', 1, '26px')}
                 </div>
               </div>
 
@@ -637,9 +726,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
                   <div className="row">
                     <div className="stack">
-                      <i style={{ background: '#e3ddfa' }}>Ri</i>
-                      <i style={{ background: '#e9f5b8' }}>Di</i>
-                      <i style={{ background: '#f6e6cf' }}>Sa</i>
+                      {((p as any).teamMembers && (p as any).teamMembers.length > 0)
+                        ? (p as any).teamMembers.map((tm: any, i: number) => renderAvatarCircle({ name: tm.full_name, avatar_url: tm.avatar_url }, i, '26px'))
+                        : (Array.isArray((p as any).team) && (p as any).team.length > 0)
+                        ? (p as any).team.map((t: string, i: number) => renderAvatarCircle({ name: 'Tim', avatar_url: t }, i, '26px'))
+                        : members.length > 0
+                        ? members.slice(0, 3).map((m, i) => renderAvatarCircle({ name: m.full_name || m.name, avatar_url: m.avatar_url || m.img }, i, '26px'))
+                        : [
+                            renderAvatarCircle({ initial: 'Ri', bg: '#e3ddfa' }, 0, '26px'),
+                            renderAvatarCircle({ initial: 'Di', bg: '#e9f5b8' }, 1, '26px'),
+                            renderAvatarCircle({ initial: 'Sa', bg: '#f6e6cf' }, 2, '26px'),
+                          ]}
                     </div>
                     <b>{p.progress || 0}%</b>
                   </div>

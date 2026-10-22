@@ -305,16 +305,61 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 
                 <div className="proj-foot">
                   <div className="avatar-stack">
-                    {p.team.map((img, i) => (
-                      <img
-                        key={i}
-                        src={getAbsoluteAvatarUrl(img)}
-                        alt="Team"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    ))}
+                    {p.team.map((img, i) => {
+                      const avatarUrl = getAbsoluteAvatarUrl(img);
+                      return (
+                        <div
+                          key={i}
+                          className="avatar"
+                          style={{
+                            width: '28px',
+                            height: '28px',
+                            borderRadius: '50%',
+                            overflow: 'hidden',
+                            background: 'var(--lav, #d9d3f5)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            position: 'relative',
+                            border: '2px solid #fff',
+                            marginLeft: i > 0 ? '-8px' : 0,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {avatarUrl ? (
+                            <img
+                              src={avatarUrl}
+                              alt="Team"
+                              style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                              onError={(e) => {
+                                (e.currentTarget as HTMLElement).style.display = 'none';
+                                const parent = e.currentTarget.parentElement;
+                                if (parent) {
+                                  const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
+                                  if (initialEl) initialEl.style.display = 'flex';
+                                }
+                              }}
+                            />
+                          ) : null}
+                          <span
+                            className="avatar-initial"
+                            style={{
+                              display: avatarUrl ? 'none' : 'flex',
+                              width: '100%',
+                              height: '100%',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              color: '#2a2440',
+                              lineHeight: 1,
+                            }}
+                          >
+                            T
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="proj-due">
