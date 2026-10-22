@@ -14,7 +14,6 @@ interface SettingProfilePictureModalProps {
 const CROP_API_ENDPOINT = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
 const MAX_DIMENSION = 2048;
 const STEP_PIXELS = 34;
-const HOLD_SPEED = 3.4;
 
 // Canvas initials avatar helper fallback
 const createInitialsAvatar = (initialChar: string) => {
@@ -49,7 +48,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   isOpen,
   initialSrc,
   userName = 'Pengguna',
-  userEmail = '',
   onClose,
   onSaved,
   onError,
@@ -85,8 +83,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     CS: 280,
     dragging: false,
     dragStart: { x: 0, y: 0, px: 0, py: 0 },
-    hold: null as { x: number; y: number } | null,
-    raf: 0,
     pinch: null as { d: number; z: number } | null,
     ptrs: new Map<number, { x: number; y: number }>(),
   });
@@ -295,7 +291,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   // Fetch initial profile picture from CROP_API_ENDPOINT on mount/open
   useEffect(() => {
     if (isOpen) {
-      // Update route URL to /profil/setting-profile-picture
       try {
         if (window.history && window.history.pushState) {
           window.history.pushState({}, '', '/profil/setting-profile-picture');
@@ -309,7 +304,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             method: 'GET',
             headers: {
               'Accept': 'application/json',
-              'Authorization': 'Bearer ' + token,
+              'Authorization': token ? 'Bearer ' + token : '',
             },
           });
           const json = await res.json();
@@ -346,7 +341,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   }, [isOpen, initialSrc, userName, loadImage]);
 
   const handleClose = () => {
-    // Restore route back to /profil cleanly
     try {
       if (window.history && window.history.pushState) {
         window.history.pushState({}, '', '/profil');
@@ -527,97 +521,129 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   };
 
   const handleSave = async () => {
-    const img = imgRef.current;
-    if (!img || !nw || !nh) return;
-
     setIsUploading(true);
-    const bounds = getBounds();
-    const clampedPx = clamp(posX, bounds.minX, bounds.maxX);
-    const clampedPy = clamp(posY, bounds.minY, bounds.maxY);
-    const CS = stateRef.current.CS || 280;
+    try {
+      let img = imgRef.current;
+      let currentW = nw;
+      let currentH = nh;
 
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = 512;
-    outCanvas.height = 512;
-    const g = outCanvas.getContext('2d');
-    if (!g) {
-      setIsUploading(false);
-      return;
-    }
-
-    const k = 512 / CS;
-    g.fillStyle = '#ffffff';
-    g.fillRect(0, 0, 512, 512);
-    g.drawImage(
-      img,
-      0,
-      0,
-      nw,
-      nh,
-      clampedPx * k,
-      clampedPy * k,
-      nw * base * zoom * k,
-      nh * base * zoom * k
-    );
-
-    const previewDataUrl = outCanvas.toDataURL('image/jpeg', 0.92);
-
-    outCanvas.toBlob(
-      async (blob) => {
-        if (!blob) {
-          setIsUploading(false);
-          onError('Gagal memproses gambar');
-          return;
-        }
-
-        try {
-          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-          const fd = new FormData();
-          fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
-
-          const res = await fetch(CROP_API_ENDPOINT, {
-            method: 'POST',
-            headers: {
-              'Authorization': 'Bearer ' + token,
-            },
-            body: fd,
+      // Asynchronous fallback image loader if DOM img ref is not natural size ready
+      if (!img || !currentW || !currentH) {
+        if (src) {
+          const loadedImg = new Image();
+          loadedImg.crossOrigin = 'anonymous';
+          await new Promise<void>((resolve, reject) => {
+            loadedImg.onload = () => resolve();
+            loadedImg.onerror = () => reject(new Error('Gagal memuat gambar'));
+            loadedImg.src = src;
           });
-
-          const resJson = await res.json();
-          if (resJson && (resJson.success || resJson.status === 'success')) {
-            const rawAvatar = resJson.data?.avatar_url || resJson.avatar_url || resJson.avatar || resJson.data?.file_url;
-            const cleanUrl = rawAvatar ? rawAvatar.split('?')[0] : '';
-            const newAvatar = cleanUrl
-              ? (cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`)
-              : previewDataUrl;
-
-            // Direct DOM update for instant visual synchronization
-            const mainImg = (document.querySelector('#mainAvatarImg') || document.querySelector('.pimg img')) as HTMLImageElement | null;
-            if (mainImg) {
-              mainImg.src = newAvatar;
-              mainImg.style.display = 'block';
-            }
-
-            handleClose();
-            onSaved(newAvatar);
-          } else {
-            onError(resJson?.message || 'Gagal mengunggah foto profil');
-          }
-        } catch (err: any) {
-          onError('Gagal terhubung ke server upload foto');
-        } finally {
-          setIsUploading(false);
+          img = loadedImg;
+          currentW = loadedImg.naturalWidth || 512;
+          currentH = loadedImg.naturalHeight || 512;
         }
-      },
-      'image/jpeg',
-      0.92
-    );
+      }
+
+      if (!img) {
+        onError('Belum ada foto untuk disimpan');
+        setIsUploading(false);
+        return;
+      }
+
+      const bounds = getBounds();
+      const clampedPx = clamp(posX, bounds.minX, bounds.maxX);
+      const clampedPy = clamp(posY, bounds.minY, bounds.maxY);
+      const CS = stateRef.current.CS || 280;
+
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = 512;
+      outCanvas.height = 512;
+      const g = outCanvas.getContext('2d');
+      if (!g) {
+        setIsUploading(false);
+        onError('Gagal membuat kanvas gambar');
+        return;
+      }
+
+      const k = 512 / CS;
+      g.fillStyle = '#ffffff';
+      g.fillRect(0, 0, 512, 512);
+      g.drawImage(
+        img,
+        0,
+        0,
+        currentW,
+        currentH,
+        clampedPx * k,
+        clampedPy * k,
+        currentW * base * zoom * k,
+        currentH * base * zoom * k
+      );
+
+      const previewDataUrl = outCanvas.toDataURL('image/jpeg', 0.92);
+
+      outCanvas.toBlob(
+        async (blob) => {
+          if (!blob) {
+            setIsUploading(false);
+            onError('Gagal memproses gambar');
+            return;
+          }
+
+          try {
+            const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+            const fd = new FormData();
+            fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
+
+            const res = await fetch(CROP_API_ENDPOINT, {
+              method: 'POST',
+              headers: {
+                'Authorization': token ? `Bearer ${token}` : '',
+              },
+              body: fd,
+            });
+
+            const resJson = await res.json();
+            if (resJson && (resJson.success || resJson.status === 'success')) {
+              const rawAvatar =
+                resJson.data?.avatar_url ||
+                resJson.avatar_url ||
+                resJson.avatar ||
+                resJson.data?.file_url;
+              const cleanUrl = rawAvatar ? rawAvatar.split('?')[0] : '';
+              const freshAvatar = cleanUrl
+                ? (cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`)
+                : previewDataUrl;
+
+              // Direct DOM update for instant visual synchronization across all avatar containers
+              const mainImgs = document.querySelectorAll('#mainAvatarImg, .pimg img, .avatar img');
+              mainImgs.forEach((el) => {
+                (el as HTMLImageElement).src = freshAvatar;
+                (el as HTMLImageElement).style.display = 'block';
+              });
+
+              onSaved(freshAvatar);
+              handleClose();
+            } else {
+              onError(resJson?.message || 'Gagal menyimpan foto profil.');
+            }
+          } catch (err: any) {
+            onError('Terjadi kesalahan koneksi ke server.');
+          } finally {
+            setIsUploading(false);
+          }
+        },
+        'image/jpeg',
+        0.92
+      );
+    } catch (err: any) {
+      onError('Terjadi kesalahan saat memproses gambar.');
+      setIsUploading(false);
+    }
   };
 
   if (!isOpen) return null;
 
   const bounds = getBounds();
-  const CS = stateRef.current.CS || 280;
   const ox = -bounds.minX;
   const oy = -bounds.minY;
   const cx = clamp(posX, bounds.minX, bounds.maxX);
@@ -703,7 +729,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 style={{
                   width: nw ? `${nw}px` : 'auto',
                   height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX * (72 / CS)}px, ${posY * (72 / CS)}px) scale(${base * zoom * (72 / CS)})`,
+                  transform: `translate(${posX * (72 / 280)}px, ${posY * (72 / 280)}px) scale(${base * zoom * (72 / 280)})`,
                 }}
               />
             </div>
@@ -715,7 +741,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 style={{
                   width: nw ? `${nw}px` : 'auto',
                   height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX * (44 / CS)}px, ${posY * (44 / CS)}px) scale(${base * zoom * (44 / CS)})`,
+                  transform: `translate(${posX * (44 / 280)}px, ${posY * (44 / 280)}px) scale(${base * zoom * (44 / 280)})`,
                 }}
               />
             </div>
@@ -727,7 +753,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 style={{
                   width: nw ? `${nw}px` : 'auto',
                   height: nh ? `${nh}px` : 'auto',
-                  transform: `translate(${posX * (28 / CS)}px, ${posY * (28 / CS)}px) scale(${base * zoom * (28 / CS)})`,
+                  transform: `translate(${posX * (28 / 280)}px, ${posY * (28 / 280)}px) scale(${base * zoom * (28 / 280)})`,
                 }}
               />
             </div>
@@ -862,23 +888,28 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
           </div>
         </div>
 
-        {/* Bottom Actions matching mockup */}
+        {/* Bottom Actions with programmatic fileInputRef.current.click() */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <label className="pc-b soft pc-full" htmlFor="spm-file" style={{ cursor: 'pointer' }}>
-            <svg viewBox="0 0 24 24">
+          <button
+            type="button"
+            className="pc-b soft pc-full"
+            style={{ cursor: 'pointer', width: '100%' }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <svg viewBox="0 0 24 24" style={{ width: 18, height: 18 }}>
               <path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3" />
             </svg>
-            Pilih Foto Baru
-          </label>
+            📁 Pilih Foto Baru
+          </button>
           <input
             ref={fileInputRef}
-            className="sr-only"
-            id="spm-file"
             type="file"
             accept="image/*"
+            style={{ display: 'none' }}
             onChange={(e) => {
-              if (e.target.files && e.target.files[0]) {
-                handleReadFile(e.target.files[0]);
+              const file = e.target.files?.[0];
+              if (file) {
+                handleReadFile(file);
                 e.target.value = '';
               }
             }}

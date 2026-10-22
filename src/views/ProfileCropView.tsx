@@ -528,16 +528,23 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
         {/* Actions Bar */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
-          <label className="pc-b soft" htmlFor="crop-file-input" style={{ cursor: 'pointer', fontSize: '13.5px' }}>
-            Pilih Foto Baru
-          </label>
+          <button
+            type="button"
+            className="pc-b soft"
+            style={{ cursor: 'pointer', fontSize: '13.5px' }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            📁 Pilih Foto Baru
+          </button>
           <input
             ref={fileInputRef}
-            id="crop-file-input"
             type="file"
             accept="image/*"
-            className="sr-only"
-            onChange={handleFileChange}
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              handleFileChange(e);
+              e.target.value = '';
+            }}
           />
 
           <button
