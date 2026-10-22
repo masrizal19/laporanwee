@@ -38,16 +38,16 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   onAddToast,
   onUpdateUser,
 }) => {
-  const [profileId, setProfileId] = useState<number | string>(1);
-  const [name, setName] = useState(userName || 'RIZAL FADHILAH');
-  const [email, setEmail] = useState(userEmail || 'rizalsaragih498@gmail.com');
+  const [profileId, setProfileId] = useState<number | string>('');
+  const [name, setName] = useState(userName || '');
+  const [email, setEmail] = useState(userEmail || '');
   const [job, setJob] = useState('VIDEO EDITOR');
   const [status, setStatus] = useState(userStatus || 'KARYAWAN');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
 
   const [initialProfile, setInitialProfile] = useState({
-    name: userName || 'RIZAL FADHILAH',
-    email: userEmail || 'rizalsaragih498@gmail.com',
+    name: userName || '',
+    email: userEmail || '',
     job: 'VIDEO EDITOR',
     status: userStatus || 'KARYAWAN',
   });

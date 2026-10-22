@@ -10,7 +10,7 @@ interface ProfileCropModalProps {
   onError: (message: string) => void;
 }
 
-const API_BASE = 'https://api-laporanwe.mkverse.my.id/api/profile';
+const CROP_SETTING_API = 'https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php';
 const MAXDIM = 2048;
 const STEP = 34;
 const HOLD_SPEED = 3.4;
@@ -322,11 +322,38 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     [applyTransforms]
   );
 
-  // Initialize on modal open
+  // Initialize on modal open and fetch picture from endpoint
   useEffect(() => {
-    if (isOpen && initialSrc) {
-      setOrigSrc(initialSrc);
-      loadImage(initialSrc);
+    if (isOpen) {
+      const fetchPicture = async () => {
+        try {
+          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+          const res = await fetch(CROP_SETTING_API, {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer ' + token,
+            },
+          });
+          const json = await res.json();
+          const u = json.data || json.user || json;
+          const fetchedAvatar = u?.avatar_url || u?.avatar || u?.file_url;
+          if (fetchedAvatar && typeof fetchedAvatar === 'string') {
+            const cleanUrl = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
+            const busted = cleanUrl.startsWith('data:') ? cleanUrl : `${cleanUrl}?t=${Date.now()}`;
+            setOrigSrc(busted);
+            loadImage(busted);
+            return;
+          }
+        } catch (_) {}
+
+        if (initialSrc) {
+          setOrigSrc(initialSrc);
+          loadImage(initialSrc);
+        }
+      };
+
+      fetchPicture();
       document.documentElement.style.overflow = 'hidden';
       setTimeout(() => {
         if (stageRef.current) stageRef.current.focus({ preventScroll: true });
@@ -646,7 +673,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
           fd.append('avatar', blob, `avatar_${userId}_${Date.now()}.jpg`);
           fd.append('id', String(userId));
 
-          const res = await fetch(`${API_BASE}/upload.php`, {
+          const res = await fetch(CROP_SETTING_API, {
             method: 'POST',
             headers: {
               'Authorization': 'Bearer ' + token,

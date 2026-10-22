@@ -355,31 +355,25 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
 
     const initData = async () => {
       try {
-        const res = await profileService.getProfile();
+        const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+        const fetchRes = await fetch('https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php', {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+        });
+        const json = await fetchRes.json();
         if (!isMounted) return;
-        if (requestInitiatedAt < getLatestProfileSaveTimestamp()) return;
 
-        if (res && res.success && res.data) {
-          const d = res.data;
-          const u = res.data;
-          const fetchedAvatar = u.avatar_url || u.avatar || extractAvatarFromResponse(res) || null;
-          if (fetchedAvatar && !fetchedAvatar.startsWith('data:image')) {
-            const clean = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
-            const busted = `${clean}?t=${Date.now()}`;
-            setOrigSrc(busted);
-            setSrc(busted);
-            loadImage(busted);
-          } else if (fetchedAvatar) {
-            setOrigSrc(fetchedAvatar);
-            setSrc(fetchedAvatar);
-            loadImage(fetchedAvatar);
-          }
-
-          setProfileMeta({
-            full_name: d.full_name || d.name || userName,
-            profile_title: d.profile_title || d.title || '',
-            profile_location: d.profile_location || d.status || d.location || '',
-          });
+        const u = json.data || json.user || json;
+        const fetchedAvatar = u?.avatar_url || u?.avatar || u?.file_url;
+        if (fetchedAvatar && typeof fetchedAvatar === 'string') {
+          const clean = fetchedAvatar.includes('?') ? fetchedAvatar.split('?')[0] : fetchedAvatar;
+          const busted = clean.startsWith('data:') ? clean : `${clean}?t=${Date.now()}`;
+          setOrigSrc(busted);
+          setSrc(busted);
+          loadImage(busted);
         } else if (initialAvatarUrl) {
           setOrigSrc(initialAvatarUrl);
           loadImage(initialAvatarUrl);
@@ -680,30 +674,23 @@ export const ProfileCropView: React.FC<ProfileCropViewProps> = ({
         }
 
         try {
-          // Upload to /upload.php
-          const randomDigits = Math.floor(1000 + Math.random() * 9000);
-          const fileToUpload = new File([blob], `avatar_${Date.now()}_${randomDigits}.jpg`, { type: 'image/jpeg' });
-          const uploadRes = await profileService.uploadPhoto(fileToUpload);
+          const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+          const fd = new FormData();
+          fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
 
-          let finalUrl = uploadRes?.avatar_url || uploadRes?.avatar || uploadRes?.data?.avatar_url;
-          if (finalUrl && !finalUrl.startsWith('data:image')) {
-            const cleanUrl = finalUrl.includes('?') ? finalUrl.split('?')[0] : finalUrl;
-            finalUrl = `${cleanUrl}?t=${Date.now()}`;
-          }
-          if (!finalUrl) {
-            finalUrl = previewDataUrl;
-          }
-
-          // Also save metadata via /save.php
-          await profileService.saveProfile({
-            full_name: profileMeta.full_name,
-            profile_title: profileMeta.profile_title,
-            profile_location: profileMeta.profile_location,
-            crop_url: finalUrl,
-            zoom: zoom,
-            x: clampedPx,
-            y: clampedPy,
+          const res = await fetch('https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php', {
+            method: 'POST',
+            headers: {
+              'Authorization': 'Bearer ' + token,
+            },
+            body: fd,
           });
+
+          const resJson = await res.json();
+          let rawUrl = resJson.data?.avatar_url || resJson.avatar_url || resJson.avatar || resJson.file_url;
+          let finalUrl = rawUrl
+            ? (rawUrl.startsWith('data:') ? rawUrl : `${rawUrl.split('?')[0]}?t=${Date.now()}`)
+            : previewDataUrl;
 
           recordProfileSaveTimestamp();
           const cleanAvatar = finalUrl;
