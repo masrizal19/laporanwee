@@ -237,7 +237,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const openCropPage = () => {
-    window.location.href = '/profil/crop-setting';
+    if (onNavigate) {
+      onNavigate('crop-setting');
+    } else {
+      window.history.pushState({}, '', '/profil/crop-setting');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   };
 
   return (

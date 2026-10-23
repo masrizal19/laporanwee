@@ -78,13 +78,17 @@ import {
   DEFAULT_UI_SETTINGS,
 } from './utils/uiSettings';
 
-const CropSettingPage: React.FC = () => {
+interface ProfileCropSettingViewProps {
+  onBack?: () => void;
+}
+
+export const ProfileCropSettingView: React.FC<ProfileCropSettingViewProps> = ({ onBack }) => {
   const token =
     localStorage.getItem('auth_token') ||
     localStorage.getItem('token') ||
     localStorage.getItem('laporanwee_token') ||
     '';
-  const iframeSrc = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
+  const iframeUrl = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -100,36 +104,40 @@ const CropSettingPage: React.FC = () => {
         event.data?.type === 'close-crop' ||
         event.data?.type === 'profile-updated'
       ) {
-        window.location.href = '/profil';
+        if (onBack) {
+          onBack();
+        } else {
+          window.history.pushState({}, '', '/profil');
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }
       }
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [onBack]);
 
   return (
     <div
       style={{
-        width: '100vw',
+        width: '100%',
         height: '100vh',
         margin: 0,
         padding: 0,
         overflow: 'hidden',
-        position: 'fixed',
-        inset: 0,
-        zIndex: 99999,
-        background: '#ffffff',
+        background: '#f8fafc',
       }}
     >
       <iframe
-        src={iframeSrc}
-        title="Crop Foto Profil"
+        src={iframeUrl}
+        title="Edit Foto Profil"
         style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
         allow="camera; microphone"
       />
     </div>
   );
 };
+
+const CropSettingPage = ProfileCropSettingView;
 
 export function App() {
   // 1. Session & Routing state
@@ -1825,8 +1833,24 @@ export function App() {
   const currentReport =
     reports.find((r) => String(r.id).trim() === String(selectedReportId).trim()) || reports[0];
 
-  // Conditional Rendering for Standalone Export / Edit Views
+  // Conditional Rendering for Standalone Export / Edit / Crop Views
   console.log('[APP RENDER STAGE 1: Evaluating View Branch]', { currentView, currentPath, isUserLoggedIn: !!user });
+
+  if (
+    currentView === 'crop-setting' ||
+    currentView === 'setting-profile-picture' ||
+    currentView === 'profile-crop' ||
+    currentPath === '/profil/crop-setting' ||
+    currentPath.includes('/crop-setting') ||
+    currentPath.includes('/setting-profile-picture')
+  ) {
+    return (
+      <>
+        <ProfileCropSettingView onBack={() => handleNavigate('profil')} />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
 
   if (currentView === 'export-laporan' || currentPath === '/analitik/exporlaporan') {
     console.log('[APP RENDER STAGE 2A: Mounting Standalone ExportLaporanView]');
@@ -2095,10 +2119,6 @@ export function App() {
         )}
 
 
-        {(currentView === 'crop-setting' || currentView === 'setting-profile-picture' || currentView === 'profile-crop') && (
-          <CropSettingPage />
-        )}
-
         {currentView === 'analytics' && (
           <AnalyticsView
             analytics={analytics}
@@ -2126,6 +2146,7 @@ export function App() {
             userRole={user?.role || ''}
             userStatus={user?.status || ''}
             avatarUrl={user?.avatar_url}
+            onNavigate={handleNavigate}
             onAddToast={addToast}
             onUpdateUser={(updated) => {
               setUser((prev) => {

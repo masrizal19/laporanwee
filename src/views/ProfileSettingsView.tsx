@@ -18,6 +18,7 @@ interface ProfileSettingsViewProps {
   userStatus?: string;
   avatarUrl?: string | null;
   onAddToast: (text: string) => void;
+  onNavigate?: (view: any) => void;
   onUpdateUser?: (updated: {
     email: string;
     name: string;
@@ -39,8 +40,23 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   userStatus,
   avatarUrl: propAvatarUrl,
   onAddToast,
+  onNavigate,
   onUpdateUser,
 }) => {
+  const navigate = (pathOrView: string) => {
+    if (onNavigate) {
+      if (pathOrView === '/profil/crop-setting' || pathOrView === 'crop-setting') {
+        onNavigate('crop-setting');
+        return;
+      }
+      onNavigate(pathOrView);
+      return;
+    }
+    const targetPath = pathOrView.startsWith('/') ? pathOrView : `/${pathOrView}`;
+    window.history.pushState({}, '', targetPath);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
+
   const [name, setName] = useState(userName || '');
   const [email, setEmail] = useState(userEmail || '');
   const [job, setJob] = useState('VIDEO EDITOR');
@@ -238,9 +254,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           >
             <div
               style={{ display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
-              onClick={() => {
-                window.location.href = '/profil/crop-setting';
-              }}
+              onClick={() => navigate('/profil/crop-setting')}
               title="Ubah foto profil"
             >
               <div
@@ -283,9 +297,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               type="button"
               className="btn soft"
               style={{ width: 'auto', padding: '0 18px', height: '42px', fontSize: '13.5px' }}
-              onClick={() => {
-                window.location.href = '/profil/crop-setting';
-              }}
+              onClick={() => navigate('/profil/crop-setting')}
             >
               <svg viewBox="0 0 24 24" style={{ width: 16, height: 16 }}>
                 <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
