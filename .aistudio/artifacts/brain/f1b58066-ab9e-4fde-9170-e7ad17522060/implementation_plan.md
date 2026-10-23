@@ -95,9 +95,10 @@ Implementation plan to build a clean standalone profile picture cropping modal (
 ---
 
 ## 5. Completed Tasks: Real-time Preview Synchronization & Transform Topology
-- **Single Reusable Transform**: Computed `sharedTransform` combining scale (`zoom`), pan translate (`offsetX`, `offsetY`), `rotate(${rotation}deg)`, and horizontal flip (`scaleX(-1)`).
-- **Synchronous Rendering Across All Previews**: Applied `sharedTransform` and `transformOrigin: 'center center'` to both the main 280px circle and the 3 preview circles (72px, 44px, 28px).
-- **State-driven Putar & Balik**: Eliminated DOMException tainted-canvas issues from in-memory rasterization by transitioning orientation to reactive state transforms.
-- **Matched 512x512 Canvas Export**: Applied the matching affine transformations in `handleSave` so backend uploads (`avatar` JPEG blob 0.92) preserve exact pan, zoom, rotation, and flip.
+- **Universal Proportional Transform (`getSharedTransform`)**: Computed `scaleVal = zoom * scaleMultiplier`, `tx = (offsetX * scaleMultiplier) / zoom`, and `ty = (offsetY * scaleMultiplier) / zoom` with CSS `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${scaleVal}) rotate(${rotation}deg) scaleX(${isFlipped ? -1 : 1})`.
+- **Proportional Scaling for 3 Previews**: Passed `scaleMultiplier = size / STAGE_SIZE` (where STAGE_SIZE = 280) to the 72px, 44px, and 28px preview containers so the crop framing is 100% identical and moves in absolute real-time lockstep with the main stage.
+- **Stage & Preview Absolute Centering**: Implemented `position: 'absolute', top: '50%', left: '50%', width: '100%', height: '100%', objectFit: 'cover'` inside circular `overflow: 'hidden'` containers.
+- **Matched 512x512 Canvas Export**: Applied exact matching affine matrix transformations in `handleSave` (`translate(256 + offsetX * (512 / STAGE_SIZE), 256 + offsetY * (512 / STAGE_SIZE))`, `scale(zoom, zoom)`, `rotate`, `scaleX(-1)`) with `coverScale = Math.max(512 / natW, 512 / natH)`.
+- **Active Profile Photo Binding**: Linked `currentAvatarUrl` directly on modal open and reset, ensuring the active MySQL profile picture appears immediately upon opening.
 - **Verification**: Verified with `tsc --noEmit` (0 lint/type errors) and `npm run build` (successful compilation).
 
