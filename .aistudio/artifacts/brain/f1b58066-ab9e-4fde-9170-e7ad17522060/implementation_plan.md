@@ -91,3 +91,13 @@ Implementation plan to build a clean standalone profile picture cropping modal (
      - Mounts `<SettingProfilePictureModal isOpen={isCropOpen} ... />`.
   3. `src/App.tsx`:
      - Keeps `/profil/setting-profile-picture` recognized as a valid path pointing to `'profil'`.
+
+---
+
+## 5. Completed Tasks: Real-time Preview Synchronization & Transform Topology
+- **Single Reusable Transform**: Computed `sharedTransform` combining scale (`zoom`), pan translate (`offsetX`, `offsetY`), `rotate(${rotation}deg)`, and horizontal flip (`scaleX(-1)`).
+- **Synchronous Rendering Across All Previews**: Applied `sharedTransform` and `transformOrigin: 'center center'` to both the main 280px circle and the 3 preview circles (72px, 44px, 28px).
+- **State-driven Putar & Balik**: Eliminated DOMException tainted-canvas issues from in-memory rasterization by transitioning orientation to reactive state transforms.
+- **Matched 512x512 Canvas Export**: Applied the matching affine transformations in `handleSave` so backend uploads (`avatar` JPEG blob 0.92) preserve exact pan, zoom, rotation, and flip.
+- **Verification**: Verified with `tsc --noEmit` (0 lint/type errors) and `npm run build` (successful compilation).
+

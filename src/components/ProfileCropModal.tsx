@@ -26,6 +26,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
   const [zoom, setZoom] = useState<number>(1);
   const [panX, setPanX] = useState<number>(50);
   const [panY, setPanY] = useState<number>(50);
+  const [rotation, setRotation] = useState<number>(0);
+  const [isFlipped, setIsFlipped] = useState<boolean>(false);
 
   const activeInitial = (currentAvatarUrl || initialSrc || '').trim();
   const [imageSrc, setImageSrc] = useState<string>(activeInitial);
@@ -43,6 +45,9 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
 
   const offsetX = ((panX - 50) / 50) * 120;
   const offsetY = ((panY - 50) / 50) * 120;
+  const rotateTransform = rotation ? ` rotate(${rotation}deg)` : '';
+  const flipTransform = isFlipped ? ' scaleX(-1)' : '';
+  const sharedTransform = `scale(${zoom}) translate(${offsetX / zoom}px, ${offsetY / zoom}px)${rotateTransform}${flipTransform}`;
 
   const loadImage = useCallback((srcUrl: string) => {
     setImageError(false);
@@ -60,6 +65,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     setZoom(1);
     setPanX(50);
     setPanY(50);
+    setRotation(0);
+    setIsFlipped(false);
     setImageError(false);
 
     const activePhoto = (currentAvatarUrl || initialSrc || '').trim();
@@ -110,31 +117,6 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     });
   };
 
-  const bakeCanvas = (isRotate: boolean) => {
-    const img = imgRef.current;
-    if (!img) return;
-    const nw = img.naturalWidth || 480;
-    const nh = img.naturalHeight || 480;
-    const c = document.createElement('canvas');
-    const g = c.getContext('2d');
-    if (!g) return;
-
-    c.width = isRotate ? nh : nw;
-    c.height = isRotate ? nw : nh;
-    g.translate(c.width / 2, c.height / 2);
-
-    if (isRotate) {
-      g.rotate(-Math.PI / 2);
-    } else {
-      g.scale(-1, 1);
-    }
-
-    g.drawImage(img, -nw / 2, -nh / 2);
-    const newUrl = c.toDataURL('image/jpeg', 0.95);
-    setOrigSrc(newUrl);
-    loadImage(newUrl);
-  };
-
   const handleReadFile = (file: File | null | undefined) => {
     if (!file) return;
     if (!file.type || !file.type.startsWith('image/')) {
@@ -155,6 +137,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
         setZoom(1);
         setPanX(50);
         setPanY(50);
+        setRotation(0);
+        setIsFlipped(false);
       }
     };
     reader.readAsDataURL(file);
@@ -211,6 +195,12 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
     ctx.save();
     ctx.translate(256 + (offsetX * (512 / 280)), 256 + (offsetY * (512 / 280)));
     ctx.scale(zoom, zoom);
+    if (rotation) {
+      ctx.rotate((rotation * Math.PI) / 180);
+    }
+    if (isFlipped) {
+      ctx.scale(-1, 1);
+    }
 
     const naturalW = imgElement.naturalWidth || 512;
     const naturalH = imgElement.naturalHeight || 512;
@@ -356,7 +346,7 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
-                  transform: `scale(${zoom}) translate(${offsetX / zoom}px, ${offsetY / zoom}px)`,
+                  transform: sharedTransform,
                   transformOrigin: 'center center',
                   transition: 'none',
                   userSelect: 'none',
@@ -396,25 +386,28 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                   height: `${size}px`,
                   borderRadius: '50%',
                   overflow: 'hidden',
+                  position: 'relative',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  position: 'relative',
                   background: '#e2e8f0',
+                  boxShadow: '0 0 0 3px rgba(255, 255, 255, 0.7)',
+                  flexShrink: 0,
                 }}
               >
                 {imageSrc && !imageError ? (
                   <img
                     src={imageSrc}
-                    alt=""
+                    alt="Pratinjau"
                     draggable={false}
                     style={{
                       width: '100%',
                       height: '100%',
                       objectFit: 'cover',
-                      transform: `scale(${zoom}) translate(${offsetX / zoom}px, ${offsetY / zoom}px)`,
+                      transform: sharedTransform,
                       transformOrigin: 'center center',
                       pointerEvents: 'none',
+                      userSelect: 'none',
                     }}
                   />
                 ) : (
@@ -436,18 +429,26 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 )}
               </div>
             ))}
-            <small>Pratinjau</small>
+            <small style={{ fontSize: '11px', color: '#7d7a8c', marginTop: '4px' }}>Pratinjau</small>
           </div>
         </div>
 
         <div className="pc-tools" style={{ justifyContent: 'center', marginBottom: '18px' }}>
-          <button type="button" className="pc-tool" onClick={() => bakeCanvas(true)}>
+          <button
+            type="button"
+            className="pc-tool"
+            onClick={() => setRotation((r) => (r - 90 + 360) % 360)}
+          >
             <svg viewBox="0 0 24 24">
               <path d="M4 9a8 8 0 1 1-1 5M4 4v5h5" />
             </svg>
             Putar
           </button>
-          <button type="button" className="pc-tool" onClick={() => bakeCanvas(false)}>
+          <button
+            type="button"
+            className="pc-tool"
+            onClick={() => setIsFlipped((f) => !f)}
+          >
             <svg viewBox="0 0 24 24">
               <path d="M12 3v18M8 7 3 12l5 5zM16 7l5 5-5 5z" />
             </svg>
@@ -597,6 +598,8 @@ export const ProfileCropModal: React.FC<ProfileCropModalProps> = ({
                 setZoom(1);
                 setPanX(50);
                 setPanY(50);
+                setRotation(0);
+                setIsFlipped(false);
               }}
             >
               Reset
