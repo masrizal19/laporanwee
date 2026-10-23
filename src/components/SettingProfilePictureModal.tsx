@@ -77,18 +77,11 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const dragStartRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
 
   // Offset ranges from -120px to +120px
-  const STAGE_SIZE = 280;
   const offsetX = ((panX - 50) / 50) * 120;
   const offsetY = ((panY - 50) / 50) * 120;
-
-  const getSharedTransform = (scaleMultiplier: number = 1) => {
-    const scaleVal = zoom * scaleMultiplier;
-    const tx = (offsetX * scaleMultiplier) / zoom;
-    const ty = (offsetY * scaleMultiplier) / zoom;
-    const rot = `rotate(${rotation}deg)`;
-    const flip = isFlipped ? 'scaleX(-1)' : 'scaleX(1)';
-    return `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px)) scale(${scaleVal}) ${rot} ${flip}`;
-  };
+  const rotateTransform = rotation ? ` rotate(${rotation}deg)` : '';
+  const flipTransform = isFlipped ? ' scaleX(-1)' : '';
+  const sharedTransform = `scale(${zoom}) translate(${offsetX / zoom}px, ${offsetY / zoom}px)${rotateTransform}${flipTransform}`;
 
   // Safe image loader
   const loadImage = useCallback((srcUrl: string) => {
@@ -267,18 +260,24 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     ctx.fillRect(0, 0, 512, 512);
 
     ctx.save();
-    // Pindahkan matriks canvas ke tengah (256, 256)
-    ctx.translate(256 + (offsetX * (512 / STAGE_SIZE)), 256 + (offsetY * (512 / STAGE_SIZE)));
+    // Pindahkan titik pusat ke tengah canvas (256, 256)
+    ctx.translate(256 + (offsetX * (512 / 280)), 256 + (offsetY * (512 / 280)));
     ctx.scale(zoom, zoom);
-    ctx.rotate((rotation * Math.PI) / 180);
-    if (isFlipped) ctx.scale(-1, 1);
+    if (rotation) {
+      ctx.rotate((rotation * Math.PI) / 180);
+    }
+    if (isFlipped) {
+      ctx.scale(-1, 1);
+    }
 
-    // Gambar elemen <img> asli dengan rasio cover
-    const natW = (drawSource as HTMLImageElement).naturalWidth || imgElement.naturalWidth || 512;
-    const natH = (drawSource as HTMLImageElement).naturalHeight || imgElement.naturalHeight || 512;
-    const coverScale = Math.max(512 / natW, 512 / natH);
-    const drawW = natW * coverScale;
-    const drawH = natH * coverScale;
+    // Gambar dengan fit cover ke tengah
+    const naturalW = imgElement.naturalWidth || 512;
+    const naturalH = imgElement.naturalHeight || 512;
+    const hRatio = 512 / naturalW;
+    const vRatio = 512 / naturalH;
+    const coverRatio = Math.max(hRatio, vRatio);
+    const drawW = naturalW * coverRatio;
+    const drawH = naturalH * coverRatio;
 
     ctx.drawImage(drawSource, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
@@ -406,7 +405,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               <img
                 ref={imgRef}
                 src={imageSrc}
-                alt="Stage Foto"
+                alt="Pratinjau Crop"
                 draggable={false}
                 onError={() => {
                   console.warn('Gagal memuat URL avatar:', imageSrc);
@@ -415,16 +414,14 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                   }
                 }}
                 style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
                   width: '100%',
                   height: '100%',
                   objectFit: 'cover',
-                  transform: getSharedTransform(1),
+                  transform: sharedTransform,
                   transformOrigin: 'center center',
-                  pointerEvents: 'none',
+                  transition: 'none',
                   userSelect: 'none',
+                  pointerEvents: 'none',
                 }}
               />
             ) : (
@@ -476,13 +473,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                     alt="Pratinjau"
                     draggable={false}
                     style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
                       width: '100%',
                       height: '100%',
                       objectFit: 'cover',
-                      transform: getSharedTransform(size / STAGE_SIZE),
+                      transform: sharedTransform,
                       transformOrigin: 'center center',
                       pointerEvents: 'none',
                       userSelect: 'none',
@@ -678,12 +672,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               type="button"
               className="pc-b soft"
               onClick={() => {
-                if (currentAvatarUrl && currentAvatarUrl.trim() !== '') {
-                  setImageSrc(currentAvatarUrl);
-                  setOrigSrc(currentAvatarUrl);
-                } else {
-                  loadImage(origSrc);
-                }
+                loadImage(origSrc);
                 setZoom(1);
                 setPanX(50);
                 setPanY(50);
