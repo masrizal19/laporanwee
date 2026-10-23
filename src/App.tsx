@@ -78,6 +78,59 @@ import {
   DEFAULT_UI_SETTINGS,
 } from './utils/uiSettings';
 
+const CropSettingPage: React.FC = () => {
+  const token =
+    localStorage.getItem('auth_token') ||
+    localStorage.getItem('token') ||
+    localStorage.getItem('laporanwee_token') ||
+    '';
+  const iframeSrc = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.origin !== 'https://api-laporanwe.mkverse.my.id' &&
+        event.origin !== window.location.origin
+      ) {
+        return;
+      }
+      if (
+        event.data?.action === 'back' ||
+        event.data?.action === 'close' ||
+        event.data?.type === 'close-crop' ||
+        event.data?.type === 'profile-updated'
+      ) {
+        window.location.href = '/profil';
+      }
+    };
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  return (
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        margin: 0,
+        padding: 0,
+        overflow: 'hidden',
+        position: 'fixed',
+        inset: 0,
+        zIndex: 99999,
+        background: '#ffffff',
+      }}
+    >
+      <iframe
+        src={iframeSrc}
+        title="Crop Foto Profil"
+        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
+        allow="camera; microphone"
+      />
+    </div>
+  );
+};
+
 export function App() {
   // 1. Session & Routing state
   const [user, setUser] = useState<AuthUser | null>(() => {
@@ -253,14 +306,17 @@ export function App() {
       '/ui-settings',
       '/profil',
       '/profile',
+      '/profil/crop-setting',
       '/profil/setting-profile-picture',
+      '/profil/crop',
+      '/profil/ubahfoto',
       '/profil/user',
     ];
     if (hashPart && hashPart.startsWith('/profil/user')) {
       return '/profil/user';
     }
-    if (hashPart && hashPart.includes('/setting-profile-picture')) {
-      return '/profil/setting-profile-picture';
+    if (hashPart && (hashPart.includes('/crop-setting') || hashPart.includes('/setting-profile-picture') || hashPart.includes('/crop'))) {
+      return '/profil/crop-setting';
     }
     if (validPaths.includes(hashPart)) {
       return hashPart;
@@ -269,8 +325,8 @@ export function App() {
     if (path.startsWith('/profil/user')) {
       return '/profil/user';
     }
-    if (path.includes('/setting-profile-picture')) {
-      return '/profil/setting-profile-picture';
+    if (path.includes('/crop-setting') || path.includes('/setting-profile-picture') || path.includes('/crop')) {
+      return '/profil/crop-setting';
     }
     const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
@@ -428,9 +484,10 @@ export function App() {
     '/social-media': 'social-media',
     '/profil': 'profil',
     '/profile': 'profil',
-    '/profil/crop': 'setting-profile-picture',
-    '/profil/ubahfoto': 'setting-profile-picture',
-    '/profil/setting-profile-picture': 'setting-profile-picture',
+    '/profil/crop-setting': 'crop-setting',
+    '/profil/crop': 'crop-setting',
+    '/profil/ubahfoto': 'crop-setting',
+    '/profil/setting-profile-picture': 'crop-setting',
     '/profil/user': 'user-profile',
   };
 
@@ -446,8 +503,9 @@ export function App() {
     'create-report': '/laporan',
     'profile': '/profil',
     'profil': '/profil',
-    'profile-crop': '/profil/setting-profile-picture',
-    'setting-profile-picture': '/profil/setting-profile-picture',
+    'crop-setting': '/profil/crop-setting',
+    'profile-crop': '/profil/crop-setting',
+    'setting-profile-picture': '/profil/crop-setting',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
     'social-media': '/sosial-media',
@@ -2037,91 +2095,8 @@ export function App() {
         )}
 
 
-        {(currentView === 'setting-profile-picture' || currentView === 'profile-crop') && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 99999,
-              background: '#1a1926',
-              display: 'flex',
-              flexDirection: 'column',
-              width: '100vw',
-              height: '100vh',
-            }}
-          >
-            <div
-              style={{
-                height: '56px',
-                padding: '0 20px',
-                background: 'rgba(35, 33, 46, 0.96)',
-                backdropFilter: 'blur(12px)',
-                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                flexShrink: 0,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => handleNavigate('profil')}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  background: 'rgba(255, 255, 255, 0.08)',
-                  border: '1px solid rgba(255, 255, 255, 0.12)',
-                  color: '#ffffff',
-                  padding: '8px 16px',
-                  borderRadius: '999px',
-                  fontSize: '13.5px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'background 0.2s',
-                }}
-              >
-                <svg viewBox="0 0 24 24" style={{ width: 16, height: 16, stroke: 'currentColor', fill: 'none', strokeWidth: 2 }}>
-                  <path d="M19 12H5M12 19l-7-7 7-7" />
-                </svg>
-                Kembali ke Profil
-              </button>
-
-              <div style={{ color: '#ffffff', fontSize: '14.5px', fontWeight: 600 }}>
-                Pengaturan Foto Profil
-              </div>
-
-              <a
-                href="https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php"
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  color: '#d4ee6b',
-                  fontSize: '13px',
-                  textDecoration: 'none',
-                  fontWeight: 600,
-                }}
-              >
-                Buka Langsung ↗
-              </a>
-            </div>
-
-            <iframe
-              src="https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php"
-              title="Pengaturan Foto Profil"
-              style={{
-                flex: 1,
-                width: '100%',
-                height: 'calc(100vh - 56px)',
-                border: 'none',
-                background: '#ffffff',
-              }}
-              allow="camera; microphone"
-            />
-          </div>
+        {(currentView === 'crop-setting' || currentView === 'setting-profile-picture' || currentView === 'profile-crop') && (
+          <CropSettingPage />
         )}
 
         {currentView === 'analytics' && (

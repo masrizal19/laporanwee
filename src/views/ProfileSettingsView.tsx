@@ -239,7 +239,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             <div
               style={{ display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
               onClick={() => {
-                window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php';
+                window.location.href = '/profil/crop-setting';
               }}
               title="Ubah foto profil"
             >
@@ -284,7 +284,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               className="btn soft"
               style={{ width: 'auto', padding: '0 18px', height: '42px', fontSize: '13.5px' }}
               onClick={() => {
-                window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php';
+                window.location.href = '/profil/crop-setting';
               }}
             >
               <svg viewBox="0 0 24 24" style={{ width: 16, height: 16 }}>

@@ -12,6 +12,7 @@ export type ViewType =
   | 'profil'
   | 'profile-crop'
   | 'setting-profile-picture'
+  | 'crop-setting'
   | 'user-profile'
   | 'analytics'
   | 'ui-settings'
