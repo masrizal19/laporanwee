@@ -54,8 +54,8 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   onSaved,
   onError,
 }) => {
-  // Strategy: CSS Center-Based Positioning
-  const [zoom, setZoom] = useState<number>(1); // Range 1 to 3
+  // Strategy: CSS Center-Based Positioning & Auto-Centering
+  const [zoom, setZoom] = useState<number>(1); // Range 1.0 to 3.0
   const [panX, setPanX] = useState<number>(50); // Range 0 to 100, default 50
   const [panY, setPanY] = useState<number>(50); // Range 0 to 100, default 50
 
@@ -63,10 +63,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const [imageSrc, setImageSrc] = useState<string>(() => activeInitial || createInitialsAvatar(userName[0] || 'P'));
   const [origSrc, setOrigSrc] = useState<string>(() => activeInitial || createInitialsAvatar(userName[0] || 'P'));
   const [imageError, setImageError] = useState<boolean>(false);
-
-  // Natural image dimensions
-  const [naturalW, setNaturalW] = useState<number>(480);
-  const [naturalH, setNaturalH] = useState<number>(480);
 
   // UI state
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -78,31 +74,14 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragStartRef = useRef<{ startX: number; startY: number; startPanX: number; startPanY: number } | null>(null);
 
-  // Pixel shift calculation:
-  // (pan - 50) maps 0..100 to -50..+50, scaled by zoom * 2.5
-  const translateX = (panX - 50) * (zoom * 2.5);
-  const translateY = (panY - 50) * (zoom * 2.5);
-
-  // Base cover scale calculation so the image nicely covers the 280px circle
-  const minDim = Math.min(naturalW || 280, naturalH || 280);
-  const baseScale = 280 / (minDim || 280);
-  const baseW = (naturalW || 280) * baseScale;
-  const baseH = (naturalH || 280) * baseScale;
+  // Offset ranges from -120px to +120px
+  const offsetX = ((panX - 50) / 50) * 120;
+  const offsetY = ((panY - 50) / 50) * 120;
 
   // Safe image loader
   const loadImage = useCallback((srcUrl: string) => {
+    setImageError(false);
     setImageSrc(srcUrl);
-
-    const testImg = new Image();
-    testImg.onload = () => {
-      setNaturalW(testImg.naturalWidth || 480);
-      setNaturalH(testImg.naturalHeight || 480);
-      setImageError(false);
-    };
-    testImg.onerror = () => {
-      console.warn('Image preload warning for:', srcUrl);
-    };
-    testImg.src = srcUrl;
   }, []);
 
   // Sync state on modal open: Utamakan foto profil aktif dari props
@@ -133,7 +112,6 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       setOrigSrc(activePhoto);
       loadImage(activePhoto);
     } else {
-      // Jika memang user baru dan tidak punya avatar sama sekali, baru gunakan starter inisial
       const fallback = createInitialsAvatar(userName[0] || 'P');
       setImageSrc(fallback);
       setOrigSrc(fallback);
@@ -172,13 +150,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     const dx = e.clientX - dragStartRef.current.startX;
     const dy = e.clientY - dragStartRef.current.startY;
 
-    const shiftFactor = zoom * 2.5;
-    if (shiftFactor > 0) {
-      const nextPanX = dragStartRef.current.startPanX + dx / shiftFactor;
-      const nextPanY = dragStartRef.current.startPanY + dy / shiftFactor;
-      setPanX(Math.max(0, Math.min(100, Math.round(nextPanX))));
-      setPanY(Math.max(0, Math.min(100, Math.round(nextPanY))));
-    }
+    const nextPanX = dragStartRef.current.startPanX + (dx / 120) * 50;
+    const nextPanY = dragStartRef.current.startPanY + (dy / 120) * 50;
+    setPanX(Math.max(0, Math.min(100, Math.round(nextPanX))));
+    setPanY(Math.max(0, Math.min(100, Math.round(nextPanY))));
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -194,7 +169,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     setZoom((prev) => {
       const delta = e.deltaY < 0 ? 0.08 : -0.08;
       const next = Math.max(1.0, Math.min(3.0, prev + delta));
-      return Number(next.toFixed(2));
+      return parseFloat(next.toFixed(2));
     });
   };
 
@@ -202,8 +177,8 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
   const bakeCanvas = (isRotate: boolean) => {
     const img = imgRef.current;
     if (!img) return;
-    const nw = img.naturalWidth || naturalW || 480;
-    const nh = img.naturalHeight || naturalH || 480;
+    const nw = img.naturalWidth || 480;
+    const nh = img.naturalHeight || 480;
     const c = document.createElement('canvas');
     const g = c.getContext('2d');
     if (!g) return;
@@ -261,7 +236,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
 
     // If source is a remote HTTP URL, fetch it safely as a local Blob to avoid tainted canvas on toBlob()
-    let drawSource: HTMLImageElement = imgElement;
+    let drawSource: CanvasImageSource = imgElement;
     if (imageSrc.startsWith('http://') || imageSrc.startsWith('https://')) {
       try {
         const resp = await fetch(imageSrc, {
@@ -288,10 +263,10 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
       }
     }
 
-    const outCanvas = document.createElement('canvas');
-    outCanvas.width = 512;
-    outCanvas.height = 512;
-    const ctx = outCanvas.getContext('2d');
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
     if (!ctx) {
       onError?.('Gagal membuat kanvas gambar');
       return;
@@ -301,13 +276,23 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
     ctx.fillRect(0, 0, 512, 512);
 
     ctx.save();
-    // Pindahkan origin ke tengah canvas 512x512
-    ctx.translate(256 + translateX * (512 / 280), 256 + translateY * (512 / 280));
-    ctx.scale(zoom * (512 / 280), zoom * (512 / 280));
-    ctx.drawImage(drawSource, -baseW / 2, -baseH / 2, baseW, baseH);
+    // Pindahkan titik pusat ke tengah canvas (256, 256)
+    ctx.translate(256 + (offsetX * (512 / 280)), 256 + (offsetY * (512 / 280)));
+    ctx.scale(zoom, zoom);
+
+    // Gambar dengan fit cover ke tengah
+    const naturalW = imgElement.naturalWidth || 512;
+    const naturalH = imgElement.naturalHeight || 512;
+    const hRatio = 512 / naturalW;
+    const vRatio = 512 / naturalH;
+    const coverRatio = Math.max(hRatio, vRatio);
+    const drawW = naturalW * coverRatio;
+    const drawH = naturalH * coverRatio;
+
+    ctx.drawImage(drawSource, -drawW / 2, -drawH / 2, drawW, drawH);
     ctx.restore();
 
-    outCanvas.toBlob(
+    canvas.toBlob(
       async (blob) => {
         if (!blob) {
           onError?.('Gagal memproses gambar');
@@ -318,6 +303,9 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
         try {
           const fd = new FormData();
           fd.append('avatar', blob, `avatar_${Date.now()}.jpg`);
+          fd.append('crop_zoom', zoom.toString());
+          fd.append('crop_x', panX.toString());
+          fd.append('crop_y', panY.toString());
 
           const res = await fetch(CROP_API_ENDPOINT, {
             method: 'POST',
@@ -394,9 +382,13 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             style={{
               width: '280px',
               height: '280px',
-              position: 'relative',
-              overflow: 'hidden',
               borderRadius: '50%',
+              overflow: 'hidden',
+              position: 'relative',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: '#e2e8f0',
             }}
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
@@ -432,14 +424,12 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                   }
                 }}
                 style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: '50%',
-                  width: `${baseW}px`,
-                  height: `${baseH}px`,
-                  transform: `translate(calc(-50% + ${translateX}px), calc(-50% + ${translateY}px)) scale(${zoom})`,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  transform: `scale(${zoom}) translate(${offsetX / zoom}px, ${offsetY / zoom}px)`,
                   transformOrigin: 'center center',
-                  maxWidth: 'none',
+                  transition: 'none',
                   userSelect: 'none',
                   pointerEvents: 'none',
                 }}
@@ -476,9 +466,13 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                 style={{
                   width: `${size}px`,
                   height: `${size}px`,
-                  position: 'relative',
-                  overflow: 'hidden',
                   borderRadius: '50%',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  position: 'relative',
+                  background: '#e2e8f0',
                 }}
               >
                 {imageSrc && !imageError ? (
@@ -487,15 +481,11 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
                     alt=""
                     draggable={false}
                     style={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      width: `${baseW}px`,
-                      height: `${baseH}px`,
-                      transform: `translate(calc(-50% + ${translateX * (size / 280)}px), calc(-50% + ${translateY * (size / 280)}px)) scale(${zoom * (size / 280)})`,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      transform: `scale(${zoom}) translate(${offsetX / zoom}px, ${offsetY / zoom}px)`,
                       transformOrigin: 'center center',
-                      maxWidth: 'none',
-                      userSelect: 'none',
                       pointerEvents: 'none',
                     }}
                   />
@@ -547,7 +537,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               type="button"
               className="pc-pan-btn"
               disabled={zoom <= 1.0}
-              onClick={() => setZoom((z) => Math.max(1.0, Number((z - 0.1).toFixed(2))))}
+              onClick={() => setZoom((z) => Math.max(1.0, parseFloat((z - 0.1).toFixed(2))))}
               aria-label="Perkecil"
             >
               -
@@ -555,18 +545,18 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
             <input
               className="pc-range"
               type="range"
-              min="100"
-              max="300"
-              step="1"
-              value={Math.round(zoom * 100)}
-              onChange={(e) => setZoom(Number(e.target.value) / 100)}
+              min="1.0"
+              max="3.0"
+              step="0.01"
+              value={zoom}
+              onChange={(e) => setZoom(parseFloat(e.target.value))}
               aria-label="Pengatur Zoom"
             />
             <button
               type="button"
               className="pc-pan-btn"
               disabled={zoom >= 3.0}
-              onClick={() => setZoom((z) => Math.min(3.0, Number((z + 0.1).toFixed(2))))}
+              onClick={() => setZoom((z) => Math.min(3.0, parseFloat((z + 0.1).toFixed(2))))}
               aria-label="Perbesar"
             >
               +
@@ -595,7 +585,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               max="100"
               step="1"
               value={panX}
-              onChange={(e) => setPanX(Number(e.target.value))}
+              onChange={(e) => setPanX(parseFloat(e.target.value))}
               aria-label="Slider pan horizontal"
             />
             <button
@@ -608,7 +598,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               &gt;
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {panX}%
+              {Math.round(panX)}%
             </output>
           </div>
 
@@ -631,7 +621,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               max="100"
               step="1"
               value={panY}
-              onChange={(e) => setPanY(Number(e.target.value))}
+              onChange={(e) => setPanY(parseFloat(e.target.value))}
               aria-label="Slider pan vertikal"
             />
             <button
@@ -644,7 +634,7 @@ export const SettingProfilePictureModal: React.FC<SettingProfilePictureModalProp
               v
             </button>
             <output style={{ fontSize: '12px', color: 'var(--pc-muted)', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-              {panY}%
+              {Math.round(panY)}%
             </output>
           </div>
         </div>

@@ -663,11 +663,10 @@
 }
 
 .pc-stage img {
-  position: absolute;
-  left: 0;
-  top: 0;
-  max-width: none;
-  transform-origin: 0 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: center center;
   -webkit-user-drag: none;
   user-select: none;
   will-change: transform;
@@ -768,11 +767,10 @@
 }
 
 .pc-pv img {
-  position: absolute;
-  left: 0;
-  top: 0;
-  max-width: none;
-  transform-origin: 0 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform-origin: center center;
 }
 
 .pc-pv.l { width: 72px; height: 72px; }
