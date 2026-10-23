@@ -27,7 +27,6 @@ import { TasksView } from './views/TasksView';
 import { TeamView } from './views/TeamView';
 import { CalendarView } from './views/CalendarView';
 import { ProfileView } from './views/ProfileView';
-import { ProfileCropView } from './views/ProfileCropView';
 import { UserProfileView } from './views/UserProfileView';
 import { AnalyticsView } from './views/AnalyticsView';
 import { SocialMediaView } from './views/SocialMediaView';
@@ -429,9 +428,9 @@ export function App() {
     '/social-media': 'social-media',
     '/profil': 'profil',
     '/profile': 'profil',
-    '/profil/crop': 'profil',
-    '/profil/ubahfoto': 'profil',
-    '/profil/setting-profile-picture': 'profil',
+    '/profil/crop': 'setting-profile-picture',
+    '/profil/ubahfoto': 'setting-profile-picture',
+    '/profil/setting-profile-picture': 'setting-profile-picture',
     '/profil/user': 'user-profile',
   };
 
@@ -447,7 +446,8 @@ export function App() {
     'create-report': '/laporan',
     'profile': '/profil',
     'profil': '/profil',
-    'profile-crop': '/profil',
+    'profile-crop': '/profil/setting-profile-picture',
+    'setting-profile-picture': '/profil/setting-profile-picture',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
     'social-media': '/sosial-media',
@@ -2037,30 +2037,91 @@ export function App() {
         )}
 
 
-        {currentView === 'profile-crop' && (
-          <ProfileCropView
-            onNavigate={handleNavigate}
-            onAddToast={addToast}
-            userEmail={user?.email || ''}
-            userName={user?.name || user?.full_name || ''}
-            avatarUrl={(user as any)?.avatar_url}
-            onUpdateUser={(updated) => {
-              setUser((prev) => {
-                if (!prev) return null;
-                const updatedUser: AuthUser = {
-                  ...prev,
-                  email: updated.email,
-                  name: updated.name,
-                  full_name: updated.name,
-                  profile_title: updated.profile_title !== undefined ? updated.profile_title : prev.profile_title,
-                  profile_location: updated.profile_location !== undefined ? updated.profile_location : prev.profile_location,
-                  avatar_url: updated.avatar_url !== undefined ? updated.avatar_url : prev.avatar_url,
-                };
-                setStoredUser(updatedUser);
-                return updatedUser;
-              });
+        {(currentView === 'setting-profile-picture' || currentView === 'profile-crop') && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 99999,
+              background: '#1a1926',
+              display: 'flex',
+              flexDirection: 'column',
+              width: '100vw',
+              height: '100vh',
             }}
-          />
+          >
+            <div
+              style={{
+                height: '56px',
+                padding: '0 20px',
+                background: 'rgba(35, 33, 46, 0.96)',
+                backdropFilter: 'blur(12px)',
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexShrink: 0,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => handleNavigate('profil')}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#ffffff',
+                  padding: '8px 16px',
+                  borderRadius: '999px',
+                  fontSize: '13.5px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'background 0.2s',
+                }}
+              >
+                <svg viewBox="0 0 24 24" style={{ width: 16, height: 16, stroke: 'currentColor', fill: 'none', strokeWidth: 2 }}>
+                  <path d="M19 12H5M12 19l-7-7 7-7" />
+                </svg>
+                Kembali ke Profil
+              </button>
+
+              <div style={{ color: '#ffffff', fontSize: '14.5px', fontWeight: 600 }}>
+                Pengaturan Foto Profil
+              </div>
+
+              <a
+                href="https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php"
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: '#d4ee6b',
+                  fontSize: '13px',
+                  textDecoration: 'none',
+                  fontWeight: 600,
+                }}
+              >
+                Buka Langsung ↗
+              </a>
+            </div>
+
+            <iframe
+              src="https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php"
+              title="Pengaturan Foto Profil"
+              style={{
+                flex: 1,
+                width: '100%',
+                height: 'calc(100vh - 56px)',
+                border: 'none',
+                background: '#ffffff',
+              }}
+              allow="camera; microphone"
+            />
+          </div>
         )}
 
         {currentView === 'analytics' && (

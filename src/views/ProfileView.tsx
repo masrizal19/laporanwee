@@ -237,7 +237,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const openCropPage = () => {
-    onNavigate('profile-crop');
+    window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php';
   };
 
   return (

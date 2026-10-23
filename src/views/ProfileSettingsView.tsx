@@ -10,7 +10,6 @@ import {
   withAvatarCacheBust,
 } from '../utils/api';
 import { validateStatusOption } from './ProfileView';
-import { SettingProfilePictureModal } from '../components/SettingProfilePictureModal';
 
 interface ProfileSettingsViewProps {
   userName?: string;
@@ -48,14 +47,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   const [status, setStatus] = useState(validateStatusOption(userStatus) || 'Karyawan');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
 
-  const [isCropOpen, setIsCropOpen] = useState<boolean>(() => {
-    return (
-      typeof window !== 'undefined' &&
-      (window.location.pathname.includes('/setting-profile-picture') ||
-        window.location.hash.includes('/setting-profile-picture'))
-    );
-  });
-
   const [initialProfile, setInitialProfile] = useState({
     name: userName || '',
     email: userEmail || '',
@@ -64,21 +55,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   });
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // Sync route URL for /profil/setting-profile-picture
-  useEffect(() => {
-    const checkPath = () => {
-      const isCropRoute =
-        window.location.pathname.includes('/setting-profile-picture') ||
-        window.location.hash.includes('/setting-profile-picture');
-      if (isCropRoute && !isCropOpen) {
-        setIsCropOpen(true);
-      }
-    };
-    checkPath();
-    window.addEventListener('popstate', checkPath);
-    return () => window.removeEventListener('popstate', checkPath);
-  }, [isCropOpen]);
 
   // Real-time GET sync directly from MySQL backend on mount/load
   useEffect(() => {
@@ -241,24 +217,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     }
   };
 
-  const openCropModal = () => {
-    try {
-      if (window.history && window.history.pushState) {
-        window.history.pushState({}, '', '/profil/setting-profile-picture');
-      }
-    } catch (_) {}
-    setIsCropOpen(true);
-  };
-
-  const closeCropModal = () => {
-    try {
-      if (window.history && window.history.pushState) {
-        window.history.pushState({}, '', '/profil');
-      }
-    } catch (_) {}
-    setIsCropOpen(false);
-  };
-
   return (
     <div className="wrap" style={{ gridTemplateColumns: '1fr', maxWidth: '800px' }}>
       {/* KARTU FORM INFORMASI PROFIL */}
@@ -278,7 +236,13 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               border: '1px solid var(--line)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
+              onClick={() => {
+                window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php';
+              }}
+              title="Ubah foto profil"
+            >
               <div
                 style={{
                   width: '68px',
@@ -319,7 +283,9 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               type="button"
               className="btn soft"
               style={{ width: 'auto', padding: '0 18px', height: '42px', fontSize: '13.5px' }}
-              onClick={openCropModal}
+              onClick={() => {
+                window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php';
+              }}
             >
               <svg viewBox="0 0 24 24" style={{ width: 16, height: 16 }}>
                 <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
@@ -428,58 +394,6 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           </form>
         </div>
       </section>
-
-      {/* MODAL CROP SETTING FOTO PROFIL */}
-      <SettingProfilePictureModal
-        isOpen={isCropOpen}
-        currentAvatarUrl={avatarUrl}
-        initialSrc={avatarUrl}
-        userName={name}
-        userEmail={email}
-        onClose={closeCropModal}
-        onSuccess={(newAvatar) => {
-          const freshAvatar = newAvatar.includes('?') ? newAvatar : `${newAvatar}?t=${Date.now()}`;
-          setAvatarUrl(freshAvatar);
-
-          const storedUser = JSON.parse(
-            localStorage.getItem('laporanwee_user') || localStorage.getItem('user') || '{}'
-          );
-          storedUser.avatar_url = freshAvatar;
-          storedUser.name = name.trim();
-          storedUser.full_name = name.trim();
-          localStorage.setItem('laporanwee_user', JSON.stringify(storedUser));
-          localStorage.setItem('user', JSON.stringify(storedUser));
-
-          if (onUpdateUser) {
-            onUpdateUser({
-              email: email.trim(),
-              name: name.trim(),
-              role: userRole || 'Administrator',
-              status: status.trim(),
-              profile_title: job.trim(),
-              profile_location: status.trim(),
-              avatar_url: freshAvatar,
-            });
-          }
-
-          window.dispatchEvent(
-            new CustomEvent('laporanwee-profile-updated', {
-              detail: {
-                id: name,
-                name: name.trim(),
-                avatar_url: freshAvatar,
-              },
-            })
-          );
-
-          onAddToast('Foto profil berhasil diperbarui');
-        }}
-        onSaved={(newAvatar) => {
-          const freshAvatar = newAvatar.includes('?') ? newAvatar : `${newAvatar}?t=${Date.now()}`;
-          setAvatarUrl(freshAvatar);
-        }}
-        onError={(msg) => onAddToast(msg)}
-      />
     </div>
   );
 };

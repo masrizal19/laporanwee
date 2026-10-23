@@ -94,10 +94,12 @@ Implementation plan to build a clean standalone profile picture cropping modal (
 
 ---
 
-## 5. Completed Tasks: Real-time Preview Synchronization & Transform Topology
-- **Single Reusable Transform**: Computed `sharedTransform` combining scale (`zoom`), pan translate (`offsetX`, `offsetY`), `rotate(${rotation}deg)`, and horizontal flip (`scaleX(-1)`).
-- **Synchronous Rendering Across All Previews**: Applied `sharedTransform` and `transformOrigin: 'center center'` to both the main 280px circle and the 3 preview circles (72px, 44px, 28px).
-- **State-driven Putar & Balik**: Eliminated DOMException tainted-canvas issues from in-memory rasterization by transitioning orientation to reactive state transforms.
-- **Matched 512x512 Canvas Export**: Applied the matching affine transformations in `handleSave` so backend uploads (`avatar` JPEG blob 0.92) preserve exact pan, zoom, rotation, and flip.
-- **Verification**: Verified with `tsc --noEmit` (0 lint/type errors) and `npm run build` (successful compilation).
+## 5. Completed Tasks: Direct Route & Backend Profile Crop Setting Integration
+- **Removed React Crop Modal**: Completely removed `<SettingProfilePictureModal />` / `<ProfileCropModal />` call and state from `ProfileSettingsView.tsx`.
+- **Direct Navigation to Backend Crop Setting**:
+  - In `ProfileSettingsView.tsx`: Button "Ubah Foto" and the avatar preview circle navigate directly via `window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php'`.
+  - In `ProfileView.tsx`: Avatar click and pencil edit icon (`.pen`) navigate directly via `window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php'`.
+- **Fullscreen Route at `/profil/setting-profile-picture`**:
+  - In `App.tsx`: Route `/profil/setting-profile-picture` renders a dedicated fullscreen iframe view of `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php` with a top bar including a "Kembali ke Profil" navigation button and "Buka Langsung ↗" link.
+- **Verification**: Verified with `tsc --noEmit` (0 lint/type errors) and `npm run build` (clean production build).
 
