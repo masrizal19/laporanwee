@@ -57,17 +57,27 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
-  const [name, setName] = useState(userName || '');
-  const [email, setEmail] = useState(userEmail || '');
-  const [job, setJob] = useState('VIDEO EDITOR');
-  const [status, setStatus] = useState(validateStatusOption(userStatus) || 'Karyawan');
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || null);
+  const handleOpenCropSetting = () => {
+    const token =
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token') ||
+      localStorage.getItem('laporanwee_token') ||
+      '';
+    window.location.href = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
+  };
+
+  const storedInitUser = getStoredUser();
+  const [name, setName] = useState(userName || storedInitUser?.full_name || storedInitUser?.name || '');
+  const [email, setEmail] = useState(userEmail || storedInitUser?.email || '');
+  const [job, setJob] = useState(storedInitUser?.profile_title || 'VIDEO EDITOR');
+  const [status, setStatus] = useState(validateStatusOption(userStatus || storedInitUser?.profile_location) || 'Karyawan');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(propAvatarUrl || storedInitUser?.avatar_url || null);
 
   const [initialProfile, setInitialProfile] = useState({
-    name: userName || '',
-    email: userEmail || '',
-    job: 'VIDEO EDITOR',
-    status: validateStatusOption(userStatus) || 'Karyawan',
+    name: userName || storedInitUser?.full_name || storedInitUser?.name || '',
+    email: userEmail || storedInitUser?.email || '',
+    job: storedInitUser?.profile_title || 'VIDEO EDITOR',
+    status: validateStatusOption(userStatus || storedInitUser?.profile_location) || 'Karyawan',
   });
   const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -75,7 +85,12 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   // Real-time GET sync directly from MySQL backend on mount/load
   useEffect(() => {
     const fetchLatestProfile = async () => {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || getStoredToken() || '';
+      const token =
+        localStorage.getItem('auth_token') ||
+        localStorage.getItem('token') ||
+        localStorage.getItem('laporanwee_token') ||
+        getStoredToken() ||
+        '';
       try {
         const res = await fetch('https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php', {
           headers: {
@@ -84,6 +99,9 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           },
         });
         const json = await res.json();
+        if (json.success && json.data?.avatar_url) {
+          setAvatarUrl(`${json.data.avatar_url}?t=${Date.now()}`);
+        }
         const u = json.data || json.user || json;
         if (u) {
           const rawAvatar = u.avatar_url || u.avatar || u.file_url;
@@ -100,12 +118,18 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           if (freshEmail) setEmail(freshEmail);
           setJob(freshJob);
           setStatus(freshStatus);
-          setAvatarUrl(freshAvatar);
+          if (freshAvatar) {
+            setAvatarUrl(freshAvatar);
+          } else if (json.success && json.data?.avatar_url) {
+            setAvatarUrl(`${json.data.avatar_url}?t=${Date.now()}`);
+          }
 
           const storedUser = JSON.parse(
             localStorage.getItem('laporanwee_user') || localStorage.getItem('user') || '{}'
           );
-          storedUser.avatar_url = freshAvatar;
+          if (freshAvatar || (json.success && json.data?.avatar_url)) {
+            storedUser.avatar_url = freshAvatar || `${json.data.avatar_url}?t=${Date.now()}`;
+          }
           if (freshName) {
             storedUser.name = freshName;
             storedUser.full_name = freshName;
@@ -120,7 +144,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
             status: freshStatus,
             profile_title: freshJob,
             profile_location: freshStatus,
-            avatar_url: freshAvatar,
+            avatar_url: freshAvatar || (json.success && json.data?.avatar_url ? `${json.data.avatar_url}?t=${Date.now()}` : undefined),
           });
 
           setInitialProfile({ name: freshName, email: freshEmail, job: freshJob, status: freshStatus });
@@ -139,7 +163,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     };
 
     fetchLatestProfile();
-  }, [userName, userEmail, userStatus, propAvatarUrl]);
+  }, []);
 
   // Track dirty status
   useEffect(() => {
@@ -254,34 +278,71 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
           >
             <div
               style={{ display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
-              onClick={() => navigate('/profil/crop-setting')}
+              onClick={handleOpenCropSetting}
               title="Ubah foto profil"
             >
               <div
                 style={{
+                  position: 'relative',
                   width: '68px',
                   height: '68px',
                   borderRadius: '50%',
-                  overflow: 'hidden',
-                  background: 'var(--lav)',
                   flexShrink: 0,
                   boxShadow: '0 8px 20px -6px rgba(0,0,0,0.25)',
-                  display: 'grid',
-                  placeItems: 'center',
                 }}
               >
-                {avatarUrl ? (
-                  <img
-                    id="mainAvatarImg"
-                    src={avatarUrl.includes('?') ? avatarUrl : `${avatarUrl}?t=${Date.now()}`}
-                    alt={name || 'Avatar'}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                ) : (
-                  <span style={{ fontSize: '26px', fontWeight: 700, color: '#2a2440' }}>
-                    {(name[0] || 'P').toUpperCase()}
-                  </span>
-                )}
+                <div
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    borderRadius: '50%',
+                    overflow: 'hidden',
+                    background: 'var(--lav)',
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
+                  {avatarUrl ? (
+                    <img
+                      id="mainAvatarImg"
+                      src={avatarUrl.includes('?') ? avatarUrl : `${avatarUrl}?t=${Date.now()}`}
+                      alt={name || 'Avatar'}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : (
+                    <span style={{ fontSize: '26px', fontWeight: 700, color: '#2a2440' }}>
+                      {(name[0] || 'P').toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                {/* Ikon pensil di foto profil */}
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: 0,
+                    right: 0,
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    background: '#6366f1',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+                    border: '2px solid #fff',
+                    cursor: 'pointer',
+                  }}
+                  title="Ubah foto profil"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenCropSetting();
+                  }}
+                >
+                  <svg viewBox="0 0 24 24" style={{ width: 12, height: 12, fill: 'none', stroke: 'currentColor', strokeWidth: 2.5 }}>
+                    <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                </div>
               </div>
               <div>
                 <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: 'var(--ink)' }}>
@@ -297,7 +358,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
               type="button"
               className="btn soft"
               style={{ width: 'auto', padding: '0 18px', height: '42px', fontSize: '13.5px' }}
-              onClick={() => navigate('/profil/crop-setting')}
+              onClick={handleOpenCropSetting}
             >
               <svg viewBox="0 0 24 24" style={{ width: 16, height: 16 }}>
                 <path d="M12 20h9M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
