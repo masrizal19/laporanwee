@@ -8370,22 +8370,12 @@ svg {
 .top-bar-shell {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 20px;
   margin-bottom: 26px;
   width: 100%;
   box-sizing: border-box;
   padding: 4px 6px;
-}
-
-.top-bar-shell .crumb {
-  font-weight: 600;
-  font-size: 16px;
-  color: var(--muted);
-  flex: 1;
-  letter-spacing: -0.01em;
-  margin-left: 10px;
-  white-space: nowrap;
 }
 
 .top-actions {
@@ -8394,6 +8384,7 @@ svg {
   gap: 12px;
   flex-shrink: 0;
   margin-right: 8px;
+  margin-left: auto;
 }
 
 .top-bar-shell .theme {

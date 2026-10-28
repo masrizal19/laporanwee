@@ -58,12 +58,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
   };
 
   const handleOpenCropSetting = () => {
-    const token =
-      localStorage.getItem('auth_token') ||
-      localStorage.getItem('token') ||
-      localStorage.getItem('laporanwee_token') ||
-      '';
-    window.location.href = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
+    navigate('/profil/crop-setting');
   };
 
   const storedInitUser = getStoredUser();

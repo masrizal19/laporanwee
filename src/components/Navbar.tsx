@@ -72,27 +72,6 @@ export const Navbar: React.FC<NavbarProps> = ({
     return false;
   });
 
-  // Current active view label for topbar breadcrumb
-  const currentNav = navItems.find((item) => {
-    if (currentView === item.view) return true;
-    if (item.view === 'projects' && currentView === 'project-detail') return true;
-    if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
-    if (item.view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
-    if (item.view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
-    return false;
-  });
-  const breadcrumbTitle =
-    currentView === 'create-report'
-      ? 'Buat Laporan Harian'
-      : currentView === 'report-detail'
-      ? 'Detail Laporan'
-      : currentView === 'project-detail'
-      ? 'Detail Proyek'
-      : currentView === 'profil' || currentView === 'profile'
-      ? 'Pengaturan Profil'
-      : currentView === 'ui_settings' || currentView === 'ui-settings'
-      ? 'UI Setting'
-      : currentNav?.label || 'Dashboard';
 
   // Compute User Initials
   const userInitials = (userName || userEmail || 'AD')
@@ -173,10 +152,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </aside>
 
-      {/* Top Bar Header with Breadcrumb, Theme Toggle, Quick Search, User Profile */}
+      {/* Top Bar Header with Theme Toggle, Quick Search, User Profile */}
       <header className="top-bar-shell">
-        <div className="crumb">{breadcrumbTitle}</div>
-
         <div className="top-actions">
           {/* Theme Switcher Sliding Pill */}
           <div className="theme" role="group" aria-label="Tema Tampilan">

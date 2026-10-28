@@ -237,12 +237,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   };
 
   const openCropPage = () => {
-    const token =
-      localStorage.getItem('auth_token') ||
-      localStorage.getItem('token') ||
-      localStorage.getItem('laporanwee_token') ||
-      '';
-    window.location.href = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
+    if (onNavigate) {
+      onNavigate('crop-setting');
+    } else {
+      window.history.pushState({}, '', '/profil/crop-setting');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    }
   };
 
   return (

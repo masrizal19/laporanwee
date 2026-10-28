@@ -78,66 +78,10 @@ import {
   DEFAULT_UI_SETTINGS,
 } from './utils/uiSettings';
 
-interface ProfileCropSettingViewProps {
-  onBack?: () => void;
-}
+import { ProfileCropSettingPage } from './views/ProfileCropSettingPage';
 
-export const ProfileCropSettingView: React.FC<ProfileCropSettingViewProps> = ({ onBack }) => {
-  const token =
-    localStorage.getItem('auth_token') ||
-    localStorage.getItem('token') ||
-    localStorage.getItem('laporanwee_token') ||
-    '';
-  const iframeUrl = `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php?token=${encodeURIComponent(token)}`;
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (
-        event.origin !== 'https://api-laporanwe.mkverse.my.id' &&
-        event.origin !== window.location.origin
-      ) {
-        return;
-      }
-      if (
-        event.data?.action === 'back' ||
-        event.data?.action === 'close' ||
-        event.data?.type === 'close-crop' ||
-        event.data?.type === 'profile-updated'
-      ) {
-        if (onBack) {
-          onBack();
-        } else {
-          window.history.pushState({}, '', '/profil');
-          window.dispatchEvent(new PopStateEvent('popstate'));
-        }
-      }
-    };
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [onBack]);
-
-  return (
-    <div
-      style={{
-        width: '100%',
-        height: '100vh',
-        margin: 0,
-        padding: 0,
-        overflow: 'hidden',
-        background: '#f8fafc',
-      }}
-    >
-      <iframe
-        src={iframeUrl}
-        title="Edit Foto Profil"
-        style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-        allow="camera; microphone"
-      />
-    </div>
-  );
-};
-
-const CropSettingPage = ProfileCropSettingView;
+export const ProfileCropSettingView = ProfileCropSettingPage;
+export const CropSettingPage = ProfileCropSettingPage;
 
 export function App() {
   // 1. Session & Routing state
@@ -1846,7 +1790,11 @@ export function App() {
   ) {
     return (
       <>
-        <ProfileCropSettingView onBack={() => handleNavigate('profil')} />
+        <ProfileCropSettingView
+          onBack={() => handleNavigate('profil')}
+          onNavigate={handleNavigate}
+          onAddToast={addToast}
+        />
         <ToastContainer toasts={toasts} />
       </>
     );
