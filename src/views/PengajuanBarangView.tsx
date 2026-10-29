@@ -924,9 +924,57 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       return true;
     }
 
+    /* ── simpan ke database ── */
+    async function handleSave(btn?: HTMLElement, quiet = false) {
+      if (!validate()) return false;
+      if (btn) btn.classList.add('load');
+      try {
+        const data = (window as any).PB ? (window as any).PB.getState() : S;
+        const token =
+          localStorage.getItem('auth_token') ||
+          localStorage.getItem('token') ||
+          localStorage.getItem('laporanwee_token') ||
+          '';
+
+        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(data),
+        });
+
+        const json = await res.json().catch(() => ({}));
+        if (json.success || res.ok) {
+          if (!quiet) {
+            toast('Pengajuan berhasil tersimpan di sistem!');
+          }
+          return true;
+        } else {
+          toast(json.message || 'Gagal menyimpan pengajuan ke sistem.');
+          return false;
+        }
+      } catch (err: any) {
+        console.error('Save to database error:', err);
+        toast(err?.message || 'Gagal terhubung ke server untuk menyimpan pengajuan.');
+        return false;
+      } finally {
+        if (btn) btn.classList.remove('load');
+      }
+    }
+
+    const saveBtn1 = $('#pb-save');
+    if (saveBtn1) saveBtn1.onclick = (e) => handleSave(e.currentTarget as HTMLElement);
+    const saveBtn2 = $('#pb-save2');
+    if (saveBtn2) saveBtn2.onclick = (e) => handleSave(e.currentTarget as HTMLElement);
+
     let oldTitle = '';
     function doPrint(btn?: HTMLElement) {
       if (!validate()) return;
+      // Otomatis simpan ke backend sebelum mencetak
+      handleSave(undefined, true).catch(() => {});
       renderDoc();
       if (btn) btn.classList.add('load');
       const go = () => {
@@ -1048,17 +1096,77 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     (window as any).PB = {
       getState: () => JSON.parse(JSON.stringify(S)),
       setState,
+      save: (btn?: HTMLElement) => handleSave(btn),
       print: () => doPrint(),
       exportJSON,
       reset: () => setState(DEF()),
     };
 
+    /* ── muat template setting tanda tangan & kop dari backend ── */
+    const loadSettingsFromBackend = async () => {
+      try {
+        const token =
+          localStorage.getItem('auth_token') ||
+          localStorage.getItem('token') ||
+          localStorage.getItem('laporanwee_token') ||
+          '';
+        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/settings.php', {
+          method: 'GET',
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (res.ok) {
+          const json = await res.json().catch(() => null);
+          const settings = json?.data || json?.settings || json;
+          if (settings && typeof settings === 'object') {
+            const current = (window as any).PB ? (window as any).PB.getState() : S;
+            const updated = {
+              ...current,
+              meta: {
+                ...current.meta,
+                ...(settings.meta || {}),
+                ...(settings.instansi ? { instansi: settings.instansi } : {}),
+                ...(settings.alamat ? { alamat: settings.alamat } : {}),
+                ...(settings.judul ? { judul: settings.judul } : {}),
+                ...(settings.keperluan && !current.meta.keperluan ? { keperluan: settings.keperluan } : {}),
+                ...(settings.orient ? { orient: settings.orient } : {}),
+              },
+              sign: {
+                ...current.sign,
+                ...(settings.sign || {}),
+                ...(settings.kota ? { kota: settings.kota } : {}),
+                ...(settings.tanggal ? { tanggal: settings.tanggal } : {}),
+                ...(settings.kepala ? { kepala: { ...current.sign.kepala, ...settings.kepala } } : {}),
+                ...(settings.waka ? { waka: { ...current.sign.waka, ...settings.waka } } : {}),
+                ...(settings.pemohon ? { pemohon: { ...current.sign.pemohon, ...settings.pemohon } } : {}),
+              },
+            };
+            if ((window as any).PB && typeof (window as any).PB.setState === 'function') {
+              (window as any).PB.setState(updated);
+            } else {
+              setState(updated);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[PengajuanBarang] Notice loading settings from backend:', err);
+      }
+    };
+
     /* ── init ── */
+    // Pastikan browser URL selalu /pengajuan-barang
+    if (window.location.pathname !== '/pengajuan-barang') {
+      window.history.pushState({}, '', '/pengajuan-barang');
+    }
+
     bindAll();
     syncOri();
     renderSig();
     renderList();
     summary();
+    loadSettingsFromBackend();
 
     requestAnimationFrame(() => {
       moveInd();
@@ -1529,6 +1637,15 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                     <div className="pb-r"><span>Total pengajuan</span><b id="pb-s-t" aria-live="polite">Rp 0</b></div>
                     <p className="pb-tb" id="pb-s-tb"></p>
                   </div>
+                  <button className="pb-btn lime lg" id="pb-save" type="button" style={{ marginBottom: '10px' }}>
+                    <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                      <polyline points="17 21 17 13 7 13 7 21" />
+                      <polyline points="7 3 7 8 15 8" />
+                    </svg>
+                    <span>Simpan ke Database</span>
+                    <i className="pb-spn"></i>
+                  </button>
                   <button className="pb-btn dark lg" id="pb-print" type="button">
                     <svg viewBox="0 0 24 24" fill="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z" />
@@ -1553,6 +1670,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
         <div className="pb-dock" id="pb-dock">
           <div><small>Total pengajuan</small><b id="pb-d-t">Rp 0</b></div>
+          <button className="pb-btn lime" id="pb-save2" type="button" style={{ marginRight: '8px' }}>Simpan</button>
           <button className="pb-btn dark" id="pb-print2" type="button">Cetak</button>
         </div>
         <div className="pb-toast" id="pb-toast" role="status" aria-live="polite"></div>
