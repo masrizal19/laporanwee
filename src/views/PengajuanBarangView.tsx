@@ -162,32 +162,48 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     };
 
     /* ── gambar ── */
-    const readImg = (f: File, max: number, png?: boolean) =>
-      new Promise<string>((res, rej) => {
-        if (!f || !f.type.startsWith('image/')) return rej(new Error('File harus berupa gambar'));
-        if (f.size > 15 * 1048576) return rej(new Error('Ukuran gambar maksimal 15 MB'));
+    const readFileAsDataURL = (f: File): Promise<string> =>
+      new Promise((res, rej) => {
+        if (!f) return rej(new Error('Berkas tidak ditemukan'));
+        if (!f.type.startsWith('image/')) return rej(new Error('File harus berupa gambar (JPG, PNG, WEBP)'));
+        if (f.size > 20 * 1048576) return rej(new Error('Ukuran gambar maksimal 20 MB'));
         const r = new FileReader();
-        r.onerror = () => rej(new Error('Gagal membaca file'));
-        r.onload = () => {
-          const im = new Image();
-          im.onerror = () => rej(new Error('Gambar tidak dapat dibuka'));
-          im.onload = () => {
-            const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
-            const c = document.createElement('canvas');
-            c.width = Math.max(1, Math.round(im.naturalWidth * k));
-            c.height = Math.max(1, Math.round(im.naturalHeight * k));
-            const g = c.getContext('2d')!;
-            if (!png) {
-              g.fillStyle = '#fff';
-              g.fillRect(0, 0, c.width, c.height);
-            }
-            g.drawImage(im, 0, 0, c.width, c.height);
-            res(png ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.82));
-          };
-          im.src = r.result as string;
+        r.onerror = () => rej(new Error('Gagal membaca file gambar'));
+        r.onload = (e) => {
+          const base64 = e.target?.result as string;
+          if (base64) res(base64);
+          else rej(new Error('Gagal membaca data gambar'));
         };
         r.readAsDataURL(f);
       });
+
+    const readFileWithOptionalCompress = async (f: File, maxDim = 800): Promise<string> => {
+      const base64 = await readFileAsDataURL(f);
+      // Jika ukuran file kecil (<= 400KB), gunakan langsung tanpa canvas overhead
+      if (f.size <= 400 * 1024) return base64;
+
+      return new Promise<string>((resolve) => {
+        const im = new Image();
+        im.onload = () => {
+          try {
+            const k = Math.min(1, maxDim / Math.max(im.naturalWidth, im.naturalHeight));
+            if (k >= 1) return resolve(base64);
+            const c = document.createElement('canvas');
+            c.width = Math.max(1, Math.round(im.naturalWidth * k));
+            c.height = Math.max(1, Math.round(im.naturalHeight * k));
+            const ctx = c.getContext('2d');
+            if (!ctx) return resolve(base64);
+            ctx.drawImage(im, 0, 0, c.width, c.height);
+            const compressed = c.toDataURL('image/jpeg', 0.85);
+            resolve(compressed);
+          } catch (_) {
+            resolve(base64);
+          }
+        };
+        im.onerror = () => resolve(base64);
+        im.src = base64;
+      });
+    };
 
     /* ── tema ── */
     const setTheme = (t: string) => {
@@ -288,10 +304,10 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         it.imgs
           .map(
             (s: string, k: number) =>
-              `<figure class="pb-th" style="margin:0"><img src="${s}" alt="Bukti barang ${k + 1}"><button type="button" class="pb-rm" data-act="rmimg" data-k="${k}" aria-label="Hapus gambar">${svg('x', 2.4)}</button></figure>`
+              `<figure class="pb-th" style="margin:0"><img src="${s}" alt="Bukti barang ${k + 1}" style="display:block;width:100%;height:100%;object-fit:cover"><button type="button" class="pb-rm" data-act="rmimg" data-k="${k}" aria-label="Hapus gambar">${svg('x', 2.4)}</button></figure>`
           )
           .join('') +
-        `<label class="pb-add${it.imgs.length >= 3 ? ' full' : ''}" data-drop>${svg('img', 1.8)}<span>${it.imgs.length ? 'Tambah gambar' : 'Bukti / gambar barang'}</span><input type="file" accept="image/*" multiple hidden data-act="img"></label>`
+        `<label class="pb-add${it.imgs.length >= 3 ? ' full' : ''}" data-drop>${svg('img', 1.8)}<span>${it.imgs.length ? 'Tambah gambar' : 'Bukti / gambar barang'}</span><input type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple hidden data-act="img"></label>`
       );
     }
 
@@ -470,25 +486,37 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       }
     };
 
+    function updateImageThumbnails(w: HTMLElement, it: any) {
+      const imgsContainer = $('[data-imgs]', w);
+      if (imgsContainer) imgsContainer.innerHTML = imgsHTML(it);
+    }
+
     async function addImgs(it: any, w: HTMLElement, files: File[]) {
+      const validFiles = files.filter((f) => f && f.type.startsWith('image/'));
+      if (!validFiles.length) {
+        toast('Pilih file gambar yang valid (JPG, PNG, WEBP)');
+        return;
+      }
       const room = 3 - it.imgs.length;
       if (room <= 0) {
         toast('Maksimal 3 gambar per barang');
         return;
       }
-      if (files.length > room) {
+      if (validFiles.length > room) {
         toast('Hanya ' + room + ' gambar yang ditambahkan (maks. 3)');
       }
-      for (const f of files.slice(0, room)) {
+      for (const f of validFiles.slice(0, room)) {
         try {
-          it.imgs.push(await readImg(f, 720));
+          const base64 = await readFileWithOptionalCompress(f, 800);
+          if (it.imgs.length < 3) {
+            it.imgs.push(base64);
+            updateImageThumbnails(w, it);
+            changed();
+          }
         } catch (err: any) {
           toast(err?.message || 'Gagal menambahkan gambar');
         }
       }
-      const imgsContainer = $('[data-imgs]', w);
-      if (imgsContainer) imgsContainer.innerHTML = imgsHTML(it);
-      changed();
     }
 
     const handleListClick = (e: MouseEvent) => {
@@ -507,10 +535,12 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       else if (act === 'inc') setQty(w, it, it.qty + 1);
       else if (act === 'dec') setQty(w, it, it.qty - 1);
       else if (act === 'rmimg') {
-        it.imgs.splice(+b.dataset.k!, 1);
-        const imgsContainer = $('[data-imgs]', w);
-        if (imgsContainer) imgsContainer.innerHTML = imgsHTML(it);
-        changed();
+        const k = Number(b.dataset.k);
+        if (!isNaN(k) && k >= 0 && k < it.imgs.length) {
+          it.imgs.splice(k, 1);
+          updateImageThumbnails(w, it);
+          changed();
+        }
       }
     };
 
@@ -589,7 +619,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       }
       <label class="pb-btn soft sm" style="cursor:pointer">${svg('pen', 1.8)}${
         person.sig ? 'Ganti' : 'Gambar TTD'
-      }<input type="file" accept="image/*" hidden data-sig="${k}"></label></div></div>`;
+      }<input type="file" accept="image/png,image/jpeg,image/webp,image/*" hidden data-sig="${k}"></label></div></div>`;
         }
       ).join('');
     }
@@ -598,9 +628,11 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     const handleSigChange = async (e: Event) => {
       const el = (e.target as Element).closest('[data-sig]') as HTMLInputElement | null;
       if (!el || !el.files || !el.files[0] || !el.dataset.sig) return;
+      const file = el.files[0];
+      const k = el.dataset.sig as SigKey;
       try {
-        const k = el.dataset.sig as SigKey;
-        (S.sign[k] as SigPerson).sig = await readImg(el.files[0], 420, true);
+        const base64 = await readFileAsDataURL(file);
+        (S.sign[k] as SigPerson).sig = base64;
         renderSig();
         changed();
       } catch (err: any) {
@@ -925,9 +957,13 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
 
     /* ── simpan ke database ── */
-    async function handleSave(btn?: HTMLElement, quiet = false) {
+    async function handleSave(btn?: HTMLElement, quiet = false): Promise<boolean> {
       if (!validate()) return false;
+
+      const saveBtns = [$('#pb-save'), $('#pb-save2')].filter(Boolean) as HTMLElement[];
       if (btn) btn.classList.add('load');
+      saveBtns.forEach((b) => b.classList.add('load'));
+
       try {
         const data = (window as any).PB ? (window as any).PB.getState() : S;
         const token =
@@ -936,32 +972,44 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           localStorage.getItem('laporanwee_token') ||
           '';
 
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
+          headers,
           body: JSON.stringify(data),
         });
 
         const json = await res.json().catch(() => ({}));
-        if (json.success || res.ok) {
+        if (res.ok && json.success) {
+          const noPengajuan =
+            json.data?.nomor_pengajuan ||
+            json.nomor_pengajuan ||
+            json.data?.no_pengajuan ||
+            json.no_pengajuan ||
+            '';
           if (!quiet) {
-            toast('Pengajuan berhasil tersimpan di sistem!');
+            toast('Pengajuan berhasil disimpan!' + (noPengajuan ? ` No: ${noPengajuan}` : ''));
           }
           return true;
         } else {
-          toast(json.message || 'Gagal menyimpan pengajuan ke sistem.');
+          const errMsg = json.message || json.error || 'Gagal menyimpan pengajuan ke database.';
+          toast(errMsg);
           return false;
         }
       } catch (err: any) {
         console.error('Save to database error:', err);
-        toast(err?.message || 'Gagal terhubung ke server untuk menyimpan pengajuan.');
+        toast(err?.message || 'Gagal menyimpan pengajuan ke database.');
         return false;
       } finally {
         if (btn) btn.classList.remove('load');
+        saveBtns.forEach((b) => b.classList.remove('load'));
       }
     }
 
@@ -971,12 +1019,16 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     if (saveBtn2) saveBtn2.onclick = (e) => handleSave(e.currentTarget as HTMLElement);
 
     let oldTitle = '';
-    function doPrint(btn?: HTMLElement) {
+    async function doPrint(btn?: HTMLElement) {
       if (!validate()) return;
-      // Otomatis simpan ke backend sebelum mencetak
-      handleSave(undefined, true).catch(() => {});
-      renderDoc();
       if (btn) btn.classList.add('load');
+      try {
+        // Otomatis simpan ke backend sebelum mencetak
+        await handleSave(undefined, true).catch(() => {});
+      } finally {
+        if (btn) btn.classList.remove('load');
+      }
+      renderDoc();
       const go = () => {
         oldTitle = document.title;
         document.title = 'Pengajuan Barang - ' + (longDate(S.sign.tanggal) || '');
@@ -990,7 +1042,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           document.title = oldTitle;
           if (wasHide && vprev) vprev.classList.add('pb-hide');
           fit();
-          if (btn) btn.classList.remove('load');
           window.removeEventListener('afterprint', done);
         };
         window.addEventListener('afterprint', done);
@@ -1041,7 +1092,13 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         online: !!x.online,
         link: String(x.link || ''),
         imgs: Array.isArray(x.imgs)
-          ? x.imgs.filter((s: any) => typeof s === 'string' && s.startsWith('data:image/')).slice(0, 3)
+          ? x.imgs
+              .filter(
+                (s: any) =>
+                  typeof s === 'string' &&
+                  (s.startsWith('data:image/') || s.startsWith('http://') || s.startsWith('https://') || s.startsWith('blob:'))
+              )
+              .slice(0, 3)
           : [],
       }));
       S = n;
