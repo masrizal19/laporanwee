@@ -15,6 +15,7 @@ export type ViewType =
   | 'crop-setting'
   | 'user-profile'
   | 'analytics'
+  | 'pengajuan-barang'
   | 'ui-settings'
   | 'ui_settings'
   | 'export-laporan'

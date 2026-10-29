@@ -58,6 +58,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'team', label: 'Tim', icon: 'users' },
     { view: 'calendar', label: 'Kalender', icon: 'calendar' },
     { view: 'analytics', label: 'Analitik', icon: 'chart' },
+    { view: 'pengajuan-barang', label: 'Pengajuan Barang', icon: 'box' },
     { view: 'profil', label: 'Pengaturan Profil', icon: 'user' },
     { view: 'ui_settings', label: 'UI Setting', icon: 'sliders' },
   ];

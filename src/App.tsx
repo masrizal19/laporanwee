@@ -35,6 +35,7 @@ import { ProfileSettingsView } from './views/ProfileSettingsView';
 import { UiSettingsView } from './views/UiSettingsView';
 import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
+import { PengajuanBarangView } from './views/PengajuanBarangView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -252,6 +253,7 @@ export function App() {
       '/tim',
       '/kalender',
       '/analitik',
+      '/pengajuan-barang',
       '/analitik/exporlaporan',
       '/analitik/editlaporan',
       '/admin/ui-settings',
@@ -427,6 +429,7 @@ export function App() {
     '/tim': 'team',
     '/kalender': 'calendar',
     '/analitik': 'analytics',
+    '/pengajuan-barang': 'pengajuan-barang',
     '/analitik/exporlaporan': 'export-laporan',
     '/analitik/editlaporan': 'edit-laporan',
     '/admin/ui-settings': 'ui_settings',
@@ -460,6 +463,7 @@ export function App() {
     'setting-profile-picture': '/profil/crop-setting',
     'user-profile': '/profil/user',
     'analytics': '/analitik',
+    'pengajuan-barang': '/pengajuan-barang',
     'social-media': '/sosial-media',
     'ui-settings': '/ui-settings',
     'ui_settings': '/ui-settings',
@@ -2076,6 +2080,10 @@ export function App() {
             currentUser={user}
             isAdmin={isAdmin}
           />
+        )}
+
+        {currentView === 'pengajuan-barang' && (
+          <PengajuanBarangView onAddToast={addToast} />
         )}
 
         {currentView === 'social-media' && (
