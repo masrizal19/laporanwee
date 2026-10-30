@@ -649,25 +649,48 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Responsive scale for paper preview ── */
-  useEffect(() => {
-    const handleFit = () => {
-      if (activeView !== 'prev') return;
-      const wrap = paperWrapRef.current;
-      const paper = paperRef.current;
-      if (!wrap || !paper) return;
+  const fitDocument = () => {
+    const wrapper = document.getElementById('pb-pw') || paperWrapRef.current;
+    const paper = document.getElementById('pb-paper') || paperRef.current;
+    if (!wrapper || !paper) return;
 
+    const availableWidth = wrapper.clientWidth - 32;
+    const paperWidth = paper.offsetWidth || (meta.orient === 'portrait' ? 794 : 1122);
+
+    if (availableWidth > 0 && availableWidth < paperWidth) {
+      const scale = Math.max(0.4, availableWidth / paperWidth);
+      paper.style.transform = `scale(${scale})`;
+      paper.style.transformOrigin = 'top center';
+      const scaledHeight = paper.offsetHeight * scale;
+      wrapper.style.minHeight = `${scaledHeight + 40}px`;
+    } else {
       paper.style.transform = 'none';
-      const pw = paper.offsetWidth;
-      if (!pw) return;
-      const scale = Math.min(1, wrap.clientWidth / pw);
-      paper.style.transform = scale < 1 ? `scale(${scale})` : 'none';
-      wrap.style.height = `${paper.offsetHeight * scale}px`;
-    };
+      wrapper.style.minHeight = 'auto';
+    }
+  };
 
-    handleFit();
-    window.addEventListener('resize', handleFit);
-    return () => window.removeEventListener('resize', handleFit);
+  useEffect(() => {
+    if (activeView === 'prev') {
+      const t = setTimeout(() => {
+        fitDocument();
+      }, 50);
+      const raf = requestAnimationFrame(fitDocument);
+      return () => {
+        clearTimeout(t);
+        cancelAnimationFrame(raf);
+      };
+    }
   }, [activeView, meta.orient, items, sign]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (activeView === 'prev') {
+        fitDocument();
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [activeView, meta.orient]);
 
   /* ── Global window.PB interface ── */
   useEffect(() => {
@@ -698,30 +721,29 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           margin: 0;
         }
         @media print {
-          body {
-            background: #eceef3 !important;
-            padding: 0 !important;
-            margin: 0 !important;
+          body * {
+            visibility: hidden;
           }
-          .pb-top, .pb-right, .pb-dock, .pb-toast, #pb-vform, nav, header, aside, .sidebar {
-            display: none !important;
+          #pb-vprev, #pb-vprev *, #pb-paper, #pb-paper * {
+            visibility: visible;
           }
-          #pb-vprev {
-            display: block !important;
-          }
-          .pb-paperwrap {
-            height: auto !important;
-            overflow: visible !important;
-          }
-          .pb-paper {
+          #pb-paper {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
             transform: none !important;
             box-shadow: none !important;
-            gap: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
           .pb-pg {
             box-shadow: none !important;
             page-break-after: always;
             break-after: page;
+          }
+          .pb-top, .pb-right, .pb-dock, .pb-toast, #pb-vform, nav, header, aside, .sidebar {
+            display: none !important;
           }
         }
       `}</style>
@@ -879,17 +901,44 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         .pb-toast.on{transform:translateX(-50%) translateY(0);opacity:1}
 
         /* Dokumen Cetak A4 Sheet CSS */
-        .pb-paperwrap{width:100%;overflow:hidden;border-radius:6px;display:flex;justify-content:center}
-        .pb-paper{
+        .pb-paperwrap {
+          width: 100%;
+          overflow-x: auto !important;
+          overflow-y: visible !important;
+          height: auto !important;
+          padding: 20px 0;
+          display: flex;
+          justify-content: center;
+        }
+        .pb-paper {
           --pw: ${isLandscape ? '297mm' : '210mm'};
           --ph: ${isLandscape ? '210mm' : '297mm'};
           --th: ${isLandscape ? '27mm' : '16mm'};
           --cols: ${isLandscape ? '13mm minmax(0,1.5fr) 26mm 11mm 30mm minmax(0,1.2fr)' : '11mm minmax(0,1.5fr) 24mm 9mm 27mm minmax(0,1.1fr)'};
           --nv:#2f3b6b;--nv2:#44558f;--tx:#1c2340;--mu:#7c84a0;--ln:#cfd4e1;
-          width:var(--pw);display:flex;flex-direction:column;gap:6mm;transform-origin:top center;
-          font-family:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif;color:var(--tx);line-height:1.4;
+          width: var(--pw);
+          display: flex;
+          flex-direction: column;
+          gap: 6mm;
+          transform-origin: top center !important;
+          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+          margin-bottom: 24px;
+          font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
+          color: var(--tx);
+          line-height: 1.4;
         }
-        .pb-pg{position:relative;flex:none;width:var(--pw);min-height:var(--ph);display:flex;flex-direction:column;background:#eceef3;overflow:hidden;box-shadow:0 30px 70px -30px rgba(40,30,90,.55)}
+        .pb-pg {
+          position: relative;
+          flex: none;
+          width: var(--pw);
+          height: auto !important;
+          min-height: var(--ph, 210mm) !important;
+          overflow: visible !important;
+          display: flex;
+          flex-direction: column;
+          background: #eceef3;
+          box-shadow: 0 30px 70px -30px rgba(40,30,90,.55);
+        }
         .pb-hd{position:relative;flex:none;background:var(--nv);padding:8mm 9mm 17mm;border-bottom-right-radius:18mm;overflow:hidden;color:#fff}
         .pb-hd::before{content:"";position:absolute;right:-22mm;top:-50mm;width:108mm;height:108mm;border-radius:50%;background:var(--nv2);opacity:.85}
         .pb-hd::after{content:"";position:absolute;left:-26mm;bottom:-36mm;width:82mm;height:82mm;border-radius:50%;background:rgba(255,255,255,.08)}
@@ -1674,8 +1723,8 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                   width: '100%',
                 }}
               >
-                <div className="pb-paperwrap" ref={paperWrapRef}>
-                  <div className="pb-paper" ref={paperRef}>
+                <div className="pb-paperwrap" ref={paperWrapRef} id="pb-pw">
+                  <div className="pb-paper" ref={paperRef} id="pb-paper">
                     <section className="pb-pg">
                       {/* Kop Surat Header */}
                       <header className="pb-hd">
@@ -1915,9 +1964,29 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                     <span>{saving ? 'Menyimpan...' : 'Simpan ke Database'}</span>
                   </button>
 
+                  {/* Tombol Unduh Dokumen (PDF) */}
+                  <button
+                    type="button"
+                    className="pb-btn dark lg"
+                    style={{ marginBottom: '10px' }}
+                    onClick={() => {
+                      setActiveView('prev');
+                      setTimeout(() => {
+                        window.print();
+                      }, 200);
+                    }}
+                  >
+                    <svg style={{ width: '20px', height: '20px', marginRight: '6px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>Unduh Dokumen (PDF)</span>
+                  </button>
+
                   {/* Tombol Cetak Dokumen */}
                   <button
-                    className={`pb-btn dark lg ${printing ? 'load' : ''}`}
+                    className={`pb-btn soft lg ${printing ? 'load' : ''}`}
                     type="button"
                     onClick={handlePrint}
                     disabled={printing}
@@ -1981,6 +2050,16 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             </button>
             <button
               className="pb-btn dark sm"
+              type="button"
+              onClick={() => {
+                setActiveView('prev');
+                setTimeout(() => window.print(), 200);
+              }}
+            >
+              Unduh PDF
+            </button>
+            <button
+              className="pb-btn soft sm"
               type="button"
               onClick={handlePrint}
               disabled={printing}
