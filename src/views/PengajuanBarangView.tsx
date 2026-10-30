@@ -914,7 +914,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           --pw: ${isLandscape ? '297mm' : '210mm'};
           --ph: ${isLandscape ? '210mm' : '297mm'};
           --th: ${isLandscape ? '27mm' : '16mm'};
-          --cols: ${isLandscape ? '13mm minmax(0,1.5fr) 26mm 11mm 30mm minmax(0,1.2fr)' : '11mm minmax(0,1.5fr) 24mm 9mm 27mm minmax(0,1.1fr)'};
+          --cols: ${isLandscape ? '12mm minmax(0,1fr) 28mm 12mm 30mm 38mm' : '10mm minmax(0,1fr) 25mm 10mm 26mm 30mm'};
           --nv:#2f3b6b;--nv2:#44558f;--tx:#1c2340;--mu:#7c84a0;--ln:#cfd4e1;
           width: var(--pw);
           display: flex;
@@ -967,9 +967,11 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         .pb-rw .bd2{display:inline-block;margin-top:1.8mm;padding:.7mm 2.6mm;border-radius:99px;font-size:6.5pt;font-weight:600;background:#e3e6f5;color:#3a4a86}
         .pb-rw .bd2.on{background:#d7f3e3;color:#1c7a4a}
         .pb-rw .c3,.pb-rw .c5{text-align:right;font-size:8.5pt;font-weight:500;white-space:nowrap}.pb-rw .c5{font-weight:700}.pb-rw .c4{text-align:center;font-size:9pt;font-weight:600}
+        .pb-rw .c6{text-align:center;font-size:7.5pt;display:flex;align-items:center;justify-content:center;word-break:break-all}
         .pb-th2{display:flex;gap:2mm;flex-wrap:wrap}
         .pb-lk{display:block;font-size:6.5pt;color:#3a4a86;text-decoration:underline;overflow-wrap:anywhere;line-height:1.35;margin-top:1.6mm}
         .pb-th2+.pb-lk{margin-top:2mm}
+        .pb-lampiran-section{break-inside:avoid;page-break-inside:avoid}
 
         .pb-fin{padding-top:5mm}
         .pb-gt2{display:flex;justify-content:space-between;align-items:center;gap:6mm;padding:3.4mm 6mm;background:var(--nv);border-radius:6mm;color:#fff}
@@ -1765,7 +1767,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                         <div>Harga Satuan</div>
                         <div>Qty</div>
                         <div>Jumlah</div>
-                        <div>Link / Bukti</div>
+                        <div>Link Pembelian</div>
                       </div>
 
                       <div className="pb-sec">
@@ -1802,44 +1804,117 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                                 <div className="c4">{item.qty}</div>
                                 <div className="c5">{rp(lineTotal)}</div>
                                 <div className="c6">
-                                  {/* Kolom lampiran bukti gambar */}
-                                  {item.imgs && item.imgs.length > 0 && (
-                                    <div className="pb-th2" style={{ display: 'flex', gap: '2mm', flexWrap: 'wrap' }}>
-                                      {item.imgs.map((src, k) => (
-                                        <img
-                                          key={k}
-                                          src={src}
-                                          alt={`Bukti ${idx + 1}-${k + 1}`}
-                                          style={{
-                                            width: '27mm',
-                                            height: '19.4mm',
-                                            objectFit: 'cover',
-                                            borderRadius: '2mm',
-                                            border: '0.4mm solid #fff',
-                                            boxShadow: '0 0.8mm 2.6mm rgba(30,40,90,.28)',
-                                            display: 'block',
-                                          }}
-                                        />
-                                      ))}
-                                    </div>
-                                  )}
-                                  {item.online && item.link && (
+                                  {item.online && item.link ? (
                                     <a
                                       className="pb-lk"
                                       href={item.link}
                                       target="_blank"
-                                      rel="noreferrer"
+                                      rel="noopener noreferrer"
+                                      style={{
+                                        color: '#2563eb',
+                                        textDecoration: 'underline',
+                                        fontSize: '7pt',
+                                        wordBreak: 'break-all',
+                                        display: 'inline-block',
+                                        lineHeight: 1.3,
+                                      }}
                                     >
-                                      {item.link}
+                                      {item.link.includes('shopee')
+                                        ? 'Shopee'
+                                        : item.link.includes('tokopedia')
+                                        ? 'Tokopedia'
+                                        : 'Buka Link Produk'}
                                     </a>
-                                  )}
-                                  {(!item.imgs || item.imgs.length === 0) && (!item.online || !item.link) && (
-                                    <span style={{ color: 'var(--mu)', fontSize: '8pt' }}>–</span>
+                                  ) : (
+                                    <span className="pb-dash" style={{ color: '#9ca3af', fontSize: '8pt' }}>
+                                      –
+                                    </span>
                                   )}
                                 </div>
                               </div>
                             );
                           })
+                        )}
+
+                        {/* Section Khusus Lampiran Bukti Gambar */}
+                        {items.some((it) => it.imgs && it.imgs.length > 0) && (
+                          <div className="pb-lampiran-section" style={{ marginTop: '6mm', padding: '0 0' }}>
+                            <div
+                              className="pb-sec"
+                              style={{
+                                margin: '0 0 3mm 0',
+                                padding: '0 0 1.6mm 0',
+                                borderBottom: '0.35mm solid #2f3b6b',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'baseline',
+                              }}
+                            >
+                              <b style={{ fontSize: '9pt', fontWeight: 700, color: '#2f3b6b' }}>
+                                Lampiran Bukti Gambar / Foto Produk
+                              </b>
+                              <span style={{ fontSize: '7pt', color: '#7c84a0' }}>
+                                Foto referensi spesifikasi barang
+                              </span>
+                            </div>
+
+                            <div
+                              className="pb-lampiran-grid"
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fill, minmax(36mm, 1fr))',
+                                gap: '3mm',
+                                marginTop: '2.5mm',
+                              }}
+                            >
+                              {items.map((item, itemIdx) =>
+                                item.imgs &&
+                                item.imgs.map((imgSrc, imgIdx) => (
+                                  <div
+                                    key={`${item.id}-${imgIdx}`}
+                                    style={{
+                                      background: '#f8fafc',
+                                      border: '0.3mm solid #cfd4e1',
+                                      borderRadius: '2.5mm',
+                                      padding: '1.5mm',
+                                      display: 'flex',
+                                      flexDirection: 'column',
+                                      alignItems: 'center',
+                                      gap: '1.5mm',
+                                    }}
+                                  >
+                                    <img
+                                      src={imgSrc}
+                                      alt={`Bukti ${item.name}`}
+                                      style={{
+                                        width: '100%',
+                                        height: '24mm',
+                                        objectFit: 'cover',
+                                        borderRadius: '1.5mm',
+                                        border: '0.2mm solid #e2e8f0',
+                                        display: 'block',
+                                      }}
+                                    />
+                                    <span
+                                      style={{
+                                        fontSize: '6.5pt',
+                                        fontWeight: 600,
+                                        color: '#1c2340',
+                                        textAlign: 'center',
+                                        lineHeight: 1.2,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                        whiteSpace: 'nowrap',
+                                        width: '100%',
+                                      }}
+                                    >
+                                      [{itemIdx + 1}] {item.name || 'Barang'}
+                                    </span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          </div>
                         )}
 
                         {/* Grand Total & Tanda Tangan */}
