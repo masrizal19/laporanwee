@@ -101,5 +101,26 @@ Implementation plan to build a clean standalone profile picture cropping modal (
   - In `ProfileView.tsx`: Avatar click and pencil edit icon (`.pen`) navigate directly via `window.location.href = 'https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php'`.
 - **Fullscreen Route at `/profil/setting-profile-picture`**:
   - In `App.tsx`: Route `/profil/setting-profile-picture` renders a dedicated fullscreen iframe view of `https://api-laporanwe.mkverse.my.id/api/profile/profile-crop-setting.php` with a top bar including a "Kembali ke Profil" navigation button and "Buka Langsung ↗" link.
-- **Verification**: Verified with `tsc --noEmit` (0 lint/type errors) and `npm run build` (clean production build).
+
+## 6. Completed Tasks: Public Team Member Profile View Redesign (Glassmorphism Card)
+- **Container Structure**:
+  - Implemented glassmorphism card container (`width: min(680px, 94%)`, `background: var(--glass-solid, rgba(255, 255, 255, 0.95))`, `backdropFilter: blur(22px) saturate(1.3)`, `borderRadius: 32px`, `border: 1px solid var(--line)`, `boxShadow: 0 24px 60px -20px rgba(60, 50, 110, 0.15)`).
+- **Top Header Widget**:
+  - 68px circular avatar with `boxShadow: 0 0 0 4px rgba(255, 255, 255, 0.9)`.
+  - Replaced legacy square black SVG (`<rect fill="%23222222"/>`) with dynamic `#cfc6f4` to `#d4ee6b` gradient background and bold uppercase initials.
+  - Rendered uppercase full name (`19px`, `fontWeight: 700`), subtitle (`email • PEKERJAAN`), and role badge pill (`Anggota Tim`).
+- **Profile Information Section**:
+  - Eyebrow "INFORMASI", header "Informasi Profil", description "Identitas resmi anggota tim di LaporanWee Studio Creative."
+- **Display Cards**:
+  - 3 rounded modern read-only boxes (`height: 62px`, `borderRadius: 18px`) for "Nama Lengkap", "Email", and "Pekerjaan".
+- **Pill Tags with Lime Highlight (`#d4ee6b`)**:
+  - `PILIH PEKERJAAN` tags: `['EDITOR', 'VIDEO EDITOR', 'Desainer Grafis', 'Art Director', 'Copywriter', 'Social Media']` with active highlighted tag styled with `#d4ee6b` background, `#23212e` dark text, `fontWeight: 700`, and soft lime glow.
+  - `STATUS TIM` tags: `['Karyawan', 'Anak Magang', 'Anak PKL']` with selected status highlighted with `#d4ee6b`.
+- **Navigation Action**:
+  - Top back arrow link and bottom dark pill button "Kembali ke Tim" with smooth navigation callback to `onNavigate('team')`.
+- **Created Alias**:
+  - `src/views/PublicProfileView.tsx` re-exporting `UserProfileView`.
+- **Verification**:
+  - `lint_applet` passed (`tsc --noEmit` zero errors).
+  - `compile_applet` succeeded (`npm run build` clean output).
 
