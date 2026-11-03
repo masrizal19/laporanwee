@@ -1947,6 +1947,7 @@ export function App() {
             onSelectProject={(id) => setSelectedProjectId(id)}
             onDeleteProject={handleDeleteProject}
             onAddToast={addToast}
+            onSelectUserProfile={handleSelectUserProfile}
           />
         )}
 

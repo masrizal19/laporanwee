@@ -124,3 +124,20 @@ Implementation plan to build a clean standalone profile picture cropping modal (
   - `lint_applet` passed (`tsc --noEmit` zero errors).
   - `compile_applet` succeeded (`npm run build` clean output).
 
+## 7. Completed Tasks: Team Attendance Compact 2-Column Grid & Minimize Feature (`TeamAttendanceWidget.tsx`)
+- **Dedicated Component**:
+  - Created `src/components/TeamAttendanceWidget.tsx` with collapsible header, quick status badge (`🟢 {onlineCount} Online · ⚪ {offlineCount} Offline`), and 2-column member grid layout.
+- **Card Header & Minimize Toggle**:
+  - Animated chevron button rotates 180° on toggle with smooth max-height/opacity transition.
+  - When collapsed/minimized, displays compact status pill in header to maintain glanceable visibility without occupying vertical height.
+- **Compact 2-Column Grid**:
+  - Two distinct sections: "Sedang Bekerja Online" (emerald pulse dot) and "Offline" (slate gray dot).
+  - 2-column grid (`grid grid-cols-2 gap-2.5`) with 36px mini avatars, online status indicator dots, truncated bold member names, uppercase job titles, and status types.
+  - Scroll container capped at `max-h-[380px]` with slim scrollbar for long member rosters.
+- **Integration**:
+  - Replaced long 1-column list on the right column of `src/views/TeamView.tsx` with `<TeamAttendanceWidget />`, restoring visual balance to the team activity stream layout.
+  - Also embedded `<TeamAttendanceWidget />` into the 12-column bento grid in `src/views/DashboardView.tsx` with `onSelectUserProfile` navigation callback.
+- **Verification**:
+  - `lint_applet` passed (`tsc --noEmit` clean).
+  - `compile_applet` succeeded (`npm run build` zero errors).
+

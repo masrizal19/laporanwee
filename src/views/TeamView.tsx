@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
+import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
 import { api, teamService, getAbsoluteAvatarUrl } from '../utils/api';
 
 interface TeamViewProps {
@@ -420,115 +421,11 @@ export const TeamView: React.FC<TeamViewProps> = ({
 
         {/* Right: Team Presence */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <div className="card summary-card">
-            <h3 style={{ fontSize: '18px', fontWeight: 800, margin: '0 0 14px' }}>
-              Status Kehadiran Tim
-            </h3>
-
-            {/* Working Online */}
-            <div className="status-group">
-              <div className="status-group-title">
-                <span className="dot" style={{ background: '#1e6e56' }} />
-                <span>Sedang Bekerja Online ({workingMembers.length})</span>
-              </div>
-              <div className="member-list">
-                {workingMembers.length === 0 ? (
-                  <div style={{ padding: '8px 10px', fontSize: '12px', color: 'var(--muted)' }}>
-                    Tidak ada anggota yang sedang online saat ini.
-                  </div>
-                ) : (
-                  workingMembers.map((m) => {
-                    const targetId = m.user_id || m.id;
-                    const displayName = m.full_name || m.name;
-                    return (
-                      <div
-                        key={m.id}
-                        className="member-row"
-                        style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
-                        onClick={() => {
-                          if (onSelectUserProfile) {
-                            onSelectUserProfile(targetId);
-                          } else {
-                            onNavigate('user-profile');
-                          }
-                        }}
-                        title={`Lihat profil ${displayName}`}
-                      >
-                        {renderMemberAvatar(m, '38px', '13px')}
-                        <div className="m-info" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <b style={{ fontSize: '13px', lineHeight: 1.2 }}>{displayName}</b>
-                          <span style={{ fontSize: '12px', color: 'var(--text-main, #14131a)', fontWeight: 500 }}>
-                            {m.profile_title || 'Belum diatur'}
-                          </span>
-                          {m.profile_location ? (
-                            <span style={{ fontSize: '11px', color: 'var(--muted, #64748b)' }}>
-                              {m.profile_location}
-                            </span>
-                          ) : null}
-                          <span style={{ fontSize: '11px', color: '#1e6e56', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#1e6e56', display: 'inline-block' }} />
-                            Sedang Bekerja Online
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
-            {/* Offline */}
-            <div className="status-group">
-              <div className="status-group-title">
-                <span className="dot" style={{ background: '#9ca3af' }} />
-                <span>Offline ({offlineMembers.length})</span>
-              </div>
-              <div className="member-list">
-                {offlineMembers.length === 0 ? (
-                  <div style={{ padding: '8px 10px', fontSize: '12px', color: 'var(--muted)' }}>
-                    Semua anggota sedang online.
-                  </div>
-                ) : (
-                  offlineMembers.map((m) => {
-                    const targetId = m.user_id || m.id;
-                    const displayName = m.full_name || m.name;
-                    return (
-                      <div
-                        key={m.id}
-                        className="member-row"
-                        style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
-                        onClick={() => {
-                          if (onSelectUserProfile) {
-                            onSelectUserProfile(targetId);
-                          } else {
-                            onNavigate('user-profile');
-                          }
-                        }}
-                        title={`Lihat profil ${displayName}`}
-                      >
-                        {renderMemberAvatar(m, '38px', '13px')}
-                        <div className="m-info" style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                          <b style={{ fontSize: '13px', lineHeight: 1.2 }}>{displayName}</b>
-                          <span style={{ fontSize: '12px', color: 'var(--text-main, #14131a)', fontWeight: 500 }}>
-                            {m.profile_title || 'Belum diatur'}
-                          </span>
-                          {m.profile_location ? (
-                            <span style={{ fontSize: '11px', color: 'var(--muted, #64748b)' }}>
-                              {m.profile_location}
-                            </span>
-                          ) : null}
-                          <span style={{ fontSize: '11px', color: '#9ca3af', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '2px' }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#9ca3af', display: 'inline-block' }} />
-                            Offline
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
-          </div>
+          <TeamAttendanceWidget
+            members={safeMembers}
+            onSelectUserProfile={onSelectUserProfile}
+            onNavigate={onNavigate}
+          />
 
           <div className="promo-card">
             <div>

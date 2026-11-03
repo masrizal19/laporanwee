@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../types';
 import { getUserFirstName } from '../utils/userUtils';
 import { getAbsoluteAvatarUrl } from '../utils/api';
+import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -15,6 +16,7 @@ interface DashboardViewProps {
   onSelectProject: (projectId: string) => void;
   onDeleteProject?: (projectId: string) => void;
   onAddToast: (text: string) => void;
+  onSelectUserProfile?: (userId: string | number) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -29,6 +31,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectProject,
   onDeleteProject,
   onAddToast,
+  onSelectUserProfile,
 }) => {
   const [filterTab, setFilterTab] = useState<'Semua' | 'On-Track' | 'Berisiko'>('Semua');
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
@@ -745,6 +748,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             })}
           </div>
         </section>
+
+        {/* Row 4: Status Kehadiran Tim (Collapsible Compact Grid) */}
+        <div style={{ gridColumn: 'span 12' }}>
+          <TeamAttendanceWidget
+            members={members}
+            onSelectUserProfile={onSelectUserProfile}
+            onNavigate={onNavigate}
+            defaultMinimized={false}
+          />
+        </div>
       </div>
 
       {/* Delete Confirmation Dialog */}
