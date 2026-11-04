@@ -287,7 +287,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             gap: '18px',
           }}
         >
-          {isLoading ? (
+          {isLoading && reports.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 0', color: 'var(--muted)' }}>
               Memuat laporan tim...
             </div>

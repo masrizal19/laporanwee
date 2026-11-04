@@ -15,6 +15,8 @@ import {
   SocialMediaAccount,
   SocialMediaSummary,
 } from '../types';
+import { fetchWithCache, invalidateCache, getCachedData, setCachedData } from './apiCache';
+export { fetchWithCache, invalidateCache, getCachedData, setCachedData };
 
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
 let baseApi = rawEnvUrl.trim().replace(/\/+$/, '');
@@ -368,9 +370,21 @@ export const formatApiErrorMessage = (err: any): string => {
 };
 
 export const api = {
-  get: async (endpoint: string, options?: { signal?: AbortSignal }) => {
+  get: async (endpoint: string, options?: { signal?: AbortSignal; skipCache?: boolean }) => {
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'GET', url });
+    if (!options?.skipCache) {
+      try {
+        const json = await fetchWithCache(url, {
+          method: 'GET',
+          headers: getHeaders(),
+          signal: options?.signal,
+        });
+        return json;
+      } catch (err) {
+        console.warn('[apiCache] fallback to direct fetch', err);
+      }
+    }
     const response = await fetch(url, {
       method: 'GET',
       headers: getHeaders(),
@@ -381,6 +395,7 @@ export const api = {
   },
 
   post: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
+    invalidateCache();
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'POST', url });
     const response = await fetch(url, {
@@ -393,6 +408,7 @@ export const api = {
   },
 
   put: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
+    invalidateCache();
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'PUT', url });
     const response = await fetch(url, {
@@ -405,6 +421,7 @@ export const api = {
   },
 
   delete: async (endpoint: string, options?: { signal?: AbortSignal }) => {
+    invalidateCache();
     const url = buildApiUrl(endpoint);
     console.log('[API REQUEST]', { method: 'DELETE', url });
     const response = await fetch(url, {

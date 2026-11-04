@@ -3,7 +3,7 @@ import { Activity, TeamMember, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
-import { api, teamService, getAbsoluteAvatarUrl } from '../utils/api';
+import { api, teamService, getAbsoluteAvatarUrl, invalidateCache } from '../utils/api';
 
 interface TeamViewProps {
   activities: Activity[];
@@ -80,6 +80,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
 
   const handleConfirmDeleteActivity = () => {
     if (!actToDelete) return;
+    invalidateCache('activities');
     if (onDeleteActivity) {
       onDeleteActivity(actToDelete.id);
     }
@@ -87,6 +88,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
   };
 
   const handleConfirmResetActivities = () => {
+    invalidateCache('activities');
     if (onResetActivities) {
       onResetActivities();
     }
@@ -95,6 +97,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
 
   const handleConfirmResetPresence = async () => {
     setIsResettingPresence(true);
+    invalidateCache('team');
+    invalidateCache('presence');
     try {
       if (onResetPresence) {
         await onResetPresence();

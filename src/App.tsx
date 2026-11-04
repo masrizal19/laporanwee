@@ -547,7 +547,7 @@ export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showWhatsNewModal, setShowWhatsNewModal] = useState<boolean>(() => {
     try {
-      const seen = localStorage.getItem('laporanwee_v3_seen');
+      const seen = localStorage.getItem('laporanwee_v5_2_notified');
       return seen !== 'true';
     } catch (_) {
       return false;
@@ -2180,9 +2180,9 @@ export function App() {
             className="footer-tag"
             onClick={() => setShowWhatsNewModal(true)}
             style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
-            title="Klik untuk melihat Apa yang Baru di Versi 5.0"
+            title="Klik untuk melihat Apa yang Baru di Versi 5.2"
           >
-            LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
+            LaporanWee v5.2 &bull; JANGAN LUPA KERJA HARI INI
           </div>
         )}
       </main>

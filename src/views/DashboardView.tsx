@@ -3,6 +3,7 @@ import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../type
 import { getUserFirstName } from '../utils/userUtils';
 import { getAbsoluteAvatarUrl } from '../utils/api';
 import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
+import { fetchWithCache, getCachedData } from '../utils/apiCache';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -67,22 +68,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
         const adminEmail = localStorage.getItem('admin_email') || '';
 
-        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/dashboard/index.php', {
+        const dashboardUrl = 'https://api-laporanwe.mkverse.my.id/api/dashboard/index.php';
+        const result: any = await fetchWithCache(dashboardUrl, {
           headers: {
             'Authorization': 'Bearer ' + token,
             'X-Admin-Email': adminEmail,
             'Accept': 'application/json',
           },
         });
-        const text = await res.text();
-        let result: any = {};
-        try {
-          result = text ? JSON.parse(text) : {};
-        } catch {
-          return;
-        }
 
-        if (!result.success) return;
+        if (!result || !result.success) return;
 
         if (result.header && result.header.date_label) {
           setDateLabel(result.header.date_label);
