@@ -20,7 +20,7 @@ import { Icon } from './components/icons';
 import { DashboardView } from './views/DashboardView';
 import { ProjectsView } from './views/ProjectsView';
 import { ProjectDetailView } from './views/ProjectDetailView';
-import { LaporanView } from './views/LaporanView';
+import { ReportsView } from './views/ReportsView';
 import { ReportDetailView } from './views/ReportDetailView';
 import { CreateReportView } from './views/CreateReportView';
 import { TasksView } from './views/TasksView';
@@ -547,9 +547,7 @@ export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showWhatsNewModal, setShowWhatsNewModal] = useState<boolean>(() => {
     try {
-      const seen =
-        localStorage.getItem('laporanwee_v5_2_seen') ||
-        localStorage.getItem('laporanwee_v5_2_notified');
+      const seen = localStorage.getItem('laporanwee_v5_2_notified');
       return seen !== 'true';
     } catch (_) {
       return false;
@@ -2016,7 +2014,7 @@ export function App() {
         )}
 
         {currentView === 'reports' && (
-          <LaporanView
+          <ReportsView
             reports={reports}
             isLoading={isReportsLoading}
             isAdmin={isAdmin}

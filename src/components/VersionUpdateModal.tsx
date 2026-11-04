@@ -15,7 +15,6 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
 
   const handleConfirm = () => {
     if (dontShowAgain) {
-      localStorage.setItem('laporanwee_v5_2_seen', 'true');
       localStorage.setItem('laporanwee_v5_2_notified', 'true');
       localStorage.setItem('laporanwee_v3_seen', 'true');
     }
@@ -28,32 +27,32 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
       icon: '⚡',
       badgeColor: '#10b981',
       tag: '0ms Transisi',
-      title: 'Transisi Cepat 0ms',
-      desc: 'Pemuatan halaman laporan dan dashboard kini terbuka instan tanpa jeda loading.',
+      title: 'Pemuatan Halaman Super Cepat',
+      desc: 'Transisi antar menu kini instan tanpa jeda loading berkat teknologi in-memory caching & background revalidation.',
     },
     {
       id: 'chat-integrated',
       icon: '💬',
       badgeColor: '#6366f1',
-      tag: 'Chat Room',
-      title: 'Chat Room Terpadu',
-      desc: 'Pengetikan waktu nyata, status centang dibaca, dan pratinjau berkas (/chat/preview-file).',
+      tag: 'Chat Terpadu',
+      title: 'Fitur Chat Tim & File Preview',
+      desc: 'Indikator mengetik real-time, centang status pesan terkirim, dan pratinjau berkas aman di rute (/chat/preview-file).',
     },
     {
       id: 'file-optimization',
       icon: '📁',
       badgeColor: '#f59e0b',
-      tag: 'Upload 3 GB',
-      title: 'Dukungan Unggah 3 GB',
-      desc: 'Kirim dokumen kerja, desain PSD/AI, video, dan arsip tanpa kompresi pecah.',
+      tag: 'Kapasitas Besar',
+      title: 'Optimalisasi Berkas Hingga 3 GB',
+      desc: 'Pengiriman dan penyimpanan gambar resolusi tinggi, video dokumentasi, dan berkas kerja proyek kini mendukung hingga 3 GB.',
     },
     {
       id: 'stability-boost',
       icon: '🛡️',
       badgeColor: '#8b5cf6',
-      tag: 'Database v5.2',
-      title: 'Database Engine v5.2',
-      desc: 'Kueri otomatis bebas error struktur dan hemat kuota data.',
+      tag: 'Performa Sistem',
+      title: 'Peningkatan Stabilitas & Efisiensi',
+      desc: 'Sinkronisasi database MySQL yang lebih responsif, hemat kuota internet, serta menjaga status kehadiran tim tetap akurat.',
     },
   ];
 
@@ -87,7 +86,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
           <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-[#d4ee6b] text-[#1f1d2b] shadow-xs">
               <span className="w-2 h-2 rounded-full bg-[#1f1d2b] animate-pulse" />
-              RESMI v5.2
+              UPDATE RESMI v5.2
             </span>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold text-gray-500 dark:text-gray-400 bg-black/5 dark:bg-white/5 tracking-wider">
               JANGAN LUPA KERJA HARI INI
@@ -98,7 +97,7 @@ export const VersionUpdateModal: React.FC<VersionUpdateModalProps> = ({
             LaporanWee v5.2 Telah Aktif!
           </h2>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
-            Pembaruan performa tinggi, stabilitas ruang obrolan, dan sistem laporan kerja harian.
+            Pembaruan performa dan kecepatan sistem untuk pengalaman kerja yang mulus, responsif, dan bebas jeda.
           </p>
         </div>
 
