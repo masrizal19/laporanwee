@@ -141,3 +141,26 @@ Implementation plan to build a clean standalone profile picture cropping modal (
   - `lint_applet` passed (`tsc --noEmit` clean).
   - `compile_applet` succeeded (`npm run build` zero errors).
 
+## 8. Completed Tasks: Report Card Detail & Edit Navigation Bugfix (`ReportsView.tsx` / `App.tsx`)
+- **Root Cause Analysis**:
+  - `handleSelectReport` in `src/App.tsx` was only setting state `selectedReportId` without updating `currentView` to `'report-detail'` and without navigating to `/laporan/detail?id=...`.
+  - In `src/views/ReportsView.tsx`, the card item only invoked `onSelectReport(r.id)` without a secondary `onNavigate('report-detail')` fallback.
+- **Card Click & Accessibility Fix**:
+  - Added dedicated `handleOpenDetail` handler in `ReportsView.tsx` executing `onSelectReport(String(report.id))` and `onNavigate('report-detail')`.
+  - Applied `cursor-pointer`, `tabIndex={0}`, `role="button"`, `aria-label`, and keyboard support (`onKeyDown` for Enter & Space) on the `<article>` card wrapper.
+  - Kept `e.stopPropagation()` strictly on the delete button to prevent triggering report detail view upon clicking delete.
+- **Role Permission Validation**:
+  - Confirmed viewing report details has zero role gating; both Administrator and regular Users can open and inspect report details smoothly.
+- **Routing & State Synchronization**:
+  - In `src/App.tsx`:
+    - Updated `handleSelectReport` to set `currentView` to `'report-detail'` and navigate to `/laporan/detail?id=${cleanId}`.
+    - Updated `handleNavigateToReportEdit` to navigate to `/laporan/detail/edit-laporan?id=${cleanId}`.
+    - Added `/laporan/detail` to `validPaths`, `pathToViewMap`, and `viewToPathMap`.
+    - Added URL search parameter `?id=...` extraction for deep linking and refreshing `/laporan/detail`.
+  - In `src/views/ReportDetailView.tsx`:
+    - Added fallback resolution for `effectiveReportId` checking query parameter `?id=...` and localStorage.
+  - Created `src/views/LaporanView.tsx` as an alias re-exporting `ReportsView`.
+- **Verification**:
+  - `lint_applet` passed (`tsc --noEmit` 0 errors).
+  - `compile_applet` passed clean build.
+

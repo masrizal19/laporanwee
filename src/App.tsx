@@ -248,6 +248,7 @@ export function App() {
       '/dashboard',
       '/proyek',
       '/laporan',
+      '/laporan/detail',
       '/laporan/detail/edit-laporan',
       '/tugas',
       '/tim',
@@ -272,6 +273,9 @@ export function App() {
     if (hashPart && (hashPart.includes('/crop-setting') || hashPart.includes('/setting-profile-picture') || hashPart.includes('/crop'))) {
       return '/profil/crop-setting';
     }
+    if (hashPart && hashPart.startsWith('/laporan/')) {
+      return hashPart.includes('edit') ? '/laporan/detail/edit-laporan' : '/laporan/detail';
+    }
     if (validPaths.includes(hashPart)) {
       return hashPart;
     }
@@ -281,6 +285,12 @@ export function App() {
     }
     if (path.includes('/crop-setting') || path.includes('/setting-profile-picture') || path.includes('/crop')) {
       return '/profil/crop-setting';
+    }
+    if (path.startsWith('/laporan/detail') || path.startsWith('/laporan/')) {
+      const sub = path.replace('/laporan', '').trim();
+      if (sub && sub !== '/' && sub !== '') {
+        return path.includes('edit') ? '/laporan/detail/edit-laporan' : '/laporan/detail';
+      }
     }
     const cleanPath = path.replace(/\/+$/, '') || '/';
     for (const validPath of validPaths) {
@@ -424,6 +434,7 @@ export function App() {
     '/dashboard': 'dashboard',
     '/proyek': 'projects',
     '/laporan': 'reports',
+    '/laporan/detail': 'report-detail',
     '/laporan/detail/edit-laporan': 'report-detail',
     '/tugas': 'tasks',
     '/tim': 'team',
@@ -454,7 +465,7 @@ export function App() {
     'team': '/tim',
     'calendar': '/kalender',
     'reports': '/laporan',
-    'report-detail': '/laporan',
+    'report-detail': '/laporan/detail',
     'create-report': '/laporan',
     'profile': '/profil',
     'profil': '/profil',
@@ -484,6 +495,14 @@ export function App() {
       if (targetView && targetView !== currentView) {
         setCurrentView(targetView);
       }
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const urlId = params.get('id') || params.get('reportId') || params.get('report_id');
+        if (urlId) {
+          setSelectedReportId(urlId);
+          localStorage.setItem('laporanwee_selected_report_id', urlId);
+        }
+      }
     }
   }, [currentPath, user]);
 
@@ -498,6 +517,11 @@ export function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
   const [selectedUserProfileId, setSelectedUserProfileId] = useState<string | number | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlId = params.get('id') || params.get('reportId') || params.get('report_id');
+      if (urlId) return urlId;
+    }
     return localStorage.getItem('laporanwee_selected_report_id') || '';
   });
   const [isReportsLoading, setIsReportsLoading] = useState<boolean>(() => {
@@ -1766,14 +1790,17 @@ export function App() {
     localStorage.setItem('laporanwee_selected_report_id', cleanId);
     setReportInitialEdit(true);
     setCurrentView('report-detail');
-    navigateToPath('/laporan/detail/edit-laporan');
+    navigateToPath(`/laporan/detail/edit-laporan?id=${cleanId}`);
   };
 
   const handleSelectReport = (id: string | number) => {
     const cleanId = String(id).trim();
+    if (!cleanId) return;
     setSelectedReportId(cleanId);
     localStorage.setItem('laporanwee_selected_report_id', cleanId);
     setReportInitialEdit(false);
+    setCurrentView('report-detail');
+    navigateToPath(`/laporan/detail?id=${cleanId}`);
   };
 
   const currentProject =
@@ -1968,7 +1995,7 @@ export function App() {
             tasks={tasks}
             reports={reports}
             onNavigate={handleNavigate}
-            onSelectReport={(id) => setSelectedReportId(id)}
+            onSelectReport={handleSelectReport}
             onSelectUserProfile={handleSelectUserProfile}
             onAddToast={addToast}
           />

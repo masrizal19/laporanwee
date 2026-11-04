@@ -45,9 +45,14 @@ export const ReportDetailView: React.FC<ReportDetailViewProps> = ({
   onReportUpdated,
   onAddToast,
 }) => {
-  const effectiveReportId = String(reportId || initialReport?.id || report?.id || '').trim();
+  const urlId = typeof window !== 'undefined'
+    ? (new URLSearchParams(window.location.search).get('id') || new URLSearchParams(window.location.search).get('reportId') || '')
+    : '';
+  const effectiveReportId = String(
+    reportId || initialReport?.id || report?.id || urlId || (typeof localStorage !== 'undefined' ? localStorage.getItem('laporanwee_selected_report_id') : '') || ''
+  ).trim();
   const initialData =
-    initialReport || report || dailyReportService.getCachedReportById(effectiveReportId) || null;
+    initialReport || report || (effectiveReportId ? dailyReportService.getCachedReportById(effectiveReportId) : null);
   const [currentData, setCurrentData] = useState<Report | null>(initialData);
   const [isLoading, setIsLoading] = useState<boolean>(!initialData && Boolean(effectiveReportId));
   const [errorStatus, setErrorStatus] = useState<number | string | null>(null);

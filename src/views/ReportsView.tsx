@@ -100,6 +100,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }
   };
 
+  const handleOpenDetail = (report: Report) => {
+    if (!report || !report.id) return;
+    onSelectReport(String(report.id));
+    if (onNavigate) {
+      onNavigate('report-detail');
+    }
+  };
+
   const completedCount = reports.filter((r) => r.status === 'Completed').length;
   const inReviewCount = reports.filter((r) => r.status === 'In Review').length;
 
@@ -308,8 +316,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               return (
                 <article
                   key={r.id}
-                  className="report-card"
-                  onClick={() => onSelectReport(r.id)}
+                  className="report-card cursor-pointer"
+                  tabIndex={0}
+                  role="button"
+                  aria-label={`Buka detail laporan ${r.task}`}
+                  onClick={() => handleOpenDetail(r)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleOpenDetail(r);
+                    }
+                  }}
                   style={{
                     background: 'var(--glass-solid, rgba(255, 255, 255, 0.92))',
                     backdropFilter: 'blur(20px)',
