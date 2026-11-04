@@ -36,7 +36,6 @@ import { UiSettingsView } from './views/UiSettingsView';
 import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 import { PengajuanBarangView } from './views/PengajuanBarangView';
-import { ChatView } from './views/ChatView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -447,9 +446,6 @@ export function App() {
     '/admin/ui-settings': 'ui_settings',
     '/ui-settings': 'ui_settings',
     '/ui_settings': 'ui_settings',
-    '/chat': 'chat',
-    '/pesan': 'chat',
-    '/pesan-tim': 'chat',
     '/sosial-media': 'social-media',
     '/social-media': 'social-media',
     '/profil': 'profil',
@@ -466,7 +462,6 @@ export function App() {
     'projects': '/proyek',
     'project-detail': '/proyek',
     'tasks': '/tugas',
-    'chat': '/chat',
     'team': '/tim',
     'calendar': '/kalender',
     'reports': '/laporan',
@@ -1965,7 +1960,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className={`app-shell-main ${currentView === 'chat' ? 'chat-mode' : ''}`}>
+      <main className="app-shell-main">
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -2119,13 +2114,6 @@ export function App() {
           <PengajuanBarangView onAddToast={addToast} />
         )}
 
-        {currentView === 'chat' && (
-          <ChatView
-            currentUser={user}
-            onAddToast={addToast}
-          />
-        )}
-
         {currentView === 'social-media' && (
           <SocialMediaView
             onNavigate={handleNavigate}
@@ -2168,16 +2156,14 @@ export function App() {
           />
         )}
 
-        {currentView !== 'chat' && (
-          <div
-            className="footer-tag"
-            onClick={() => setShowWhatsNewModal(true)}
-            style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
-            title="Klik untuk melihat Apa yang Baru di Versi 5.0"
-          >
-            LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
-          </div>
-        )}
+        <div
+          className="footer-tag"
+          onClick={() => setShowWhatsNewModal(true)}
+          style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
+          title="Klik untuk melihat Apa yang Baru di Versi 5.0"
+        >
+          LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
+        </div>
       </main>
 
       {/* Version 3.0 Release & Announcements Modal */}

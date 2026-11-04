@@ -8367,18 +8367,6 @@ svg {
   box-sizing: border-box;
 }
 
-.app-shell-main.chat-mode {
-  padding-bottom: 20px;
-  overflow: hidden;
-  height: 100vh;
-  min-height: 100vh;
-  box-sizing: border-box;
-}
-
-.app-shell-main.chat-mode .top-bar-shell {
-  margin-bottom: 12px;
-}
-
 .top-bar-shell {
   display: flex;
   align-items: center;
