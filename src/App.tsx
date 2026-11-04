@@ -250,6 +250,7 @@ export function App() {
       '/proyek',
       '/laporan',
       '/chat',
+      '/chat/preview-file',
       '/laporan/detail',
       '/laporan/detail/edit-laporan',
       '/tugas',
@@ -269,6 +270,9 @@ export function App() {
       '/profil/ubahfoto',
       '/profil/user',
     ];
+    if (hashPart && hashPart.startsWith('/chat')) {
+      return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
+    }
     if (hashPart && hashPart.startsWith('/profil/user')) {
       return '/profil/user';
     }
@@ -282,6 +286,9 @@ export function App() {
       return hashPart;
     }
     const path = window.location.pathname.split('?')[0];
+    if (path.startsWith('/chat')) {
+      return path.includes('preview-file') ? '/chat/preview-file' : '/chat';
+    }
     if (path.startsWith('/profil/user')) {
       return '/profil/user';
     }
@@ -440,6 +447,7 @@ export function App() {
     '/laporan/detail/edit-laporan': 'report-detail',
     '/tugas': 'tasks',
     '/chat': 'chat',
+    '/chat/preview-file': 'chat',
     '/tim': 'team',
     '/kalender': 'calendar',
     '/analitik': 'analytics',

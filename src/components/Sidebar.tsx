@@ -208,7 +208,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isActive =
             (item.path && currentPath === item.path) ||
             (item.view && currentView === item.view) ||
-            (item.id === 'chat' && (currentPath === '/chat' || currentView === 'chat'));
+            (item.id === 'chat' && (currentPath === '/chat' || currentPath === '/chat/preview-file' || currentView === 'chat'));
 
           return (
             <button

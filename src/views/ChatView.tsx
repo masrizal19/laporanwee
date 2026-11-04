@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ViewType } from '../types';
 
 export interface ChatViewProps {
@@ -8,6 +8,7 @@ export interface ChatViewProps {
 
 export const ChatView: React.FC<ChatViewProps> = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Kunci scroll body selama berada di rute /chat agar pas 1 layar penuh
   useEffect(() => {
@@ -21,6 +22,74 @@ export const ChatView: React.FC<ChatViewProps> = () => {
       document.documentElement.style.overflow = originalHtmlOverflow;
     };
   }, []);
+
+  // Kirim perintah tutup pratinjau ke dalam iframe
+  const sendClosePreviewToIframe = useCallback(() => {
+    if (!iframeRef.current?.contentWindow) return;
+    const payloads = [
+      { type: 'CHAT_FILE_PREVIEW_CLOSE', action: 'close' },
+      { type: 'CHAT_FILE_PREVIEW', action: 'close', open: false },
+      { action: 'close_preview' },
+      'CHAT_FILE_PREVIEW_CLOSE',
+    ];
+    payloads.forEach((p) => {
+      try {
+        iframeRef.current?.contentWindow?.postMessage(p, '*');
+      } catch (_) {}
+    });
+  }, []);
+
+  // Tangkap sinyal postMessage CHAT_FILE_PREVIEW dari iframe chat
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      const data = event.data;
+      if (!data) return;
+
+      const isPreviewOpen =
+        data === 'CHAT_FILE_PREVIEW' ||
+        data === 'CHAT_FILE_PREVIEW_OPEN' ||
+        data?.type === 'CHAT_FILE_PREVIEW_OPEN' ||
+        (data?.type === 'CHAT_FILE_PREVIEW' && data?.action !== 'close' && data?.status !== 'close' && data?.open !== false && data?.isOpen !== false) ||
+        (data?.action === 'CHAT_FILE_PREVIEW' && data?.status !== 'close');
+
+      const isPreviewClose =
+        data === 'CHAT_FILE_PREVIEW_CLOSE' ||
+        data?.type === 'CHAT_FILE_PREVIEW_CLOSE' ||
+        data?.action === 'close_preview' ||
+        (data?.type === 'CHAT_FILE_PREVIEW' && (data?.action === 'close' || data?.status === 'close' || data?.open === false || data?.isOpen === false)) ||
+        (data?.action === 'CHAT_FILE_PREVIEW' && (data?.status === 'close' || data?.action === 'close'));
+
+      if (isPreviewOpen && !isPreviewClose) {
+        if (!window.location.pathname.includes('/chat/preview-file')) {
+          window.history.pushState({ isChatPreview: true }, '', '/chat/preview-file');
+        }
+      } else if (isPreviewClose) {
+        if (window.location.pathname.includes('/chat/preview-file')) {
+          window.history.pushState({}, '', '/chat');
+        }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, []);
+
+  // Event popstate aktif sehingga tombol 'Back' di browser menutup pratinjau berkas secara mulus tanpa keluar dari chat
+  useEffect(() => {
+    const handlePopState = () => {
+      const currentPath = window.location.pathname;
+      if (!currentPath.includes('preview-file')) {
+        sendClosePreviewToIframe();
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [sendClosePreviewToIframe]);
 
   // Pertahankan penyaluran token otomatis dari localStorage ke URL iframe
   const token =
@@ -60,6 +129,7 @@ export const ChatView: React.FC<ChatViewProps> = () => {
 
         {/* Iframe Chat PHP Resmi */}
         <iframe
+          ref={iframeRef}
           src={iframeUrl}
           title="Pesan Tim"
           className="w-full h-full border-none block flex-1"
