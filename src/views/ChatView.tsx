@@ -197,16 +197,13 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
   const [showMobileChat, setShowMobileChat] = useState<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  // 3. Auto-scroll ke pesan terbaru
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const activeUser = users.find((u) => String(u.id) === String(activeUserId)) || users[0];
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
-
   useEffect(() => {
-    scrollToBottom();
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   // Fetch Daftar Pengguna dari API (users.php)
@@ -528,25 +525,27 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
   });
 
   return (
-    // 2. PEMBUNGKUS UTAMA CHAT (Dinamis Light & Dark)
-    <div className="flex-1 h-[calc(100vh-24px)] flex flex-col min-w-0 transition-colors duration-300">
+    // PEMBUNGKUS UTAMA CHAT (Dinamis Light & Dark, Mengisi Seluruh Tinggi Viewport)
+    <div className="flex-1 h-[calc(100vh-24px)] max-h-[calc(100vh-24px)] flex flex-col min-h-0 min-w-0 transition-colors duration-300">
       <div
-        className={`w-full h-full rounded-3xl overflow-hidden flex border transition-all duration-300 ${
+        className={`w-full h-full rounded-3xl overflow-hidden flex border transition-all duration-300 min-h-0 ${
           isDark
             ? 'bg-[#1b1924]/95 border-white/10 shadow-2xl text-gray-100'
             : 'bg-white/90 border-black/5 shadow-xl text-gray-800'
         }`}
       >
-        {/* 3. KOLOM KIRI (DAFTAR PERCAKAPAN & PENCARIAN) */}
+        {/* 2. KOLOM KIRI (DAFTAR PERCAKAPAN & PENCARIAN DENGAN MIN-H-0 & FLEX-1) */}
         <aside
-          className={`w-full md:w-80 lg:w-96 flex-shrink-0 flex flex-col h-full border-r transition-colors duration-300 ${
+          className={`w-full md:w-80 lg:w-96 flex-shrink-0 flex flex-col h-full min-h-0 border-r transition-colors duration-300 ${
             isDark ? 'bg-[#211e2b] border-white/5' : 'bg-[#faf9fd] border-black/5'
           } ${showMobileChat ? 'hidden md:flex' : 'flex'}`}
         >
-          {/* Header Sidebar */}
-          <div className={`p-4 border-b flex items-center justify-between transition-colors duration-300 ${
-            isDark ? 'border-white/5' : 'border-black/5'
-          }`}>
+          {/* Header Sidebar - flex-shrink-0 */}
+          <div
+            className={`flex-shrink-0 p-4 border-b flex items-center justify-between transition-colors duration-300 ${
+              isDark ? 'border-white/5' : 'border-black/5'
+            }`}
+          >
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-[#23212e] dark:bg-[#d4ee6a] text-white dark:text-[#23212e] flex items-center justify-center font-bold shadow-xs">
                 <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -581,8 +580,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
             </button>
           </div>
 
-          {/* Input Cari Chat */}
-          <div className="px-3.5 pt-3 pb-2">
+          {/* Input Cari Chat - flex-shrink-0 */}
+          <div className="flex-shrink-0 px-3.5 pt-3 pb-2">
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -613,8 +612,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
             </div>
           </div>
 
-          {/* Tab Filter (Semua, Online, Karyawan, Magang) */}
-          <div className="px-3 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar text-xs">
+          {/* Tab Filter - flex-shrink-0 */}
+          <div className="flex-shrink-0 px-3 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar text-xs">
             {[
               { id: 'all', label: 'Semua' },
               { id: 'online', label: 'Online' },
@@ -643,8 +642,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
             })}
           </div>
 
-          {/* Daftar Kontak Pengguna */}
-          <div className="flex-1 overflow-y-auto px-2 space-y-1 pb-4">
+          {/* Daftar Kontak Pengguna - KUNCI: flex-1 overflow-y-auto min-h-0 */}
+          <div className="flex-1 overflow-y-auto min-h-0 px-2 space-y-1 py-1">
             {isLoadingUsers && users.length === 0 ? (
               <div className="p-8 text-center text-xs text-gray-400">
                 <div className="w-6 h-6 border-2 border-[#7a63d8] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
@@ -709,9 +708,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                           {user.name}
                         </h3>
                         {user.last_time && (
-                          <span className={`text-[10px] whitespace-nowrap flex-shrink-0 ${
-                            isDark ? 'text-gray-400' : 'text-gray-500'
-                          }`}>
+                          <span
+                            className={`text-[10px] whitespace-nowrap flex-shrink-0 ${
+                              isDark ? 'text-gray-400' : 'text-gray-500'
+                            }`}
+                          >
                             {user.last_time}
                           </span>
                         )}
@@ -725,19 +726,44 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
               })
             )}
           </div>
+
+          {/* Tombol Mulai Chat Baru di Bawah - flex-shrink-0 p-3 mt-auto */}
+          <div
+            className={`flex-shrink-0 p-3 mt-auto border-t transition-colors duration-300 ${
+              isDark ? 'border-white/5 bg-[#211e2b]/95' : 'border-black/5 bg-[#faf9fd]/95'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                if (filteredUsers.length > 0) {
+                  handleSelectUser(filteredUsers[0]);
+                }
+              }}
+              className={`w-full py-2.5 px-4 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+                isDark
+                  ? 'bg-[#d4ee6b] text-[#1f1d2b] hover:opacity-90 shadow-sm'
+                  : 'bg-[#1e1d2b] text-white hover:bg-black/80 shadow-sm'
+              }`}
+            >
+              <span>✎</span>
+              <span>Mulai chat / percakapan baru</span>
+            </button>
+          </div>
         </aside>
 
-        {/* 4. AREA CHAT KANAN (ACTIVE ROOM) */}
+        {/* 1. STRUKTUR FLEXBOX PANEL KANAN (ACTIVE CHAT ROOM) */}
         <section
-          className={`flex-1 flex flex-col h-full min-w-0 transition-colors duration-300 ${
+          className={`flex-1 flex flex-col h-full min-h-0 min-w-0 relative transition-colors duration-300 ${
             isDark ? 'bg-[#181622]' : 'bg-[#f4f3f9]'
           } ${!showMobileChat ? 'hidden md:flex' : 'flex'}`}
         >
           {activeUser ? (
-            <>
-              {/* Top Header Bar */}
+            <div className="flex-1 flex flex-col h-full min-h-0 relative">
+              {/* 1. Header Lawan Bicara (Terkunci di Atas) - flex-shrink-0 */}
               <div
-                className={`px-6 py-4 flex items-center justify-between border-b transition-colors duration-300 ${
+                className={`flex-shrink-0 px-6 py-4 border-b flex items-center justify-between transition-colors duration-300 ${
                   isDark ? 'bg-[#211e2b]/80 border-white/5' : 'bg-white/80 border-black/5'
                 }`}
               >
@@ -781,9 +807,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                     <h3 className={`text-sm font-bold truncate ${isDark ? 'text-white' : 'text-gray-900'}`}>
                       {activeUser.name}
                     </h3>
-                    <div className={`flex items-center gap-1.5 text-[11px] truncate ${
-                      isDark ? 'text-gray-400' : 'text-gray-500'
-                    }`}>
+                    <div
+                      className={`flex items-center gap-1.5 text-[11px] truncate ${
+                        isDark ? 'text-gray-400' : 'text-gray-500'
+                      }`}
+                    >
                       <span className={`font-medium ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
                         {activeUser.job_title}
                       </span>
@@ -816,8 +844,9 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                 </div>
               </div>
 
-              {/* Area Pesan (Thread) */}
-              <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-3.5">
+              {/* 2. Message Stream Feed (MENGISI PENUH SISA RUANG & MENDORONG INPUT KE BAWAH) */}
+              {/* KUNCI UTAMA: Wajib menggunakan 'flex-1 overflow-y-auto min-h-0' */}
+              <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-4">
                 {/* Chip Tanggal */}
                 <div className="flex justify-center my-2">
                   <span
@@ -907,16 +936,16 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* 5. AREA INPUT PESAN (BOTTOM BAR) */}
+              {/* 3. Bottom Message Input Bar (TERKUNCI DI PALING BAWAH - flex-shrink-0 mt-auto) */}
               <div
-                className={`p-4 border-t transition-colors duration-300 relative ${
+                className={`flex-shrink-0 mt-auto p-4 border-t transition-colors duration-300 relative ${
                   isDark ? 'bg-[#211e2b]/90 border-white/5' : 'bg-white/90 border-black/5'
                 }`}
               >
                 {/* Popup Emoji */}
                 {showEmojiPicker && (
                   <div
-                    className={`absolute bottom-full mb-2 left-4 p-3 rounded-2xl shadow-xl border z-30 grid grid-cols-6 gap-2 ${
+                    className={`absolute bottom-full mb-3 left-4 p-3 rounded-2xl shadow-xl border z-30 grid grid-cols-6 gap-2 ${
                       isDark ? 'bg-[#252336] border-white/10 text-white' : 'bg-white border-black/10 text-gray-800'
                     }`}
                   >
@@ -939,7 +968,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                 {/* Popup Attachment */}
                 {showAttachMenu && (
                   <div
-                    className={`absolute bottom-full mb-2 left-4 p-2 rounded-2xl shadow-xl border z-30 min-w-[170px] space-y-1 ${
+                    className={`absolute bottom-full mb-3 left-4 p-2 rounded-2xl shadow-xl border z-30 min-w-[170px] space-y-1 ${
                       isDark ? 'bg-[#252336] border-white/10 text-white' : 'bg-white border-black/10 text-gray-800'
                     }`}
                   >
@@ -979,8 +1008,8 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                   onChange={handleFileUpload}
                 />
 
-                <form onSubmit={handleSendMessage} className="flex items-center gap-2.5">
-                  {/* Tombol Plus */}
+                <form onSubmit={handleSendMessage} className="flex items-center gap-3 w-full">
+                  {/* Tombol Lampiran [+] */}
                   <button
                     type="button"
                     onClick={() => {
@@ -988,26 +1017,22 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                       setShowEmojiPicker(false);
                     }}
                     title="Lampirkan berkas"
-                    className={`w-11 h-11 rounded-2xl flex items-center justify-center font-bold text-lg flex-shrink-0 transition-transform active:scale-95 ${
-                      isDark
-                        ? 'bg-white/10 hover:bg-white/15 text-gray-200'
-                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                    }`}
+                    className="w-10 h-10 rounded-2xl flex-shrink-0 flex items-center justify-center bg-gray-100 dark:bg-white/10 hover:bg-gray-200 dark:hover:bg-white/15 transition-all text-gray-600 dark:text-gray-300"
                   >
-                    +
+                    <span className="text-xl font-bold">+</span>
                   </button>
 
-                  {/* Input Teks */}
+                  {/* Input Box Pesan */}
                   <div className="flex-1 relative flex items-center">
                     <input
                       type="text"
                       value={inputText}
                       onChange={(e) => setInputText(e.target.value)}
-                      placeholder={`Tulis pesan ke ${activeUser.name}...`}
-                      className={`flex-1 px-4 py-3 rounded-2xl text-sm outline-none transition-all pr-11 ${
+                      placeholder={`Tulis pesan ke ${activeUser?.name || 'rekan tim'}...`}
+                      className={`w-full h-11 pl-4 pr-11 rounded-2xl border text-sm outline-none transition-all ${
                         isDark
-                          ? 'bg-[#282537] text-white placeholder-gray-400 border border-white/5 focus:border-[#d4ee6b]'
-                          : 'bg-gray-50 text-gray-800 placeholder-gray-400 border border-black/10 focus:border-[#7a69d0]'
+                          ? 'bg-[#282637] text-white placeholder-gray-400 border-white/10 focus:border-[#d4ee6b]'
+                          : 'bg-white text-gray-800 placeholder-gray-400 border-gray-200 focus:border-[#7a69d0]'
                       }`}
                     />
                     <button
@@ -1017,31 +1042,32 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser, onAddToast }) =
                         setShowAttachMenu(false);
                       }}
                       title="Pilih emoji"
-                      className="absolute right-3.5 text-gray-400 hover:text-gray-600 text-lg transition-transform hover:scale-110"
+                      className="absolute right-3 text-lg opacity-70 hover:opacity-100 transition-opacity"
                     >
                       😊
                     </button>
                   </div>
 
-                  {/* Tombol Kirim */}
+                  {/* Tombol Kirim Pesan [>] */}
                   <button
                     type="submit"
                     disabled={!inputText.trim()}
                     title="Kirim pesan"
-                    className="w-11 h-11 rounded-2xl bg-[#d4ee6b] text-[#1a1924] flex items-center justify-center hover:opacity-90 transition-opacity flex-shrink-0 shadow-md font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="w-11 h-11 rounded-2xl flex-shrink-0 flex items-center justify-center bg-[#d4ee6b] text-[#1f1d2b] hover:opacity-90 active:scale-95 transition-all shadow-md font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="22" y1="2" x2="11" y2="13" />
-                      <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    <svg className="w-5 h-5 -rotate-45 ml-0.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
                     </svg>
                   </button>
                 </form>
               </div>
-            </>
+            </div>
           ) : (
-            <div className={`flex-1 flex flex-col items-center justify-center p-8 text-center ${
-              isDark ? 'text-gray-400' : 'text-gray-500'
-            }`}>
+            <div
+              className={`flex-1 flex flex-col items-center justify-center p-8 text-center ${
+                isDark ? 'text-gray-400' : 'text-gray-500'
+              }`}
+            >
               <div className="w-16 h-16 rounded-3xl bg-black/5 dark:bg-white/5 flex items-center justify-center text-3xl mb-3">
                 💬
               </div>
