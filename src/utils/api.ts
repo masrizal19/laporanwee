@@ -15,8 +15,8 @@ import {
   SocialMediaAccount,
   SocialMediaSummary,
 } from '../types';
-import { fetchWithCache, invalidateCache, getCachedData, setCachedData } from './apiCache';
-export { fetchWithCache, invalidateCache, getCachedData, setCachedData };
+import { fetchWithFastCache, fetchWithCache, invalidateCache, getCachedData, setCachedData } from './apiCache';
+export { fetchWithFastCache, fetchWithCache, invalidateCache, getCachedData, setCachedData };
 
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
 let baseApi = rawEnvUrl.trim().replace(/\/+$/, '');

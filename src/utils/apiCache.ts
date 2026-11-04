@@ -9,7 +9,47 @@ interface CacheEntry<T = any> {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CACHE_TTL = 30000; // 30 detik validitas data segar (fresh)
+const TTL = 60000; // 1 menit cache segar (60 detik)
+const CACHE_TTL = 30000; // 30 detik validitas cache instan
+
+/**
+ * Fast Cache Fetcher untuk Endpoint Berperforma Tinggi (Laporan, Dashboard, dsb.)
+ */
+export const fetchWithFastCache = async <T = any>(
+  url: string,
+  headers: HeadersInit = {}
+): Promise<T> => {
+  const cached = cache.get(url);
+  const now = Date.now();
+
+  // Kembalikan data cache langsung jika masih segar (< 1 menit)
+  if (cached && now - cached.timestamp < TTL) {
+    return cached.data;
+  }
+
+  try {
+    const res = await fetch(url, { headers });
+    const json = await res.json();
+    if (json && json.success !== false) {
+      cache.set(url, { data: json, timestamp: now });
+    }
+    return json;
+  } catch (err) {
+    // Jika fetch gagal (koneksi lambat), gunakan stale cache jika tersedia
+    if (cached) {
+      console.warn(`[apiCache] Network request failed for ${url}, fallback to cache.`);
+      return cached.data;
+    }
+    throw err;
+  }
+};
+
+/**
+ * Mengosongkan seluruh cache data laporan dan sistem
+ */
+export const clearReportCache = (): void => {
+  cache.clear();
+};
 
 /**
  * Mengambil data dari cache memori jika tersedia secara instan (0ms),
@@ -36,9 +76,8 @@ export const fetchWithCache = async <T = any>(
     }
     return json;
   } catch (error) {
-    // Jika fetch gagal (misal koneksi lambat) namun ada data cache lama, kembalikan data cache (offline resilient)
     if (cached) {
-      console.warn(`[apiCache] Network request failed for ${url}, fallback ke stale cache.`);
+      console.warn(`[apiCache] Network request failed for ${url}, fallback to stale cache.`);
       return cached.data;
     }
     throw error;
@@ -67,7 +106,6 @@ export const setCachedData = <T = any>(url: string, data: T): void => {
 
 /**
  * Menghapus cache berdasarkan pola URL atau mengosongkan seluruh cache.
- * Dipanggil saat ada mutasi data (tambah/edit/hapus laporan, user baru, dll.)
  */
 export const invalidateCache = (pattern?: string): void => {
   if (!pattern) {
@@ -82,6 +120,8 @@ export const invalidateCache = (pattern?: string): void => {
 };
 
 export default {
+  fetchWithFastCache,
+  clearReportCache,
   fetchWithCache,
   getCachedData,
   setCachedData,
