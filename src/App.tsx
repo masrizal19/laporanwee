@@ -1964,7 +1964,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className="app-shell-main">
+      <main className={`app-shell-main ${currentView === 'chat' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -2167,14 +2167,16 @@ export function App() {
           />
         )}
 
-        <div
-          className="footer-tag"
-          onClick={() => setShowWhatsNewModal(true)}
-          style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
-          title="Klik untuk melihat Apa yang Baru di Versi 5.0"
-        >
-          LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
-        </div>
+        {currentView !== 'chat' && (
+          <div
+            className="footer-tag"
+            onClick={() => setShowWhatsNewModal(true)}
+            style={{ cursor: 'pointer', textAlign: 'center', margin: '40px 0 20px', color: 'var(--muted)', fontSize: '12.5px', fontWeight: 500 }}
+            title="Klik untuk melihat Apa yang Baru di Versi 5.0"
+          >
+            LaporanWee v5.0 &bull; JANGAN LUPA KERJA HARI INI
+          </div>
+        )}
       </main>
 
       {/* Version 3.0 Release & Announcements Modal */}

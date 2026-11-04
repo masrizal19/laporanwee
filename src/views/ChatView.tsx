@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ViewType } from '../types';
 
 export interface ChatViewProps {
@@ -9,7 +9,20 @@ export interface ChatViewProps {
 export const ChatView: React.FC<ChatViewProps> = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Token Bearer akun yang sedang login disinkronkan secara otomatis dari localStorage ke URL iframe
+  // Kunci scroll body selama berada di rute /chat agar pas 1 layar penuh
+  useEffect(() => {
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalHtmlOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = originalBodyOverflow;
+      document.documentElement.style.overflow = originalHtmlOverflow;
+    };
+  }, []);
+
+  // Pertahankan penyaluran token otomatis dari localStorage ke URL iframe
   const token =
     typeof window !== 'undefined'
       ? localStorage.getItem('auth_token') ||
@@ -19,11 +32,11 @@ export const ChatView: React.FC<ChatViewProps> = () => {
         ''
       : '';
 
-  const iframeSrc = `https://api-laporanwe.mkverse.my.id/api/chat/index.php?token=${encodeURIComponent(token)}`;
+  const iframeUrl = `https://api-laporanwe.mkverse.my.id/api/chat/index.php?token=${encodeURIComponent(token)}`;
 
   return (
-    <div className="flex-1 h-[calc(100vh-24px)] flex flex-col min-w-0">
-      <div className="w-full h-full rounded-3xl overflow-hidden border border-white/60 dark:border-white/10 bg-white/70 dark:bg-[#181622]/90 backdrop-blur-2xl shadow-xl relative">
+    <div className="w-full h-[calc(100vh-76px)] max-h-[calc(100vh-76px)] flex flex-col min-h-0 overflow-hidden pr-4 pb-3">
+      <div className="w-full h-full rounded-3xl overflow-hidden border border-white/60 dark:border-white/10 bg-white/40 dark:bg-[#181622]/40 backdrop-blur-2xl shadow-xl flex-1 flex flex-col min-h-0 relative">
         {/* Loading Overlay */}
         {isLoading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 dark:bg-[#181622]/80 backdrop-blur-sm pointer-events-none transition-opacity duration-300">
@@ -45,11 +58,11 @@ export const ChatView: React.FC<ChatViewProps> = () => {
           </div>
         )}
 
-        {/* Iframe resmi PHP */}
+        {/* Iframe Chat PHP Resmi */}
         <iframe
-          src={iframeSrc}
+          src={iframeUrl}
           title="Pesan Tim"
-          className="w-full h-full border-none block"
+          className="w-full h-full border-none block flex-1"
           allow="camera; microphone; clipboard-read; clipboard-write; fullscreen; display-capture; geolocation"
           loading="eager"
           onLoad={() => setIsLoading(false)}

@@ -155,7 +155,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </aside>
 
       {/* Top Bar Header with Theme Toggle, Quick Search, User Profile */}
-      <header className="top-bar-shell">
+      <header className={`top-bar-shell ${currentView === 'chat' ? '!mb-1.5' : ''}`}>
         <div className="top-actions">
           {/* Theme Switcher Sliding Pill */}
           <div className="theme" role="group" aria-label="Tema Tampilan">
