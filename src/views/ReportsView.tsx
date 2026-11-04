@@ -354,14 +354,10 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   {/* Top: Thumbnail & Info */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
                     <div
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs"
                       style={{
-                        width: '52px',
-                        height: '52px',
-                        borderRadius: '16px',
-                        flexShrink: 0,
-                        overflow: 'hidden',
-                        border: '1.5px solid rgba(255, 255, 255, 0.8)',
-                        boxShadow: '0 4px 10px rgba(0, 0, 0, 0.08)',
+                        padding: 0,
+                        margin: 0,
                       }}
                     >
                       <ReportCoverThumbnail report={r} />

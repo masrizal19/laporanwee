@@ -616,7 +616,9 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                     onNavigate('report-detail');
                   }}
                 >
-                  <ReportCoverThumbnail report={r} />
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs">
+                    <ReportCoverThumbnail report={r} />
+                  </div>
                   <div className="rmid">
                     <b>{r.task}</b>
                     <span>Oleh {r.person} &bull; {r.date}</span>

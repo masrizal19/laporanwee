@@ -5,26 +5,14 @@ import { dailyReportService, normalizeFileUrl, reportProofCoverCache } from '../
 
 interface ReportCoverThumbnailProps {
   report: Report;
-  size?: number;
+  size?: number | string;
   className?: string;
   style?: React.CSSProperties;
 }
 
-/**
- * ReportCoverThumbnail
- *
- * Automatically displays the first image proof file from daily_report_files (category="proof")
- * as the cover/thumbnail for Daily Report cards/rows.
- *
- * Adheres strictly to:
- * - Direct use of authentic MySQL daily_report_files.file_url without Base64, canvas, or compression.
- * - Displays the first proof image as cover, or fallback icon if no proof images exist.
- * - Graceful onError fallback preserving card layout.
- * - object-fit: cover with exact matching card dimensions.
- */
 export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
   report,
-  size = 36,
+  size,
   className = '',
   style,
 }) => {
@@ -86,7 +74,6 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
       .then((files) => {
         if (!isMounted) return;
         if (files && files.length > 0) {
-          // Rule 8: Jika ada beberapa file proof, gunakan file proof pertama sebagai cover.
           const firstImg = files.find((f) => {
             const mime = (f.mime_type || '').toLowerCase();
             const name = (f.original_name || f.file_name || f.file_url || '').toLowerCase();
@@ -115,19 +102,20 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
     };
   }, [reportId, coverUrl]);
 
+  const hasSpecificSize = size !== undefined;
+  const sizeVal = typeof size === 'number' ? `${size}px` : size;
+
   return (
     <div
-      className={`ric ${className}`}
+      className={`relative overflow-hidden flex-shrink-0 ${hasSpecificSize ? '' : 'w-full h-full'} ${className}`}
       style={{
-        width: `${size}px`,
-        height: `${size}px`,
-        borderRadius: '10px',
-        overflow: 'hidden',
+        width: hasSpecificSize ? sizeVal : '100%',
+        height: hasSpecificSize ? sizeVal : '100%',
+        padding: 0,
+        margin: 0,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'var(--paper)',
-        flex: 'none',
         ...style,
       }}
     >
@@ -135,18 +123,26 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
         <img
           src={coverUrl}
           alt={`Sampul ${report.task || 'Laporan'}`}
+          className="w-full h-full object-cover block"
           style={{
             width: '100%',
             height: '100%',
             objectFit: 'cover',
-            borderRadius: '10px',
             display: 'block',
+            margin: 0,
+            padding: 0,
           }}
           loading="lazy"
           onError={() => setHasError(true)}
         />
       ) : (
-        <Icon name="doc" size={Math.round(size * 0.47)} />
+        <div className="w-full h-full flex items-center justify-center bg-gray-100 text-gray-400">
+          <Icon
+            name="doc"
+            size={typeof size === 'number' ? Math.round(size * 0.45) : 22}
+            className="text-gray-400"
+          />
+        </div>
       )}
     </div>
   );

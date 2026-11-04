@@ -20,7 +20,8 @@ export type ViewType =
   | 'ui_settings'
   | 'export-laporan'
   | 'edit-laporan'
-  | 'social-media';
+  | 'social-media'
+  | 'chat';
 
 export interface UISettings {
   id?: number;

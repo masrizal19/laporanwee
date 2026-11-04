@@ -43,7 +43,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [kpiOngoingTasks, setKpiOngoingTasks] = useState<number | string>(48);
   const [kpiCompletionRate, setKpiCompletionRate] = useState<number>(82);
 
-  const [todoList, setTodoList] = useState([
+  const [todoList, setTodoList] = useState<
+    Array<{
+      id: string;
+      title: string;
+      subtitle: string;
+      time: string;
+      done: boolean;
+      cover_url?: string;
+      assignees: Array<{ initial?: string; bg?: string; name?: string; avatar_url?: string }>;
+    }>
+  >([
     { id: '1', title: 'Review & umpan balik klien', subtitle: 'Redesain landing page', time: '22.00 – 23.45', done: true, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Sa', bg: '#f6e6cf' }] },
     { id: '2', title: 'Susun laporan mingguan', subtitle: 'Divisi Kreatif', time: '10.00 – 11.00', done: false, assignees: [{ initial: 'Ri', bg: '#e3ddfa' }, { initial: 'Di', bg: '#e9f5b8' }] },
     { id: '3', title: 'Revisi kemasan Kopi Nusa', subtitle: 'Rebranding', time: '13.30 – 15.00', done: false, assignees: [{ initial: 'Sa', bg: '#f6e6cf' }, { initial: 'Ba', bg: '#d6ecdf' }] },
@@ -80,14 +90,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         if (Array.isArray(result.running_tasks) && result.running_tasks.length > 0) {
           setTodoList(
-            result.running_tasks.map((t: any) => ({
-              id: String(t.id),
-              title: t.title || '',
-              subtitle: t.subtitle || t.desc || '',
-              time: t.time || '10.00 – 11.00',
-              done: Boolean(t.done),
-              assignees: Array.isArray(t.assignees) ? t.assignees : [{ initial: 'Ri', bg: '#e3ddfa' }],
-            }))
+            result.running_tasks.map((t: any) => {
+              const matchedReport = (reports || []).find(
+                (r) =>
+                  String(r.id) === String(t.report_id || t.daily_report_id || t.id) ||
+                  r.task.trim().toLowerCase() === String(t.title || '').trim().toLowerCase()
+              );
+              const cover =
+                t.cover_url ||
+                t.thumbnail_url ||
+                (matchedReport ? matchedReport.evidence_url || (matchedReport.evidence_urls && matchedReport.evidence_urls[0]) : undefined);
+              return {
+                id: String(t.id),
+                title: t.title || '',
+                subtitle: t.subtitle || t.desc || '',
+                time: t.time || '10.00 – 11.00',
+                done: Boolean(t.done),
+                cover_url: cover,
+                assignees: Array.isArray(t.assignees) ? t.assignees : [{ initial: 'Ri', bg: '#e3ddfa' }],
+              };
+            })
           );
         }
 
@@ -446,6 +468,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <path d="m5 12 4.5 4.5L19 7" />
                   </svg>
                 </span>
+                {t.cover_url && (
+                  <div className="w-12 h-12 rounded-2xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs">
+                    <img
+                      src={t.cover_url}
+                      alt={t.title}
+                      className="w-full h-full object-cover block"
+                    />
+                  </div>
+                )}
                 <div className="tx">
                   <b>{t.title}</b>
                   <small>{t.subtitle} &bull; {t.time}</small>
