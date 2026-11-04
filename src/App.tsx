@@ -252,9 +252,6 @@ export function App() {
       '/laporan/detail',
       '/laporan/detail/edit-laporan',
       '/tugas',
-      '/chat',
-      '/pesan',
-      '/pesan-tim',
       '/tim',
       '/kalender',
       '/analitik',
@@ -270,12 +267,7 @@ export function App() {
       '/profil/crop',
       '/profil/ubahfoto',
       '/profil/user',
-      '/sosial-media',
-      '/social-media',
     ];
-    if (hashPart && (hashPart === '/chat' || hashPart === 'chat' || hashPart.startsWith('/chat/') || hashPart === '/pesan' || hashPart === '/pesan-tim')) {
-      return '/chat';
-    }
     if (hashPart && hashPart.startsWith('/profil/user')) {
       return '/profil/user';
     }
@@ -289,9 +281,6 @@ export function App() {
       return hashPart;
     }
     const path = window.location.pathname.split('?')[0];
-    if (path === '/chat' || path.startsWith('/chat/') || path === '/pesan' || path === '/pesan-tim') {
-      return '/chat';
-    }
     if (path.startsWith('/profil/user')) {
       return '/profil/user';
     }

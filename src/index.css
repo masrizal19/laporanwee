@@ -8160,21 +8160,20 @@ svg {
 .rail {
   position: fixed;
   z-index: 50;
-  inset: 12px auto 12px 12px;
+  inset: 14px auto 14px 14px;
   width: var(--rail);
-  padding: 12px 8px;
+  padding: 18px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: calc(100vh - 24px);
+  gap: 16px;
   background: var(--glass);
   backdrop-filter: blur(28px) saturate(1.4);
   -webkit-backdrop-filter: blur(28px) saturate(1.4);
   border: 1px solid var(--line);
-  border-radius: 28px;
+  border-radius: 32px;
   box-shadow: var(--shadow);
   overflow: hidden;
-  transition: width 0.4s var(--ease);
+  transition: width 0.5s var(--ease);
 }
 
 .rail:hover,
@@ -8185,25 +8184,24 @@ svg {
 .rail .logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
-  padding-left: 2px;
+  gap: 12px;
+  height: 48px;
+  padding-left: 4px;
   white-space: nowrap;
   font-weight: 600;
-  font-size: 18px;
+  font-size: 19px;
   letter-spacing: -0.02em;
   background: none;
   border: 0;
   cursor: pointer;
   text-align: left;
   color: var(--ink);
-  flex-shrink: 0;
 }
 
 .rail .logo b {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
   background: var(--dark);
   flex: none;
   display: grid;
@@ -8212,8 +8210,8 @@ svg {
 }
 
 .rail .logo b svg {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   stroke: var(--on-dark);
 }
 
@@ -8226,7 +8224,7 @@ svg {
 .rail:hover .logo em,
 .rail:focus-within .logo em {
   opacity: 1;
-  transition-delay: 0.08s;
+  transition-delay: 0.1s;
 }
 
 .rail .logo em span {
@@ -8237,21 +8235,28 @@ svg {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
-  -ms-overflow-style: none;
-  padding: 2px 0;
 }
 .rail .nav::-webkit-scrollbar {
   display: none;
 }
 
-/* Sliding pill is disabled in favor of direct active state per item */
 .rail .pill {
-  display: none !important;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 48px;
+  border-radius: 18px;
+  background: var(--dark);
+  box-shadow: 0 14px 26px -14px rgba(35, 33, 46, 0.65);
+  transition: transform 0.55s var(--ease);
+  z-index: 0;
+  pointer-events: none;
 }
 
 .rail .nav button {
@@ -8259,21 +8264,18 @@ svg {
   z-index: 1;
   display: flex;
   align-items: center;
-  height: 38px;
-  min-height: 38px;
-  border-radius: 12px;
+  height: 48px;
+  border-radius: 18px;
   color: var(--muted);
   white-space: nowrap;
   font-weight: 500;
-  font-size: 13.5px;
+  font-size: 14.5px;
   border: 0;
-  background: transparent;
+  background: none;
   cursor: pointer;
-  transition: all 0.2s var(--ease);
+  transition: color 0.35s var(--ease), background 0.3s;
   text-align: left;
   width: 100%;
-  flex-shrink: 0;
-  box-sizing: border-box;
 }
 
 .rail .nav button:hover {
@@ -8282,80 +8284,71 @@ svg {
 }
 
 .rail .nav button.on {
-  color: var(--on-dark) !important;
-  background: var(--dark) !important;
-  box-shadow: 0 8px 18px -6px rgba(35, 33, 46, 0.45) !important;
-  font-weight: 600;
-}
-
-.rail .nav button.on svg {
-  stroke: var(--on-dark) !important;
+  color: var(--on-dark);
+  background: none;
 }
 
 .rail .nav svg {
-  width: 18px;
-  height: 18px;
-  margin: 0 14px 0 10px;
+  width: 20px;
+  height: 20px;
+  margin: 0 16px 0 14px;
   flex: none;
   stroke: currentColor;
 }
 
 .rail .nav span {
   opacity: 0;
-  transform: translateX(-6px);
-  transition: opacity 0.25s, transform 0.4s var(--ease);
+  transform: translateX(-8px);
+  transition: opacity 0.3s, transform 0.5s var(--ease);
 }
 
 .rail:hover .nav span,
 .rail:focus-within .nav span {
   opacity: 1;
   transform: none;
-  transition-delay: 0.06s;
+  transition-delay: 0.08s;
 }
 
 .rail-foot {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   border-top: 1px solid var(--line);
-  padding-top: 6px;
-  margin-top: auto;
-  flex-shrink: 0;
+  padding-top: 10px;
 }
 
 .rail-foot button {
   display: flex;
   align-items: center;
-  height: 38px;
-  min-height: 38px;
-  border-radius: 12px;
+  height: 48px;
+  border-radius: 18px;
   color: var(--muted);
   white-space: nowrap;
   border: 0;
   background: none;
   cursor: pointer;
   transition: background 0.3s, color 0.3s;
-  font-size: 13.5px;
+  font-size: 14.5px;
   font-weight: 500;
   width: 100%;
 }
 
 .rail-foot button:hover {
   background: var(--glass-solid);
-  color: var(--bad);
+  color: var(--ink);
 }
 
 .rail-foot svg {
-  width: 18px;
-  height: 18px;
-  margin: 0 14px 0 10px;
+  width: 20px;
+  height: 20px;
+  margin: 0 16px 0 14px;
   flex: none;
   stroke: currentColor;
 }
 
 .rail-foot span {
   opacity: 0;
-  transition: opacity 0.25s;
+  transition: opacity 0.3s;
 }
 
 .rail:hover .rail-foot span {
@@ -8375,21 +8368,15 @@ svg {
 }
 
 .app-shell-main.chat-mode {
-  padding: 12px 14px 12px calc(var(--rail, 84px) + 14px) !important;
-  max-width: none !important;
-  width: 100% !important;
-  margin: 0 !important;
-  height: 100vh !important;
-  min-height: 100vh !important;
-  max-height: 100vh !important;
-  overflow: hidden !important;
-  display: flex !important;
-  flex-direction: column !important;
-  box-sizing: border-box !important;
+  padding-bottom: 20px;
+  overflow: hidden;
+  height: 100vh;
+  min-height: 100vh;
+  box-sizing: border-box;
 }
 
 .app-shell-main.chat-mode .top-bar-shell {
-  display: none !important;
+  margin-bottom: 12px;
 }
 
 .top-bar-shell {
