@@ -37,6 +37,7 @@ import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 import { PengajuanBarangView } from './views/PengajuanBarangView';
 import { ChatView } from './views/ChatView';
+import { FilesView } from './views/FilesView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -269,6 +270,8 @@ export function App() {
       '/profil/crop',
       '/profil/ubahfoto',
       '/profil/user',
+      '/berkas',
+      '/lampiran',
     ];
     if (hashPart && hashPart.startsWith('/chat')) {
       return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
@@ -466,6 +469,8 @@ export function App() {
     '/profil/ubahfoto': 'crop-setting',
     '/profil/setting-profile-picture': 'crop-setting',
     '/profil/user': 'user-profile',
+    '/berkas': 'files',
+    '/lampiran': 'files',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -474,6 +479,7 @@ export function App() {
     'project-detail': '/proyek',
     'tasks': '/tugas',
     'chat': '/chat',
+    'files': '/berkas',
     'team': '/tim',
     'calendar': '/kalender',
     'reports': '/laporan',
@@ -2096,6 +2102,12 @@ export function App() {
         {currentView === 'chat' && (
           <ChatView
             onNavigate={handleNavigate}
+            onAddToast={addToast}
+          />
+        )}
+
+        {(currentView === 'files' || currentPath === '/berkas' || currentPath === '/lampiran') && (
+          <FilesView
             onAddToast={addToast}
           />
         )}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ViewType } from '../types';
 import { Icon } from './icons';
+import { useFastData } from '../context/FastDataContext';
 
 export interface NavbarProps {
   currentView: ViewType;
@@ -52,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems: { view: ViewType; label: string; icon: string }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: 'home' },
     { view: 'projects', label: 'Proyek', icon: 'folder' },
+    { view: 'files', label: 'Lampiran Berkas', icon: 'image' },
     { view: 'reports', label: 'Laporan', icon: 'doc' },
     { view: 'tasks', label: 'Tugas', icon: 'checksq' },
     { view: 'chat', label: 'Pesan Tim', icon: 'chat' },
@@ -74,6 +76,20 @@ export const Navbar: React.FC<NavbarProps> = ({
     return false;
   });
 
+
+  const { prefetchReports, prefetchActivities, prefetchChat, prefetchFiles } = useFastData();
+
+  const handleHoverPrefetch = (view: ViewType) => {
+    if (view === 'reports' || view === 'report-detail' || view === 'create-report') {
+      prefetchReports();
+    } else if (view === 'team') {
+      prefetchActivities();
+    } else if (view === 'chat') {
+      prefetchChat();
+    } else if (view === 'projects' || view === 'project-detail') {
+      prefetchFiles();
+    }
+  };
 
   // Compute User Initials
   const userInitials = (userName || userEmail || 'AD')
@@ -130,6 +146,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 key={item.view}
                 type="button"
                 className={isActive ? 'on' : ''}
+                onMouseEnter={() => handleHoverPrefetch(item.view)}
                 onClick={() => onNavigate(item.view)}
                 title={item.label}
               >

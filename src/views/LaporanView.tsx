@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { fetchWithFastCache, getCachedData, invalidateCache } from '../utils/apiCache';
+import { useFastData } from '../context/FastDataContext';
 
 export interface DailyReportItem {
   id: number | string;
@@ -103,46 +104,45 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   onResetReports,
   onAddToast,
 }) => {
-  // 1. Initial State from In-Memory Fast Cache (0ms Instant Load)
-  const cachedData = getCachedData<any>(REPORT_ENDPOINT);
+  const { reports: fastReports, counters: fastCounters, refreshReports } = useFastData();
 
+  // 1. Initial State from Fast Data Global Store (0ms Instant Load)
   const [counters, setCounters] = useState<{
     total: number;
     selesai: number;
     review: number;
     sedang_berjalan: number;
   }>(() => {
+    if (fastCounters && fastCounters.total > 0) {
+      return fastCounters;
+    }
     try {
-      const cached = localStorage.getItem('lw_reports_counters_cache');
+      const cached =
+        localStorage.getItem('lw_store_counters') ||
+        localStorage.getItem('lw_reports_counters_cache');
       if (cached) return JSON.parse(cached);
     } catch (_) {}
-    if (cachedData && cachedData.counters) {
-      return cachedData.counters;
-    }
-    const total = initialReportsProp.length;
-    const selesai = initialReportsProp.filter((r) => String(r.status).toLowerCase().includes('complete')).length;
-    const review = initialReportsProp.filter((r) => String(r.status).toLowerCase().includes('review')).length;
-    const sedang_berjalan = Math.max(0, total - selesai - review);
-    return total > 0 ? { total, selesai, review, sedang_berjalan } : { total: 94, selesai: 82, review: 5, sedang_berjalan: 7 };
+    return { total: 94, selesai: 83, review: 5, sedang_berjalan: 6 };
   });
 
   const [reportItems, setReportItems] = useState<DailyReportItem[]>(() => {
+    if (Array.isArray(initialReportsProp) && initialReportsProp.length > 0) {
+      return initialReportsProp.map(normalizeReport);
+    }
+    if (Array.isArray(fastReports) && fastReports.length > 0) {
+      return fastReports.map(normalizeReport);
+    }
     try {
-      const cached = localStorage.getItem('lw_reports_data_cache');
+      const cached =
+        localStorage.getItem('lw_store_reports') ||
+        localStorage.getItem('lw_reports_data_cache');
       if (cached) {
         const parsed = JSON.parse(cached);
         const list = Array.isArray(parsed) ? parsed : (parsed.data || []);
         if (Array.isArray(list) && list.length > 0) return list.map(normalizeReport);
       }
     } catch (_) {}
-    if (cachedData && Array.isArray(cachedData.data)) {
-      return cachedData.data.map(normalizeReport);
-    }
-    return initialReportsProp.map(normalizeReport);
-  });
-
-  const [isLoading, setIsLoading] = useState<boolean>(() => {
-    return !cachedData && initialReportsProp.length === 0;
+    return [];
   });
 
   const [filterTab, setFilterTab] = useState<'Semua' | 'In Review' | 'Sedang Berjalan' | 'Selesai'>('Semua');
@@ -151,56 +151,25 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
-  // Sync with initialReportsProp if passed
+  // Sync saat global store atau initialReportsProp diperbarui
   useEffect(() => {
-    if (Array.isArray(initialReportsProp) && initialReportsProp.length > 0) {
+    if (Array.isArray(fastReports) && fastReports.length > 0) {
+      setReportItems(fastReports.map(normalizeReport));
+    } else if (Array.isArray(initialReportsProp) && initialReportsProp.length > 0) {
       setReportItems(initialReportsProp.map(normalizeReport));
-      try {
-        localStorage.setItem('lw_reports_data_cache', JSON.stringify(initialReportsProp));
-      } catch (_) {}
     }
-  }, [initialReportsProp]);
-
-  // 2. Fetch Data Laporan & Counter Statistik dari API Berkecepatan Tinggi
-  const loadReports = async (_isBackground = false) => {
-    const token =
-      typeof window !== 'undefined'
-        ? localStorage.getItem('auth_token') ||
-          localStorage.getItem('token') ||
-          localStorage.getItem('laporanwee_token') ||
-          ''
-        : '';
-
-    try {
-      const json: any = await fetchWithFastCache(REPORT_ENDPOINT, {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/json',
-      });
-
-      if (json && json.success) {
-        if (json.counters) {
-          setCounters(json.counters);
-          try {
-            localStorage.setItem('lw_reports_counters_cache', JSON.stringify(json.counters));
-          } catch (_) {}
-        }
-        if (Array.isArray(json.data)) {
-          setReportItems(json.data.map(normalizeReport));
-          try {
-            localStorage.setItem('lw_reports_data_cache', JSON.stringify(json.data));
-          } catch (_) {}
-        }
-      }
-    } catch (err) {
-      console.error('Gagal mengambil laporan:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [fastReports, initialReportsProp]);
 
   useEffect(() => {
-    loadReports();
-  }, []);
+    if (fastCounters && fastCounters.total > 0) {
+      setCounters(fastCounters);
+    }
+  }, [fastCounters]);
+
+  // 2. Di background (useEffect), panggil refreshReports() secara senyap tanpa menampilkan skeleton/spinner
+  useEffect(() => {
+    refreshReports(true).catch(() => {});
+  }, [refreshReports]);
 
   // 3. Filter Tab & Search Bar Frontend Instan
   const filteredReports = useMemo(() => {
@@ -409,15 +378,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
       </div>
 
       {/* Main List Section */}
-      {isLoading && reportItems.length === 0 ? (
-        <div className="py-20 text-center text-sm text-gray-400 dark:text-gray-500 bg-white/40 dark:bg-white/[0.02] rounded-3xl border border-dashed border-black/10 dark:border-white/10">
-          <div className="w-10 h-10 rounded-2xl bg-[#1e1d2b] dark:bg-[#d4ee6b] text-white dark:text-[#1e1d2b] flex items-center justify-center mx-auto mb-3 animate-pulse">
-            <Icon name="doc" style={{ width: 18, height: 18 }} />
-          </div>
-          <p className="font-semibold text-gray-700 dark:text-gray-300">Menyinkronkan Laporan Kerja...</p>
-          <p className="text-xs mt-1">Mengambil data terbaru dari server performa tinggi.</p>
-        </div>
-      ) : filteredReports.length === 0 ? (
+      {filteredReports.length === 0 ? (
         <div className="py-16 text-center text-sm text-gray-400 dark:text-gray-500 bg-white/40 dark:bg-white/[0.02] rounded-3xl border border-dashed border-black/10 dark:border-white/10 p-6">
           <p className="text-base font-bold text-gray-800 dark:text-gray-200">Tidak ada laporan ditemukan</p>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 max-w-sm mx-auto">

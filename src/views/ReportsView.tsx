@@ -6,6 +6,7 @@ import { cleanReportText } from '../utils/formatters';
 import { fetchWithCache } from '../utils/apiCache';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { normalizeFileUrl, mapRawDailyReportToReport } from '../utils/api';
+import { useFastData } from '../context/FastDataContext';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -45,11 +46,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // 1. Inisialisasi State Persisten (Zero-Wait Hydration pada Reload F5)
+  const { reports: fastReports, counters: fastCounters, refreshReports: fastRefreshReports } = useFastData();
+
+  // 1. Inisialisasi State Persisten (Zero-Wait Hydration pada Reload F5 & Navigasi 0ms)
   const [localReports, setLocalReports] = useState<Report[]>(() => {
+    if (Array.isArray(fastReports) && fastReports.length > 0) return fastReports;
     if (Array.isArray(reports) && reports.length > 0) return reports;
     try {
       const cached =
+        localStorage.getItem('lw_store_reports') ||
         localStorage.getItem('lw_reports_data_cache') ||
         localStorage.getItem('laporanwee_daily_reports_cache') ||
         localStorage.getItem('cache_daily_reports');
@@ -72,11 +77,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     review: number;
     sedang_berjalan: number;
   }>(() => {
+    if (fastCounters && fastCounters.total > 0) return fastCounters;
     try {
-      const cached = localStorage.getItem('lw_reports_counters_cache');
+      const cached =
+        localStorage.getItem('lw_store_counters') ||
+        localStorage.getItem('lw_reports_counters_cache');
       if (cached) return JSON.parse(cached);
     } catch (_) {}
-    return { total: 94, selesai: 82, review: 5, sedang_berjalan: 7 };
+    return { total: 94, selesai: 83, review: 5, sedang_berjalan: 6 };
   });
 
   // Lightbox Preview State
@@ -85,72 +93,25 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxTitle, setLightboxTitle] = useState('');
 
-  // 2. Props Sync: saat reports dari parent tiba, simpan ke local state dan localStorage
+  // Sync saat fastReports atau reports prop tiba
   useEffect(() => {
-    if (Array.isArray(reports) && reports.length > 0) {
+    if (Array.isArray(fastReports) && fastReports.length > 0) {
+      setLocalReports(fastReports);
+    } else if (Array.isArray(reports) && reports.length > 0) {
       setLocalReports(reports);
-      try {
-        localStorage.setItem('lw_reports_data_cache', JSON.stringify(reports));
-        const total = reports.length;
-        const selesai = reports.filter((r) => r.status === 'Completed').length;
-        const review = reports.filter((r) => r.status === 'In Review').length;
-        const sedang_berjalan = reports.filter(
-          (r) =>
-            (r.status as string) === 'In Progress' ||
-            (r.status as string) === 'Sedang Berjalan' ||
-            r.status === 'To Do'
-        ).length;
-        setCounters({ total, selesai, review, sedang_berjalan });
-        localStorage.setItem(
-          'lw_reports_counters_cache',
-          JSON.stringify({ total, selesai, review, sedang_berjalan })
-        );
-      } catch (_) {}
     }
-  }, [reports]);
+  }, [fastReports, reports]);
 
-  // 3. Background Revalidation dari API performa tinggi
   useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-    fetchWithCache(
-      'https://api-laporanwe.mkverse.my.id/api/daily-reports/list.php',
-      { Authorization: `Bearer ${token}` },
-      'daily_reports'
-    )
-      .then((res: any) => {
-        if (!res) return;
-        let items: any[] = [];
-        if (Array.isArray(res.data)) items = res.data;
-        else if (Array.isArray(res.reports)) items = res.reports;
-        else if (Array.isArray(res)) items = res;
-        if (items.length > 0) {
-          const mapped = items.map((item: any) =>
-            item.task && item.status ? item : mapRawDailyReportToReport(item)
-          );
-          setLocalReports(mapped);
-          try {
-            localStorage.setItem('lw_reports_data_cache', JSON.stringify(mapped));
-            const total = res.counters?.total ?? mapped.length;
-            const selesai = res.counters?.selesai ?? mapped.filter((r: any) => r.status === 'Completed').length;
-            const review = res.counters?.review ?? mapped.filter((r: any) => r.status === 'In Review').length;
-            const sedang_berjalan =
-              res.counters?.sedang_berjalan ??
-              mapped.filter(
-                (r: any) =>
-                  (r.status as string) === 'In Progress' ||
-                  (r.status as string) === 'Sedang Berjalan' ||
-                  r.status === 'To Do'
-              ).length;
-            setCounters({ total, selesai, review, sedang_berjalan });
-            localStorage.setItem(
-              'lw_reports_counters_cache',
-              JSON.stringify({ total, selesai, review, sedang_berjalan })
-            );
-          } catch (_) {}
-        }
-      })
-      .catch(() => {});
-  }, []);
+    if (fastCounters && fastCounters.total > 0) {
+      setCounters(fastCounters);
+    }
+  }, [fastCounters]);
+
+  // Background Revalidation senyap tanpa skeleton/spinner
+  useEffect(() => {
+    fastRefreshReports(true).catch(() => {});
+  }, [fastRefreshReports]);
 
   // Debounce search input by 300ms without triggering network requests
   useEffect(() => {
@@ -459,11 +420,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             gap: '18px',
           }}
         >
-          {isLoading && displayReports.length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 0', color: 'var(--muted)' }}>
-              Memuat laporan tim...
-            </div>
-          ) : filteredReports.length === 0 ? (
+          {filteredReports.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 0', color: 'var(--muted)', background: 'var(--glass)', borderRadius: '24px', border: '1px solid var(--line)' }}>
               <p style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 4px' }}>Tidak ada laporan ditemukan</p>
               <span style={{ fontSize: '13px' }}>Coba ubah kata kunci pencarian atau filter status.</span>

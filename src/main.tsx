@@ -7,13 +7,17 @@ import './motion/laporanwe-motion.css';
 import './motion/laporanwe-motion.js';
 import './redesign.css';
 
+import { FastDataProvider } from './context/FastDataContext.tsx';
+
 console.log('[APP ORIGIN]', typeof window !== 'undefined' ? window.location.origin : '');
 console.log('[API BASE URL]', (import.meta.env.VITE_API_URL as string) || 'https://api-laporanwe.mkverse.my.id/api');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <FastDataProvider>
+        <App />
+      </FastDataProvider>
     </ErrorBoundary>
   </StrictMode>,
 );
