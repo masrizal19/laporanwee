@@ -40,8 +40,14 @@ export const Navbar: React.FC<NavbarProps> = ({
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
     try {
       localStorage.setItem('laporanwee_theme', theme);
+      localStorage.setItem('theme', theme);
     } catch (_) {}
   }, [theme]);
 
