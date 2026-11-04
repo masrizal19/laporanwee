@@ -133,8 +133,11 @@ export const invalidateCache = (pattern?: string): void => {
   }
 };
 
+export const fetchWithFastCache = fetchWithCache;
+
 export default {
   fetchWithCache,
+  fetchWithFastCache,
   getCachedData,
   setCachedData,
   invalidateCache,

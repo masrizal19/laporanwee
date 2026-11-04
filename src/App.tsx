@@ -730,6 +730,22 @@ export function App() {
       // MySQL is the SINGLE SOURCE OF TRUTH (Rule 6, Rule 18)
       if (Array.isArray(fetchedReports)) {
         setReports(fetchedReports);
+        try {
+          localStorage.setItem('lw_reports_data_cache', JSON.stringify(fetchedReports));
+          const total = fetchedReports.length;
+          const selesai = fetchedReports.filter((r) => r.status === 'Completed').length;
+          const review = fetchedReports.filter((r) => r.status === 'In Review').length;
+          const sedang_berjalan = fetchedReports.filter(
+            (r) =>
+              (r.status as string) === 'In Progress' ||
+              (r.status as string) === 'Sedang Berjalan' ||
+              r.status === 'To Do'
+          ).length;
+          localStorage.setItem(
+            'lw_reports_counters_cache',
+            JSON.stringify({ total, selesai, review, sedang_berjalan })
+          );
+        } catch (_) {}
         const latestTime = computeLatestTimestamp(fetchedReports);
         if (latestTime) {
           lastSyncAtRef.current = latestTime;

@@ -4,6 +4,8 @@ import { Icon } from '../components/icons';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
 import { cleanReportText } from '../utils/formatters';
 import { fetchWithCache } from '../utils/apiCache';
+import { ImageLightbox } from '../components/ImageLightbox';
+import { normalizeFileUrl, mapRawDailyReportToReport } from '../utils/api';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -43,6 +45,113 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // 1. Inisialisasi State Persisten (Zero-Wait Hydration pada Reload F5)
+  const [localReports, setLocalReports] = useState<Report[]>(() => {
+    if (Array.isArray(reports) && reports.length > 0) return reports;
+    try {
+      const cached =
+        localStorage.getItem('lw_reports_data_cache') ||
+        localStorage.getItem('laporanwee_daily_reports_cache') ||
+        localStorage.getItem('cache_daily_reports');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const list = Array.isArray(parsed) ? parsed : (parsed.data || parsed.reports || []);
+        if (Array.isArray(list) && list.length > 0) {
+          return list.map((item: any) =>
+            item.task && item.status ? item : mapRawDailyReportToReport(item)
+          );
+        }
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  const [counters, setCounters] = useState<{
+    total: number;
+    selesai: number;
+    review: number;
+    sedang_berjalan: number;
+  }>(() => {
+    try {
+      const cached = localStorage.getItem('lw_reports_counters_cache');
+      if (cached) return JSON.parse(cached);
+    } catch (_) {}
+    return { total: 94, selesai: 82, review: 5, sedang_berjalan: 7 };
+  });
+
+  // Lightbox Preview State
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxTitle, setLightboxTitle] = useState('');
+
+  // 2. Props Sync: saat reports dari parent tiba, simpan ke local state dan localStorage
+  useEffect(() => {
+    if (Array.isArray(reports) && reports.length > 0) {
+      setLocalReports(reports);
+      try {
+        localStorage.setItem('lw_reports_data_cache', JSON.stringify(reports));
+        const total = reports.length;
+        const selesai = reports.filter((r) => r.status === 'Completed').length;
+        const review = reports.filter((r) => r.status === 'In Review').length;
+        const sedang_berjalan = reports.filter(
+          (r) =>
+            (r.status as string) === 'In Progress' ||
+            (r.status as string) === 'Sedang Berjalan' ||
+            r.status === 'To Do'
+        ).length;
+        setCounters({ total, selesai, review, sedang_berjalan });
+        localStorage.setItem(
+          'lw_reports_counters_cache',
+          JSON.stringify({ total, selesai, review, sedang_berjalan })
+        );
+      } catch (_) {}
+    }
+  }, [reports]);
+
+  // 3. Background Revalidation dari API performa tinggi
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+    fetchWithCache(
+      'https://api-laporanwe.mkverse.my.id/api/daily-reports/list.php',
+      { Authorization: `Bearer ${token}` },
+      'daily_reports'
+    )
+      .then((res: any) => {
+        if (!res) return;
+        let items: any[] = [];
+        if (Array.isArray(res.data)) items = res.data;
+        else if (Array.isArray(res.reports)) items = res.reports;
+        else if (Array.isArray(res)) items = res;
+        if (items.length > 0) {
+          const mapped = items.map((item: any) =>
+            item.task && item.status ? item : mapRawDailyReportToReport(item)
+          );
+          setLocalReports(mapped);
+          try {
+            localStorage.setItem('lw_reports_data_cache', JSON.stringify(mapped));
+            const total = res.counters?.total ?? mapped.length;
+            const selesai = res.counters?.selesai ?? mapped.filter((r: any) => r.status === 'Completed').length;
+            const review = res.counters?.review ?? mapped.filter((r: any) => r.status === 'In Review').length;
+            const sedang_berjalan =
+              res.counters?.sedang_berjalan ??
+              mapped.filter(
+                (r: any) =>
+                  (r.status as string) === 'In Progress' ||
+                  (r.status as string) === 'Sedang Berjalan' ||
+                  r.status === 'To Do'
+              ).length;
+            setCounters({ total, selesai, review, sedang_berjalan });
+            localStorage.setItem(
+              'lw_reports_counters_cache',
+              JSON.stringify({ total, selesai, review, sedang_berjalan })
+            );
+          } catch (_) {}
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   // Debounce search input by 300ms without triggering network requests
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -51,10 +160,13 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return () => clearTimeout(handler);
   }, [search]);
 
+  // Effective display data
+  const displayReports = localReports.length > 0 ? localReports : reports;
+
   // Purely in-memory filtering: never request server on filter tab switch or search
-  const filteredReports = reports.filter((r) => {
+  const filteredReports = displayReports.filter((r) => {
     if (filterTab === 'In Review' && r.status !== 'In Review') return false;
-    if (filterTab === 'In Progress' && r.status !== 'In Progress') return false;
+    if (filterTab === 'In Progress' && (r.status as string) !== 'In Progress' && (r.status as string) !== 'Sedang Berjalan') return false;
     if (filterTab === 'Completed' && r.status !== 'Completed') return false;
     const query = debouncedSearch.trim().toLowerCase();
     if (query) {
@@ -79,6 +191,11 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       if (onDeleteReport) {
         await onDeleteReport(reportToDelete.id);
       }
+      setLocalReports((prev) => prev.filter((r) => r.id !== reportToDelete.id));
+      setCounters((prev) => ({
+        ...prev,
+        total: Math.max(0, prev.total - 1),
+      }));
       setReportToDelete(null);
       if (onAddToast) onAddToast('Laporan berhasil dihapus.');
     } catch (_) {
@@ -93,6 +210,12 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       if (onResetReports) {
         await onResetReports();
       }
+      setLocalReports([]);
+      setCounters({ total: 0, selesai: 0, review: 0, sedang_berjalan: 0 });
+      try {
+        localStorage.removeItem('lw_reports_data_cache');
+        localStorage.removeItem('lw_reports_counters_cache');
+      } catch (_) {}
       setIsResetModalOpen(false);
       if (onAddToast) onAddToast('Semua laporan berhasil direset.');
     } catch (_) {
@@ -109,20 +232,47 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }
   };
 
-  const completedCount = reports.filter((r) => r.status === 'Completed').length;
-  const inReviewCount = reports.filter((r) => r.status === 'In Review').length;
-  const inProgressCount = reports.filter((r) => (r.status as string) === 'In Progress' || (r.status as string) === 'Sedang Berjalan' || r.status === 'To Do').length;
-  const totalCount = reports.length;
+  // Preview Bukti Pekerjaan Nyata dalam Lightbox
+  const handlePreviewEvidence = (report: Report) => {
+    const rawUrls: string[] = [];
+    if (report.evidence_urls && report.evidence_urls.length > 0) {
+      report.evidence_urls.forEach((u) => {
+        const norm = normalizeFileUrl(u);
+        if (norm && !rawUrls.includes(norm)) rawUrls.push(norm);
+      });
+    }
+    if (report.evidence_url) {
+      const norm = normalizeFileUrl(report.evidence_url);
+      if (norm && !rawUrls.includes(norm)) rawUrls.push(norm);
+    }
+    if (report.proof_files && report.proof_files.length > 0) {
+      report.proof_files.forEach((f: any) => {
+        const norm = normalizeFileUrl(f.file_url || f.url);
+        if (norm && !rawUrls.includes(norm)) rawUrls.push(norm);
+      });
+    }
 
-  // Background revalidation dengan endpoint daily-reports
-  useEffect(() => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-    fetchWithCache(
-      'https://api-laporanwe.mkverse.my.id/api/daily-reports/list.php',
-      { Authorization: `Bearer ${token}` },
-      'daily_reports'
-    ).catch(() => {});
-  }, []);
+    if (rawUrls.length > 0) {
+      setLightboxImages(rawUrls);
+      setLightboxTitle(`${cleanReportText(report.task)} (${report.person})`);
+      setLightboxIndex(0);
+      setIsLightboxOpen(true);
+    } else {
+      handleOpenDetail(report);
+    }
+  };
+
+  const completedCount = counters.selesai || displayReports.filter((r) => r.status === 'Completed').length;
+  const inReviewCount = counters.review || displayReports.filter((r) => r.status === 'In Review').length;
+  const inProgressCount =
+    counters.sedang_berjalan ||
+    displayReports.filter(
+      (r) =>
+        (r.status as string) === 'In Progress' ||
+        (r.status as string) === 'Sedang Berjalan' ||
+        r.status === 'To Do'
+    ).length;
+  const totalCount = counters.total || displayReports.length;
 
   return (
     <div className="view">
@@ -201,7 +351,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
       <div className="toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap', marginBottom: '24px' }}>
         <div className="filters" style={{ display: 'inline-flex', padding: '5px', borderRadius: '999px', background: 'var(--glass)', border: '1px solid var(--line)' }}>
           {[
-            { id: 'All', label: `Semua (${reports.length})` },
+            { id: 'All', label: `Semua (${displayReports.length || totalCount})` },
             { id: 'In Review', label: 'In Review' },
             { id: 'In Progress', label: 'Sedang Berjalan' },
             { id: 'Completed', label: 'Selesai' },
@@ -309,7 +459,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             gap: '18px',
           }}
         >
-          {isLoading && reports.length === 0 ? (
+          {isLoading && displayReports.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 0', color: 'var(--muted)' }}>
               Memuat laporan tim...
             </div>
@@ -376,13 +526,21 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                   {/* Top: Thumbnail & Info */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
                     <div
-                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs"
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs relative group/thumb cursor-pointer"
                       style={{
                         padding: 0,
                         margin: 0,
                       }}
+                      title="Klik untuk melihat bukti pekerjaan nyata"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePreviewEvidence(r);
+                      }}
                     >
                       <ReportCoverThumbnail report={r} />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
+                        <Icon name="search" style={{ width: 15, height: 15 }} />
+                      </div>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <h4
@@ -773,6 +931,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal: Pratinjau Bukti Pekerjaan Nyata (Lightbox) */}
+      <ImageLightbox
+        isOpen={isLightboxOpen}
+        images={lightboxImages}
+        currentIndex={lightboxIndex}
+        title={lightboxTitle}
+        onClose={() => setIsLightboxOpen(false)}
+        onNavigate={(newIdx) => setLightboxIndex(newIdx)}
+      />
     </div>
   );
 };

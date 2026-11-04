@@ -207,25 +207,47 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
             </div>
           )}
 
-          <img
-            key={stableKey}
-            src={originalImage}
-            alt={currentDoc?.original_name || title || 'Bukti pekerjaan'}
-            className="lightbox-img"
-            data-motion="none"
-            loading="eager"
-            decoding="async"
-            onLoad={() => setImageLoaded(true)}
-            style={{
-              width: 'auto',
-              height: 'auto',
-              maxWidth: '100%',
-              maxHeight: 'calc(100vh - 220px)',
-              objectFit: 'contain',
-              imageRendering: 'auto',
-              transform: 'none',
-            }}
-          />
+          {/\.(mp4|webm|ogg|mov)$/i.test(originalImage.split('?')[0]) ? (
+            <video
+              key={stableKey}
+              src={originalImage}
+              controls
+              autoPlay
+              className="lightbox-img"
+              data-motion="none"
+              onLoadedData={() => setImageLoaded(true)}
+              style={{
+                width: 'auto',
+                height: 'auto',
+                maxWidth: '100%',
+                maxHeight: 'calc(100vh - 220px)',
+                objectFit: 'contain',
+                borderRadius: '12px',
+                transform: 'none',
+              }}
+            />
+          ) : (
+            <img
+              key={stableKey}
+              src={originalImage}
+              alt={currentDoc?.original_name || title || 'Bukti pekerjaan'}
+              className="lightbox-img"
+              data-motion="none"
+              loading="eager"
+              decoding="async"
+              onLoad={() => setImageLoaded(true)}
+              onError={() => setImageLoaded(true)}
+              style={{
+                width: 'auto',
+                height: 'auto',
+                maxWidth: '100%',
+                maxHeight: 'calc(100vh - 220px)',
+                objectFit: 'contain',
+                imageRendering: 'auto',
+                transform: 'none',
+              }}
+            />
+          )}
 
           {images.length > 1 && onNavigate && (
             <button

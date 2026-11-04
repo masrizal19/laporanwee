@@ -1010,10 +1010,17 @@ export const saveReportToCache = (report: Report) => {
 
 export const getCachedReports = (): Report[] => {
   try {
-    const raw = localStorage.getItem(REPORTS_CACHE_KEY);
+    const raw =
+      localStorage.getItem('lw_reports_data_cache') ||
+      localStorage.getItem(REPORTS_CACHE_KEY) ||
+      localStorage.getItem('cache_daily_reports');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const list = Array.isArray(parsed) ? parsed : (parsed.data || parsed.reports || []);
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((item: any) => (item.task && item.status ? item : mapRawDailyReportToReport(item)));
+    }
+    return [];
   } catch (_) {
     return [];
   }
@@ -1210,6 +1217,22 @@ export const dailyReportService = {
     if (apiReports.length > 0) {
       clearReportCache();
       apiReports.forEach((r) => saveReportToCache(r));
+      try {
+        localStorage.setItem('lw_reports_data_cache', JSON.stringify(apiReports));
+        const total = apiReports.length;
+        const selesai = apiReports.filter((r) => r.status === 'Completed').length;
+        const review = apiReports.filter((r) => r.status === 'In Review').length;
+        const sedang_berjalan = apiReports.filter(
+          (r) =>
+            (r.status as string) === 'In Progress' ||
+            (r.status as string) === 'Sedang Berjalan' ||
+            r.status === 'To Do'
+        ).length;
+        localStorage.setItem(
+          'lw_reports_counters_cache',
+          JSON.stringify({ total, selesai, review, sedang_berjalan })
+        );
+      } catch (_) {}
     } else {
       clearReportCache();
     }
