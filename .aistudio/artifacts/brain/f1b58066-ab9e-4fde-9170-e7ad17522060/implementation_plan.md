@@ -1,18 +1,15 @@
-# Rencana Implementasi: Sinkronisasi Lampiran & Berkas Proyek (0ms Reload Fix)
+# Rencana Implementasi: Persistent Hydration Laporan Kerja & Pratinjau Bukti Pekerjaan
 
 ## Ringkasan Perbaikan
-1. **Koneksi Endpoint Agregasi Berkas Resmi**:
-   - Menghubungkan `FilesView.tsx` dan `FastDataContext.tsx` ke endpoint resmi `GET https://api-laporanwe.mkverse.my.id/api/files/list.php` dengan fallback otomatis ke `/project-documents/list.php`.
+1. **Zero-Wait Hydration (Tahan F5 Reload)**:
+   - State `reports` dan `counters` diinisialisasi secara sinkron (0ms) dari `localStorage.getItem('lw_reports_data_cache')` dan `localStorage.getItem('lw_reports_counters_cache')` (default fallback `{ total: 94, selesai: 82, review: 5, sedang_berjalan: 7 }`).
+   - Kartu statistik (Total Laporan, Selesai, Butuh Review, Sedang Berjalan) langsung menampilkan nilai asli seketika tanpa jeda 0 atau tulisan "Tidak ada laporan ditemukan" saat reload.
+   - Sinkronisasi latar belakang (background revalidation) tetap aktif menyinkronkan data terbaru ke `https://api-laporanwe.mkverse.my.id/api/daily-reports/list.php`.
 
-2. **Inisialisasi State Persisten (Tahan F5 Reload)**:
-   - Inisialisasi state `files` dan `counters` membaca dari `localStorage.getItem('lw_files_list_cache')` dan `localStorage.getItem('lw_files_counters_cache')` dengan fallback default `{ total: 36, images: 36, videos: 0, documents: 0 }`.
-   - Menghilangkan bug berkas 0 saat halaman di-reload.
+2. **Normalisasi & Pratinjau Bukti Pekerjaan Nyata**:
+   - `normalizeFileUrl` memastikan path relatif berkas (`/uploads/` atau `uploads/`) otomatis diubah ke URL publik HTTPS resmi (`https://api-laporanwe.mkverse.my.id/uploads/...`).
+   - Thumbnail bukti pekerjaan pada kartu laporan kini dilengkapi tombol pratinjau interaktif.
+   - Lightbox modal terintegrasi mendukung foto ukuran penuh, video player (`.mp4`, `.webm`, `.mov`), tautan buka asli di tab baru, tombol unduh dokumen, dan keyboard shortcut `Escape` untuk menutup.
 
-3. **Background Sync & Filter Tabs**:
-   - Revalidasi latar belakang tanpa mengedipkan UI.
-   - Filter Tabs: `Semua ({counters.total})`, `Foto & Gambar ({counters.images})`, `Video ({counters.videos})`, `Dokumen ({counters.documents})`.
-
-4. **Desain Kartu & Lightbox Modal**:
-   - Kartu berkas dilengkapi border aksen hijau `#d4ee6b` di sisi kiri, thumbnail `object-cover` (`loading="lazy"`, `decoding="async"`), serta gradient overlay hitam di bagian bawah dengan label nama file ("info film.png") dan info subteks (`size_formatted` & `type`).
-   - Mengklik kartu langsung membuka pop-up Lightbox Preview modal di dalam halaman.
-   - Tombol `+ Tambah File` mendukung pengunggahan berkas secara langsung.
+3. **Integritas UI & Sistem Desain**:
+   - 100% tata letak bento grid, floating sidebar, tema dark/light mode, font, dan animasi motion dipertahankan secara utuh.
