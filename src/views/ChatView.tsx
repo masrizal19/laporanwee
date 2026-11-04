@@ -47,11 +47,11 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser }) => {
 
   return (
     <div
-      className="w-full rounded-3xl overflow-hidden border border-white/30 bg-white/40 dark:bg-[#1a1829]/60 backdrop-blur-2xl shadow-xl relative z-10 flex flex-col"
+      className="w-full h-full flex-1 rounded-2xl md:rounded-3xl overflow-hidden border border-white/40 dark:border-white/10 bg-white/60 dark:bg-[#1a1829]/80 backdrop-blur-2xl shadow-xl relative z-10 flex flex-col min-w-0"
       style={{
-        height: 'calc(100vh - 110px)',
-        minHeight: '580px',
-        maxHeight: 'calc(100vh - 100px)',
+        width: '100%',
+        height: 'calc(100vh - 24px)',
+        maxHeight: 'calc(100vh - 24px)',
         boxShadow: '0 20px 50px -15px rgba(60, 50, 110, 0.18)',
       }}
     >
@@ -64,7 +64,7 @@ export const ChatView: React.FC<ChatViewProps> = ({ currentUser }) => {
           height: '100%',
           border: 'none',
           display: 'block',
-          borderRadius: '24px',
+          borderRadius: '20px',
           background: 'transparent',
         }}
         allow="camera; microphone; clipboard-write"

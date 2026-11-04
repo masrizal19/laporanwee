@@ -64,16 +64,14 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'ui_settings', label: 'UI Setting', icon: 'sliders' },
   ];
 
-  // Compute active nav index for the sliding pill
-  const activeNavIndex = navItems.findIndex((item) => {
-    if (currentView === item.view) return true;
-    if (item.view === 'projects' && currentView === 'project-detail') return true;
-    if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
-    if (item.view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
-    if (item.view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
+  const isItemActive = (view: ViewType) => {
+    if (currentView === view) return true;
+    if (view === 'projects' && currentView === 'project-detail') return true;
+    if (view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
+    if (view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
+    if (view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
     return false;
-  });
-
+  };
 
   // Compute User Initials
   const userInitials = (userName || userEmail || 'AD')
@@ -112,24 +110,18 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <nav className="nav" id="nav-rail">
-          {activeNavIndex >= 0 && (
-            <div
-              className="pill"
-              style={{ transform: `translateY(${activeNavIndex * 54}px)` }}
-            />
-          )}
-
           {navItems.map((item) => {
-            const isActive =
-              currentView === item.view ||
-              (item.view === 'projects' && currentView === 'project-detail') ||
-              (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report'));
+            const isActive = isItemActive(item.view);
 
             return (
               <button
                 key={item.view}
                 type="button"
-                className={isActive ? 'on' : ''}
+                className={`nav-item-btn ${
+                  isActive
+                    ? 'on bg-[#1e1d2b] dark:bg-[#d4ee6a] text-white dark:text-[#1e1d2b] shadow-md font-semibold'
+                    : 'text-gray-500 hover:text-gray-900 hover:bg-black/5 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/10'
+                }`}
                 onClick={() => onNavigate(item.view)}
                 title={item.label}
               >
@@ -154,7 +146,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </aside>
 
-      {/* Top Bar Header with Theme Toggle, Quick Search, User Profile */}
+      {/* Top Bar Header with Theme Toggle, Quick Search, User Profile - hidden in chat mode */}
+      {currentView !== 'chat' && (
       <header className="top-bar-shell">
         <div className="top-actions">
           {/* Theme Switcher Sliding Pill */}
@@ -253,6 +246,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </header>
+      )}
     </>
   );
 };
