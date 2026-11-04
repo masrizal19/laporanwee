@@ -36,6 +36,7 @@ import { UiSettingsView } from './views/UiSettingsView';
 import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 import { PengajuanBarangView } from './views/PengajuanBarangView';
+import { ChatView } from './views/ChatView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -248,6 +249,7 @@ export function App() {
       '/dashboard',
       '/proyek',
       '/laporan',
+      '/chat',
       '/laporan/detail',
       '/laporan/detail/edit-laporan',
       '/tugas',
@@ -437,6 +439,7 @@ export function App() {
     '/laporan/detail': 'report-detail',
     '/laporan/detail/edit-laporan': 'report-detail',
     '/tugas': 'tasks',
+    '/chat': 'chat',
     '/tim': 'team',
     '/kalender': 'calendar',
     '/analitik': 'analytics',
@@ -462,6 +465,7 @@ export function App() {
     'projects': '/proyek',
     'project-detail': '/proyek',
     'tasks': '/tugas',
+    'chat': '/chat',
     'team': '/tim',
     'calendar': '/kalender',
     'reports': '/laporan',
@@ -2058,6 +2062,13 @@ export function App() {
             onResetTasks={handleResetTasks}
             onRefreshTasks={handleReconcileTasks}
             onNavigateToReportEdit={handleNavigateToReportEdit}
+            onAddToast={addToast}
+          />
+        )}
+
+        {currentView === 'chat' && (
+          <ChatView
+            onNavigate={handleNavigate}
             onAddToast={addToast}
           />
         )}
