@@ -521,7 +521,7 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>(() => dailyReportService.getCachedReports());
-  const [activities, setActivities] = useState<Activity[]>([]);
+  const [activities, setActivities] = useState<Activity[]>(() => activityService.getCachedActivities());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | undefined>(undefined);
@@ -547,7 +547,9 @@ export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [showWhatsNewModal, setShowWhatsNewModal] = useState<boolean>(() => {
     try {
-      const seen = localStorage.getItem('laporanwee_v5_2_notified');
+      const seen =
+        localStorage.getItem('lw_v5_2_notified') ||
+        localStorage.getItem('laporanwee_v5_2_notified');
       return seen !== 'true';
     } catch (_) {
       return false;
@@ -672,10 +674,11 @@ export function App() {
   const refreshActivitiesFromApi = useCallback(async () => {
     try {
       const fetchedActivities = await activityService.fetchActivities();
-      setActivities(fetchedActivities || []);
+      if (fetchedActivities && fetchedActivities.length > 0) {
+        setActivities(fetchedActivities);
+      }
     } catch (err) {
       console.warn('Sync activities from API notice:', err);
-      setActivities([]);
     }
   }, []);
 

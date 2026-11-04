@@ -3,6 +3,7 @@ import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
 import { cleanReportText } from '../utils/formatters';
+import { fetchWithCache } from '../utils/apiCache';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -110,6 +111,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   const completedCount = reports.filter((r) => r.status === 'Completed').length;
   const inReviewCount = reports.filter((r) => r.status === 'In Review').length;
+  const inProgressCount = reports.filter((r) => (r.status as string) === 'In Progress' || (r.status as string) === 'Sedang Berjalan' || r.status === 'To Do').length;
+  const totalCount = reports.length;
+
+  // Background revalidation dengan endpoint daily-reports
+  useEffect(() => {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+    fetchWithCache(
+      'https://api-laporanwe.mkverse.my.id/api/daily-reports/list.php',
+      { Authorization: `Bearer ${token}` },
+      'daily_reports'
+    ).catch(() => {});
+  }, []);
 
   return (
     <div className="view">
@@ -151,7 +164,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             <Icon name="doc" />
           </div>
           <div>
-            <div className="num">{reports.length}</div>
+            <div className="num">{totalCount}</div>
             <div className="lbl">Total Laporan</div>
           </div>
         </div>
@@ -171,6 +184,15 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <div>
             <div className="num">{inReviewCount}</div>
             <div className="lbl">Butuh Review</div>
+          </div>
+        </div>
+        <div className="stat-chip c-white">
+          <div className="ic">
+            <Icon name="checksq" />
+          </div>
+          <div>
+            <div className="num">{inProgressCount}</div>
+            <div className="lbl">Sedang Berjalan</div>
           </div>
         </div>
       </div>

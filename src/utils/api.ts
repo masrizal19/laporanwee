@@ -598,59 +598,91 @@ export const documentService = {
 // ==========================================
 // 3. ACTIVITY SERVICE (MySQL API)
 // ==========================================
-export const activityService = {
-  fetchActivities: async (): Promise<Activity[]> => {
-    const res = await api.get('/activities/list.php');
-    if (!res || !Array.isArray(res.data)) {
-      return [];
+export const mapRawActivityToActivity = (item: any): Activity => {
+  const activityType = item.activity_type || 'Tasks';
+  let kind: Activity['kind'] = 'Tasks';
+  if (activityType === 'Reports' || activityType === 'report') kind = 'Reports';
+  else if (activityType === 'Files' || activityType === 'file' || activityType === 'document') kind = 'Files';
+  else if (activityType === 'Comments' || activityType === 'comment') kind = 'Comments';
+
+  let icon = item.icon_type || item.icon || 'checksq';
+  if (!item.icon_type && !item.icon) {
+    if (kind === 'Reports') icon = 'doc';
+    else if (kind === 'Files') icon = 'camera';
+    else if (kind === 'Comments') icon = 'comment';
+    else icon = 'folder';
+  }
+
+  const person = item.person || item.user_name || item.user_email?.split('@')[0] || 'Tim LaporanWee';
+  const action = item.action || item.title || 'memperbarui aktivitas';
+  const quote = item.quote || (item.description ? `"${item.description}"` : '');
+
+  // Format time from created_at
+  let time = item.time || 'Baru saja';
+  if (item.created_at) {
+    try {
+      const d = new Date(String(item.created_at).replace(' ', 'T'));
+      const now = new Date();
+      const diffMinutes = Math.floor((now.getTime() - d.getTime()) / 60000);
+      if (diffMinutes < 1) time = 'Baru saja';
+      else if (diffMinutes < 60) time = `${diffMinutes} mnt lalu`;
+      else if (diffMinutes < 1440) time = `${Math.floor(diffMinutes / 60)} jam lalu`;
+      else time = String(item.created_at).slice(0, 10);
+    } catch (_) {
+      time = String(item.created_at);
     }
+  }
 
-    return res.data.map((item: any): Activity => {
-      const activityType = item.activity_type || 'Tasks';
-      let kind: Activity['kind'] = 'Tasks';
-      if (activityType === 'Reports' || activityType === 'report') kind = 'Reports';
-      else if (activityType === 'Files' || activityType === 'file' || activityType === 'document') kind = 'Files';
-      else if (activityType === 'Comments' || activityType === 'comment') kind = 'Comments';
+  return {
+    id: String(item.id),
+    person,
+    action,
+    quote,
+    time,
+    project: item.project || item.reference_name || item.description || 'LaporanWee',
+    kind,
+    icon,
+  };
+};
 
-      let icon = item.icon_type || 'checksq';
-      if (!item.icon_type) {
-        if (kind === 'Reports') icon = 'doc';
-        else if (kind === 'Files') icon = 'camera';
-        else if (kind === 'Comments') icon = 'comment';
-        else icon = 'folder';
-      }
-
-      const person = item.user_name || item.user_email?.split('@')[0] || 'Tim LaporanWee';
-      const action = item.title || 'memperbarui aktivitas';
-      const quote = item.description ? `"${item.description}"` : '';
-
-      // Format time from created_at
-      let time = 'Baru saja';
-      if (item.created_at) {
-        try {
-          const d = new Date(item.created_at.replace(' ', 'T'));
-          const now = new Date();
-          const diffMinutes = Math.floor((now.getTime() - d.getTime()) / 60000);
-          if (diffMinutes < 1) time = 'Baru saja';
-          else if (diffMinutes < 60) time = `${diffMinutes} mnt lalu`;
-          else if (diffMinutes < 1440) time = `${Math.floor(diffMinutes / 60)} jam lalu`;
-          else time = item.created_at.slice(0, 10);
-        } catch (_) {
-          time = item.created_at;
+export const activityService = {
+  getCachedActivities: (): Activity[] => {
+    try {
+      const saved = localStorage.getItem('cache_activities_120');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const list = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        if (Array.isArray(list) && list.length > 0) {
+          return list.map(mapRawActivityToActivity);
         }
       }
+    } catch (_) {}
+    return [];
+  },
 
-      return {
-        id: String(item.id),
-        person,
-        action,
-        quote,
-        time,
-        project: item.reference_name || item.description || 'LaporanWee',
-        kind,
-        icon,
-      };
-    });
+  fetchActivities: async (): Promise<Activity[]> => {
+    try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+      const json: any = await fetchWithCache(
+        'https://api-laporanwe.mkverse.my.id/api/activities/list.php?limit=120',
+        {
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Accept': 'application/json',
+          },
+        },
+        'activities_120'
+      );
+      if (json && Array.isArray(json.data) && json.data.length > 0) {
+        return json.data.map(mapRawActivityToActivity);
+      }
+    } catch (e) {
+      console.warn('fetchActivities notice:', e);
+    }
+
+    const cached = activityService.getCachedActivities();
+    if (cached.length > 0) return cached;
+    return [];
   },
 
   createActivity: async (act: {
@@ -1019,7 +1051,8 @@ export const clearReportCache = () => {
   } catch (_) {}
 };
 
-export const PRIMARY_REPORT_ENDPOINT = '/reports/list.php';
+export const PRIMARY_REPORT_ENDPOINT = '/daily-reports/list.php';
+export const SECONDARY_REPORT_ENDPOINT = '/reports/list.php';
 export const FALLBACK_REPORT_ENDPOINT = '/reports/all.php';
 
 export const extractReportsArrayFromResponse = (res: any): any[] | null => {
@@ -1083,49 +1116,55 @@ export const dailyReportService = {
     let apiReports: Report[] = [];
     let fetchError: any = null;
 
-    // 1. Primary request: /api/reports/list.php
+    // 1. Primary request: /api/daily-reports/list.php
     try {
       const res = await api.get(PRIMARY_REPORT_ENDPOINT, options);
-      console.log('REPORT API RESPONSE:', res);
+      console.log('DAILY REPORT API RESPONSE:', res);
       const extracted = extractReportsArrayFromResponse(res);
       if (extracted !== null && extracted.length > 0) {
-        console.log('REPORT DATA:', extracted);
         apiReports = extracted.map(mapRawDailyReportToReport);
+        try {
+          localStorage.setItem('cache_daily_reports', JSON.stringify({ data: extracted }));
+        } catch (_) {}
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') throw err;
       fetchError = err;
-      console.warn('[LaporanWe] /reports/list.php notice:', err);
+      console.warn('[LaporanWe] /daily-reports/list.php notice:', err);
     }
 
-    // 2. Fallback if primary returned 0 items or threw an error: /api/reports/all.php
+    // 2. Secondary request: /api/reports/list.php
+    if (apiReports.length === 0) {
+      try {
+        const secRes = await api.get(SECONDARY_REPORT_ENDPOINT, options);
+        const extracted = extractReportsArrayFromResponse(secRes);
+        if (extracted !== null && extracted.length > 0) {
+          apiReports = extracted.map(mapRawDailyReportToReport);
+          fetchError = null;
+          try {
+            localStorage.setItem('cache_daily_reports', JSON.stringify({ data: extracted }));
+          } catch (_) {}
+        }
+      } catch (secErr: any) {
+        if (secErr?.name === 'AbortError') throw secErr;
+        console.warn('[LaporanWe] /reports/list.php notice:', secErr);
+      }
+    }
+
+    // 3. Fallback: /api/reports/all.php
     if (apiReports.length === 0) {
       try {
         const fallbackRes = await api.get(FALLBACK_REPORT_ENDPOINT, options);
-        console.log('FALLBACK REPORT API RESPONSE:', fallbackRes);
         const extracted = extractReportsArrayFromResponse(fallbackRes);
         if (extracted !== null && extracted.length > 0) {
-          console.log('REPORT DATA (from fallback):', extracted);
           apiReports = extracted.map(mapRawDailyReportToReport);
-          fetchError = null; // Fallback succeeded
+          fetchError = null;
         }
       } catch (fallbackErr: any) {
         if (fallbackErr?.name === 'AbortError') throw fallbackErr;
         console.warn('[LaporanWe] /reports/all.php notice:', fallbackErr);
         if (!fetchError) fetchError = fallbackErr;
       }
-    }
-
-    // 3. Fallback with query parameters (e.g. all=1) if still empty
-    if (apiReports.length === 0) {
-      try {
-        const paramRes = await api.get(`${PRIMARY_REPORT_ENDPOINT}?all=1`, options);
-        const extracted = extractReportsArrayFromResponse(paramRes);
-        if (extracted !== null && extracted.length > 0) {
-          apiReports = extracted.map(mapRawDailyReportToReport);
-          fetchError = null;
-        }
-      } catch (_) {}
     }
 
     // If an error occurred and no reports could be fetched from server,

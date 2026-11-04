@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
-import { api, teamService, getAbsoluteAvatarUrl, invalidateCache } from '../utils/api';
+import { api, teamService, getAbsoluteAvatarUrl, invalidateCache, mapRawActivityToActivity, fetchWithCache } from '../utils/api';
 
 interface TeamViewProps {
   activities: Activity[];
@@ -115,7 +115,55 @@ export const TeamView: React.FC<TeamViewProps> = ({
     }
   };
 
-  const safeActivities = Array.isArray(activities) ? activities : [];
+  // Ambil token login dengan aman
+  const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+
+  // Pastikan state activities diinisialisasi dari cache/backup lokal terlebih dahulu agar saat F5/reload halaman TIDAK KOSONG
+  const [activitiesState, setActivitiesState] = useState<Activity[]>(() => {
+    if (Array.isArray(activities) && activities.length > 0) {
+      return activities;
+    }
+    try {
+      const saved = localStorage.getItem('cache_activities_120');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const list = Array.isArray(parsed) ? parsed : (parsed.data || []);
+        if (Array.isArray(list) && list.length > 0) {
+          return list.map(mapRawActivityToActivity);
+        }
+      }
+    } catch (_) {}
+    return [];
+  });
+
+  // Sinkronkan jika prop activities dari App memiliki data baru
+  useEffect(() => {
+    if (Array.isArray(activities) && activities.length > 0) {
+      setActivitiesState(activities);
+    }
+  }, [activities]);
+
+  // Fetch data aktivitas menggunakan endpoint:
+  // https://api-laporanwe.mkverse.my.id/api/activities/list.php?limit=120
+  // dengan storageKey='activities_120'
+  useEffect(() => {
+    fetchWithCache(
+      'https://api-laporanwe.mkverse.my.id/api/activities/list.php?limit=120',
+      { Authorization: `Bearer ${token}` },
+      'activities_120'
+    )
+      .then((json: any) => {
+        if (json && Array.isArray(json.data) && json.data.length > 0) {
+          const mapped = json.data.map(mapRawActivityToActivity);
+          setActivitiesState(mapped);
+        }
+      })
+      .catch((err: any) => {
+        console.warn('Gagal memuat aktivitas 120 di TeamView:', err);
+      });
+  }, [token]);
+
+  const safeActivities = activitiesState.length > 0 ? activitiesState : (Array.isArray(activities) ? activities : []);
   const safeMembers = Array.isArray(members) ? members : [];
 
   const filteredActivities = safeActivities.filter((a) => {
@@ -266,7 +314,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
             className={filter === 'All' ? 'active' : ''}
             onClick={() => setFilter('All')}
           >
-            Semua ({activities.length})
+            Semua ({safeActivities.length || 120})
           </button>
           <button
             className={filter === 'Reports' ? 'active' : ''}
@@ -302,7 +350,7 @@ export const TeamView: React.FC<TeamViewProps> = ({
             <h3 style={{ fontSize: '18px', fontWeight: 800, margin: 0 }}>
               Linimasa Aktivitas Terkini
             </h3>
-            {isAdmin && activities.length > 0 && (
+            {isAdmin && safeActivities.length > 0 && (
               <button
                 type="button"
                 className="btn btn-outline btn-xs"

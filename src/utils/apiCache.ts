@@ -1,6 +1,6 @@
 /**
- * In-Memory Fast-Page-Load Caching with Stale-While-Revalidate (0ms Transition)
- * Digunakan untuk mempercepat navigasi halaman (Dashboard, Laporan, Tim, dll.)
+ * In-Memory & Local Persistent Fast-Page-Load Caching (0ms Transition)
+ * Mendukung Stale-While-Revalidate yang tahan browser reload (F5) dengan backup localStorage.
  */
 
 interface CacheEntry<T = any> {
@@ -8,76 +8,128 @@ interface CacheEntry<T = any> {
   timestamp: number;
 }
 
-const cache = new Map<string, CacheEntry>();
-const CACHE_TTL = 30000; // 30 detik validitas data segar (fresh)
+const memoryCache = new Map<string, CacheEntry>();
+const TTL = 120000; // 2 menit cache aktif
 
 /**
- * Mengambil data dari cache memori jika tersedia secara instan (0ms),
- * atau melakukan network fetch dan menyimpan respons sukses ke dalam cache.
+ * Fetch data dengan in-memory cache + persistent storage backup
  */
 export const fetchWithCache = async <T = any>(
   url: string,
-  options: RequestInit = {},
-  customTtl: number = CACHE_TTL
+  optionsOrHeaders: RequestInit | HeadersInit = {},
+  storageKey?: string
 ): Promise<T> => {
-  const cached = cache.get(url);
+  // Dukung opsi RequestInit maupun pure HeadersInit
+  let reqOptions: RequestInit = {};
+  if (
+    typeof optionsOrHeaders === 'object' &&
+    optionsOrHeaders !== null &&
+    ('headers' in optionsOrHeaders || 'method' in optionsOrHeaders || 'signal' in optionsOrHeaders)
+  ) {
+    reqOptions = optionsOrHeaders as RequestInit;
+  } else {
+    reqOptions = { headers: optionsOrHeaders as HeadersInit };
+  }
+
+  // 1. Cek memory cache
+  const mem = memoryCache.get(url);
   const now = Date.now();
-
-  // Kembalikan data cache langsung jika masih segar
-  if (cached && now - cached.timestamp < customTtl) {
-    return cached.data;
+  if (mem && now - mem.timestamp < TTL) {
+    return mem.data;
   }
 
+  // 2. Cek local backup saat reload browser
+  if (storageKey && !mem) {
+    try {
+      const backup = localStorage.getItem(`cache_${storageKey}`);
+      if (backup) {
+        const parsed = JSON.parse(backup);
+        memoryCache.set(url, { data: parsed, timestamp: now });
+      }
+    } catch (e) {
+      console.warn(`[apiCache] Gagal membaca backup cache_${storageKey}:`, e);
+    }
+  }
+
+  // 3. Fetch data terbaru di background / network
   try {
-    const response = await fetch(url, options);
-    const json = await response.json();
+    const res = await fetch(url, reqOptions);
+    const json = await res.json();
     if (json && json.success !== false) {
-      cache.set(url, { data: json, timestamp: now });
+      memoryCache.set(url, { data: json, timestamp: Date.now() });
+      if (storageKey) {
+        try {
+          localStorage.setItem(`cache_${storageKey}`, JSON.stringify(json));
+        } catch (e) {
+          console.warn(`[apiCache] Gagal menyimpan backup cache_${storageKey}:`, e);
+        }
+      }
+      return json;
     }
-    return json;
-  } catch (error) {
-    // Jika fetch gagal (misal koneksi lambat) namun ada data cache lama, kembalikan data cache (offline resilient)
-    if (cached) {
-      console.warn(`[apiCache] Network request failed for ${url}, fallback ke stale cache.`);
-      return cached.data;
-    }
-    throw error;
+  } catch (err) {
+    console.warn(`[apiCache] Network fetch fallback to cached/backup for ${url}:`, err);
   }
+
+  return (memoryCache.get(url)?.data as T) || (mem?.data as T) || (null as any);
 };
 
 /**
- * Mengambil data cache secara sinkron untuk inisialisasi state seketika (0ms transition)
+ * Mengambil data cache secara sinkron untuk inisialisasi state seketika (0ms reload tahan F5)
  */
-export const getCachedData = <T = any>(url: string): T | null => {
-  const entry = cache.get(url);
-  if (entry) {
-    return entry.data;
+export const getCachedData = <T = any>(url: string, storageKey?: string): T | null => {
+  const mem = memoryCache.get(url);
+  if (mem) {
+    return mem.data;
   }
+
+  if (storageKey) {
+    try {
+      const backup = localStorage.getItem(`cache_${storageKey}`);
+      if (backup) {
+        const parsed = JSON.parse(backup);
+        memoryCache.set(url, { data: parsed, timestamp: Date.now() });
+        return parsed;
+      }
+    } catch (_) {}
+  }
+
   return null;
 };
 
 /**
- * Menyimpan data ke dalam cache secara manual
+ * Menyimpan data ke dalam memoryCache dan backup localStorage
  */
-export const setCachedData = <T = any>(url: string, data: T): void => {
+export const setCachedData = <T = any>(url: string, data: T, storageKey?: string): void => {
   if (data !== undefined && data !== null) {
-    cache.set(url, { data, timestamp: Date.now() });
+    memoryCache.set(url, { data, timestamp: Date.now() });
+    if (storageKey) {
+      try {
+        localStorage.setItem(`cache_${storageKey}`, JSON.stringify(data));
+      } catch (_) {}
+    }
   }
 };
 
 /**
- * Menghapus cache berdasarkan pola URL atau mengosongkan seluruh cache.
- * Dipanggil saat ada mutasi data (tambah/edit/hapus laporan, user baru, dll.)
+ * Invalidate cache di memori dan storage
  */
 export const invalidateCache = (pattern?: string): void => {
   if (!pattern) {
-    cache.clear();
+    memoryCache.clear();
   } else {
-    for (const key of cache.keys()) {
+    for (const key of memoryCache.keys()) {
       if (key.includes(pattern)) {
-        cache.delete(key);
+        memoryCache.delete(key);
       }
     }
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('cache_') && key.includes(pattern)) {
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (_) {}
   }
 };
 
