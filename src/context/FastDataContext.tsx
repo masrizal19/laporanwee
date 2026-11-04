@@ -309,7 +309,7 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       const endpoint = projectId
         ? `https://api-laporanwe.mkverse.my.id/api/project-documents/list.php?project_id=${projectId}`
-        : 'https://api-laporanwe.mkverse.my.id/api/project-documents/list.php';
+        : 'https://api-laporanwe.mkverse.my.id/api/files/list.php';
 
       const res: any = await fetchWithCache(
         endpoint,
@@ -319,10 +319,10 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             Accept: 'application/json',
           },
         },
-        'project_documents'
+        'files_list'
       );
 
-      if (res && Array.isArray(res.data)) {
+      if (res && Array.isArray(res.data) && res.data.length > 0) {
         const mappedFiles: FastFileItem[] = res.data.map((doc: any, idx: number) => {
           const rawUrl =
             doc.file_url ||
@@ -331,8 +331,8 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             `https://api-laporanwe.mkverse.my.id/api/project-documents/original.php?id=${doc.id}`;
           const normUrl = normalizeFileUrl(rawUrl);
           const name = doc.original_name || doc.file_name || doc.name || `Berkas #${idx + 1}`;
-          const isImg = /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name) || doc.mime_type?.startsWith('image/');
-          const isVid = /\.(mp4|webm|mov|m4v)$/i.test(name) || doc.mime_type?.startsWith('video/');
+          const isImg = /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name) || doc.mime_type?.startsWith('image/') || doc.type === 'Gambar';
+          const isVid = /\.(mp4|webm|mov|m4v)$/i.test(name) || doc.mime_type?.startsWith('video/') || doc.type === 'Video';
 
           return {
             id: doc.id || `file_${idx}`,
@@ -348,6 +348,12 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
         if (mappedFiles.length > 0) {
           updateFiles(mappedFiles);
+          try {
+            localStorage.setItem('lw_files_list_cache', JSON.stringify(res.data));
+            if (res.counters) {
+              localStorage.setItem('lw_files_counters_cache', JSON.stringify(res.counters));
+            }
+          } catch (_) {}
           globalMemoryStore.lastFetch[key] = Date.now();
           return mappedFiles;
         }
