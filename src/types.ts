@@ -9,7 +9,6 @@ export type ViewType =
   | 'report-detail'
   | 'create-report'
   | 'chat'
-  | 'files'
   | 'profile'
   | 'profil'
   | 'profile-crop'

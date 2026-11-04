@@ -46,20 +46,6 @@ export const NAV_MENU_ITEMS: NavMenuItem[] = [
     ),
   },
   {
-    id: 'berkas',
-    view: 'files',
-    label: 'Lampiran Berkas',
-    path: '/berkas',
-    icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-        <circle cx="10" cy="13" r="2" />
-        <path d="m20 17-1.09-1.09a2 2 0 0 0-2.82 0L10 22" />
-      </svg>
-    ),
-  },
-  {
     id: 'laporan',
     view: 'reports',
     label: 'Laporan',
@@ -199,7 +185,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onLogout,
   logoUrl,
 }) => {
-  const { prefetchReports, prefetchActivities, prefetchChat, prefetchFiles } = useFastData();
+  const { prefetchReports, prefetchActivities, prefetchChat } = useFastData();
 
   const handleHoverPrefetch = (itemId: string, view?: ViewType) => {
     if (itemId === 'laporan' || view === 'reports') {
@@ -208,8 +194,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       prefetchActivities();
     } else if (itemId === 'chat' || view === 'chat') {
       prefetchChat();
-    } else if (itemId === 'proyek' || view === 'projects') {
-      prefetchFiles();
     }
   };
 
