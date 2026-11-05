@@ -3,6 +3,7 @@ import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { fetchWithFastCache, getCachedData, invalidateCache } from '../utils/apiCache';
 import { useFastData } from '../context/FastDataContext';
+import { AttachmentPreviewModal, AttachmentPreviewData } from '../components/AttachmentPreviewModal';
 
 export interface DailyReportItem {
   id: number | string;
@@ -152,6 +153,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   const [reportToDelete, setReportToDelete] = useState<DailyReportItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [selectedPreview, setSelectedPreview] = useState<AttachmentPreviewData | null>(null);
 
   // Sync saat global store atau initialReportsProp diperbarui
   useEffect(() => {
@@ -451,6 +453,66 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
                   <h3 className="text-base font-bold text-gray-900 dark:text-white tracking-tight line-clamp-2 group-hover:text-violet-600 dark:group-hover:text-[#d4ee6b] transition-colors">
                     {report.title}
                   </h3>
+
+                  {/* Lampiran Bukti Pekerjaan (Thumbnail / Chip) */}
+                  {(() => {
+                    const raw = report.raw_data || {};
+                    const fileUrl = raw.file_url || raw.evidence_url || raw.attachment || raw.file_path;
+                    const fileName = raw.file_name || raw.original_name || raw.attachment_name || 'Lampiran Bukti Pekerjaan';
+                    const ext = (fileName || fileUrl || '').split('.').pop()?.toLowerCase() || '';
+                    const isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) || fileUrl?.match(/\.(jpg|jpeg|png|webp)/i);
+                    const isVid = ['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext) || fileUrl?.match(/\.(mp4|mov|webm)/i);
+
+                    if (!fileUrl) return null;
+
+                    return (
+                      <div className="mt-3">
+                        {isImg ? (
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedPreview({
+                                url: fileUrl,
+                                name: fileName,
+                                type: 'image',
+                                extension: ext,
+                              });
+                            }}
+                            className="group/att relative w-full h-24 rounded-2xl overflow-hidden bg-black/5 dark:bg-white/5 border border-black/5 dark:border-white/10 cursor-pointer shadow-xs"
+                          >
+                            <img
+                              src={fileUrl}
+                              alt={fileName}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-full h-full object-cover group-hover/att:scale-105 transition-transform duration-300"
+                            />
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/att:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-semibold gap-1.5">
+                              <Icon name="search" style={{ width: 14, height: 14 }} />
+                              <span>Pratinjau Bukti</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedPreview({
+                                url: fileUrl,
+                                name: fileName,
+                                type: isVid ? 'video' : 'document',
+                                extension: ext,
+                              });
+                            }}
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-violet-500/10 dark:bg-violet-400/10 border border-violet-500/20 text-violet-700 dark:text-violet-300 text-xs font-semibold hover:bg-violet-500/20 transition-all cursor-pointer truncate max-w-full"
+                            title={`Klik untuk pratinjau ${fileName}`}
+                          >
+                            <span>{isVid ? '🎥' : '📄'}</span>
+                            <span className="truncate">{fileName}</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Bottom Section: Progress Bar & Author */}
@@ -596,6 +658,12 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Modal Lightbox Pratonton Langsung (In-App Preview Modal) */}
+      <AttachmentPreviewModal
+        preview={selectedPreview}
+        onClose={() => setSelectedPreview(null)}
+      />
     </div>
   );
 };
