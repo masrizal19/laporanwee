@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { ReportCoverThumbnail } from '../components/ReportCoverThumbnail';
@@ -7,6 +7,7 @@ import { fetchWithCache } from '../utils/apiCache';
 import { ImageLightbox } from '../components/ImageLightbox';
 import { normalizeFileUrl, mapRawDailyReportToReport } from '../utils/api';
 import { useFastData } from '../context/FastDataContext';
+import { AttachmentPreviewModal, AttachmentPreviewData } from '../components/AttachmentPreviewModal';
 
 interface ReportsViewProps {
   reports: Report[];
@@ -45,6 +46,17 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // File List Modal State & Event Listener
+  const [showReportFilesModal, setShowReportFilesModal] = useState<boolean>(false);
+  const [searchFileQuery, setSearchFileQuery] = useState<string>('');
+  const [selectedPreviewFile, setSelectedPreviewFile] = useState<AttachmentPreviewData | null>(null);
+
+  useEffect(() => {
+    const handleOpen = () => setShowReportFilesModal(true);
+    window.addEventListener('OPEN_REPORT_FILES_MODAL', handleOpen);
+    return () => window.removeEventListener('OPEN_REPORT_FILES_MODAL', handleOpen);
+  }, []);
 
   const { reports: fastReports, counters: fastCounters, refreshReports: fastRefreshReports } = useFastData();
 
@@ -133,6 +145,96 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
 
   // Effective display data
   const displayReports = localReports.length > 0 ? localReports : reports;
+
+  // Ekstraksi otomatis seluruh berkas dari state 'reports' / 'localReports'
+  const allReportFiles = useMemo(() => {
+    const list: Array<{
+      id: string;
+      file_name: string;
+      file_url: string;
+      report_title: string;
+      report_date: string;
+      worker_name: string;
+      worker_avatar?: string;
+    }> = [];
+
+    const source = displayReports;
+    if (Array.isArray(source)) {
+      source.forEach((r: any) => {
+        const taskTitle = cleanReportText(r.task || r.title || 'Laporan Kerja');
+        const rDate = r.date || r.report_date || r.created_at || 'Terbaru';
+        const wName = r.person || r.author_name || 'Anggota Tim';
+        const wAvatar = r.avatar_url || r.author_avatar;
+
+        if (r.file_url) {
+          list.push({
+            id: `f_url_${r.id}`,
+            file_name: r.file_name || `${taskTitle}.jpg`,
+            file_url: normalizeFileUrl(r.file_url),
+            report_title: taskTitle,
+            report_date: rDate,
+            worker_name: wName,
+            worker_avatar: wAvatar,
+          });
+        }
+        if (r.evidence_url && r.evidence_url !== r.file_url) {
+          list.push({
+            id: `ev_${r.id}`,
+            file_name: r.evidence_name || `${taskTitle}_bukti.jpg`,
+            file_url: normalizeFileUrl(r.evidence_url),
+            report_title: taskTitle,
+            report_date: rDate,
+            worker_name: wName,
+            worker_avatar: wAvatar,
+          });
+        }
+        if (Array.isArray(r.evidence_urls)) {
+          r.evidence_urls.forEach((url: string, idx: number) => {
+            const norm = normalizeFileUrl(url);
+            if (norm && norm !== normalizeFileUrl(r.file_url) && norm !== normalizeFileUrl(r.evidence_url)) {
+              list.push({
+                id: `ev_arr_${r.id}_${idx}`,
+                file_name: `Lampiran_${idx + 1}_${taskTitle}.jpg`,
+                file_url: norm,
+                report_title: taskTitle,
+                report_date: rDate,
+                worker_name: wName,
+                worker_avatar: wAvatar,
+              });
+            }
+          });
+        }
+        if (Array.isArray(r.proof_files)) {
+          r.proof_files.forEach((f: any, idx: number) => {
+            const fUrl = normalizeFileUrl(f.file_url || f.url);
+            if (fUrl) {
+              list.push({
+                id: `proof_${r.id}_${f.id || idx}`,
+                file_name: f.file_name || f.name || `File_Bukti_${idx + 1}`,
+                file_url: fUrl,
+                report_title: taskTitle,
+                report_date: rDate,
+                worker_name: wName,
+                worker_avatar: wAvatar,
+              });
+            }
+          });
+        }
+      });
+    }
+    return list;
+  }, [displayReports]);
+
+  const filteredReportFiles = useMemo(() => {
+    const q = searchFileQuery.trim().toLowerCase();
+    if (!q) return allReportFiles;
+    return allReportFiles.filter(
+      (f) =>
+        f.file_name.toLowerCase().includes(q) ||
+        f.report_title.toLowerCase().includes(q) ||
+        f.worker_name.toLowerCase().includes(q)
+    );
+  }, [allReportFiles, searchFileQuery]);
 
   // Purely in-memory filtering: never request server on filter tab switch or search
   const filteredReports = displayReports.filter((r) => {
@@ -274,6 +376,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
           <button className="cta" onClick={() => onNavigate('create-report')}>
             <Icon name="plus" style={{ width: 16, height: 16 }} />
             <span>Buat Laporan Baru</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('OPEN_REPORT_FILES_MODAL'))}
+            className="w-full mt-3 py-3 px-5 rounded-full bg-[#d4ee6b] hover:bg-[#c2dc5a] text-[#1f1d2b] font-bold text-xs tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer"
+          >
+            <span>📁</span>
+            <span>FILE BERKAS LAPORAN</span>
           </button>
         </div>
       </div>
@@ -909,6 +1019,149 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
         title={lightboxTitle}
         onClose={() => setIsLightboxOpen(false)}
         onNavigate={(newIdx) => setLightboxIndex(newIdx)}
+      />
+
+      {/* Modal Daftar Berkas Laporan Terkait */}
+      {showReportFilesModal && (
+        <div
+          className="fixed inset-0 z-[9998] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fadeIn"
+          onClick={() => setShowReportFilesModal(false)}
+        >
+          <div
+            className="relative w-full max-w-4xl bg-[#1e1d2b]/95 dark:bg-[#181622]/95 border border-white/10 rounded-3xl p-6 shadow-2xl flex flex-col gap-5 text-white max-h-[85vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header Modal */}
+            <div className="flex items-center justify-between pb-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#d4ee6b] text-[#181622] flex items-center justify-center font-bold shadow-md">
+                  📁
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white leading-tight">
+                    Daftar Berkas &amp; Lampiran Laporan
+                  </h3>
+                  <p className="text-xs text-gray-400">
+                    Total {allReportFiles.length} berkas bukti pekerjaan terikat dalam laporan harian
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportFilesModal(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-gray-300 hover:text-white flex items-center justify-center transition-all cursor-pointer"
+              >
+                <Icon name="x" style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+
+            {/* Search Filter Bar */}
+            <div className="relative w-full">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">
+                <Icon name="search" style={{ width: 16, height: 16 }} />
+              </span>
+              <input
+                type="text"
+                placeholder="Cari nama berkas, judul laporan, atau nama pekerja..."
+                value={searchFileQuery}
+                onChange={(e) => setSearchFileQuery(e.target.value)}
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-xs text-white placeholder-gray-400 outline-none focus:border-[#d4ee6b] transition-all"
+              />
+            </div>
+
+            {/* Files List Grid */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-3 max-h-[55vh]">
+              {filteredReportFiles.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 bg-white/5 rounded-2xl border border-white/5">
+                  <span className="text-3xl block mb-2">📂</span>
+                  <p className="text-sm font-semibold">Tidak ada berkas laporan ditemukan</p>
+                  <p className="text-xs text-gray-400 mt-1">Belum ada lampiran atau hasil pencarian tidak cocok.</p>
+                </div>
+              ) : (
+                filteredReportFiles.map((file) => {
+                  const ext = file.file_url.split('.').pop()?.toLowerCase() || '';
+                  const isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'svg'].includes(ext);
+                  const isVid = ['mp4', 'mov', 'webm'].includes(ext);
+
+                  return (
+                    <div
+                      key={file.id}
+                      className="p-3.5 rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-all flex items-center justify-between gap-4 group"
+                    >
+                      {/* Left: Thumbnail & File Info */}
+                      <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                        <div className="w-12 h-12 rounded-xl bg-black/30 border border-white/10 overflow-hidden flex-shrink-0 flex items-center justify-center relative">
+                          {isImg ? (
+                            <img src={file.file_url} alt={file.file_name} className="w-full h-full object-cover" />
+                          ) : isVid ? (
+                            <span className="text-lg">🎬</span>
+                          ) : (
+                            <span className="text-lg">📄</span>
+                          )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-xs sm:text-sm font-bold text-white truncate group-hover:text-[#d4ee6b] transition-colors">
+                            {file.file_name}
+                          </h4>
+                          <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5 flex-wrap">
+                            <span className="truncate max-w-[200px] text-gray-300">
+                              📋 {file.report_title}
+                            </span>
+                            <span>•</span>
+                            <span>📅 {file.report_date}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Middle: Worker Info */}
+                      <div className="hidden sm:flex items-center gap-2 flex-shrink-0 bg-white/5 px-3 py-1.5 rounded-xl border border-white/5">
+                        {file.worker_avatar ? (
+                          <img
+                            src={file.worker_avatar}
+                            alt={file.worker_name}
+                            className="w-5 h-5 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-5 h-5 rounded-full bg-[#d4ee6b] text-[#181622] text-[10px] font-bold flex items-center justify-center">
+                            {file.worker_name.charAt(0)}
+                          </div>
+                        )}
+                        <span className="text-[11px] font-medium text-gray-300 max-w-[100px] truncate">
+                          {file.worker_name}
+                        </span>
+                      </div>
+
+                      {/* Right: Actions */}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPreviewFile({
+                              url: file.file_url,
+                              name: file.file_name,
+                              type: isImg ? 'image' : isVid ? 'video' : 'document',
+                            });
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-[#d4ee6b] text-[#181622] font-bold text-xs hover:opacity-90 transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+                        >
+                          <span>Buka</span>
+                          <span>↗</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Attachment Preview Lightbox */}
+      <AttachmentPreviewModal
+        preview={selectedPreviewFile}
+        onClose={() => setSelectedPreviewFile(null)}
       />
     </div>
   );

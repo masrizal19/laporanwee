@@ -107,6 +107,12 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
 }) => {
   const { reports: fastReports, counters: fastCounters, refreshReports } = useFastData();
 
+  useEffect(() => {
+    const handleOpen = () => setShowReportFilesModal(true);
+    window.addEventListener('OPEN_REPORT_FILES_MODAL', handleOpen);
+    return () => window.removeEventListener('OPEN_REPORT_FILES_MODAL', handleOpen);
+  }, []);
+
   // 1. Initial State from Fast Data Store or Local Cache (0ms Instant Load)
   const [counters, setCounters] = useState<{
     total: number;
@@ -414,10 +420,10 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
 
           <button
             type="button"
-            onClick={() => setShowReportFilesModal(true)}
-            className="w-full mt-2.5 py-3 px-5 rounded-full bg-white/90 dark:bg-[#201d2d] border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 transition-all text-xs font-bold text-gray-800 dark:text-white flex items-center justify-center gap-2 shadow-sm hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+            onClick={() => window.dispatchEvent(new CustomEvent('OPEN_REPORT_FILES_MODAL'))}
+            className="w-full mt-3 py-3 px-5 rounded-full bg-[#d4ee6b] hover:bg-[#c2dc5a] text-[#1f1d2b] font-bold text-xs tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer"
           >
-            <span className="text-sm">📁</span>
+            <span>📁</span>
             <span>FILE BERKAS LAPORAN</span>
           </button>
 

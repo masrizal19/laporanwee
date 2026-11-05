@@ -605,6 +605,14 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                 <Icon name="plus" />
                 <span>Buat Laporan Baru</span>
               </button>
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new CustomEvent('OPEN_REPORT_FILES_MODAL'))}
+                className="w-full mt-3 py-3 px-5 rounded-full bg-[#d4ee6b] hover:bg-[#c2dc5a] text-[#1f1d2b] font-bold text-xs tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer"
+              >
+                <span>📁</span>
+                <span>FILE BERKAS LAPORAN</span>
+              </button>
             </div>
 
             {projectReports.length === 0 ? (
