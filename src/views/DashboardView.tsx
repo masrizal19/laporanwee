@@ -727,7 +727,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               return (
                 <article
                   key={p.id || idx}
-                  className="proj"
+                  className="proj animate-fadeIn"
+                  data-motion="none"
+                  style={{ animationDelay: `${Math.min(idx * 0.03, 0.3)}s` }}
                   tabIndex={0}
                   onClick={() => {
                     if (p.id) {
