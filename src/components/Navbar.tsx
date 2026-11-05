@@ -53,6 +53,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const navItems: { view: ViewType; label: string; icon: string }[] = [
     { view: 'dashboard', label: 'Dashboard', icon: 'home' },
     { view: 'projects', label: 'Proyek', icon: 'folder' },
+    { view: 'galeri-berkas', label: 'Galeri Berkas', icon: 'image' },
     { view: 'reports', label: 'Laporan', icon: 'doc' },
     { view: 'tasks', label: 'Tugas', icon: 'checksq' },
     { view: 'chat', label: 'Pesan Tim', icon: 'chat' },
@@ -69,6 +70,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const activeNavIndex = navItems.findIndex((item) => {
     if (currentView === item.view) return true;
     if (item.view === 'projects' && currentView === 'project-detail') return true;
+    if (item.view === 'galeri-berkas' && (currentView === 'galeri-berkas' || currentView === 'galeri-lampiran')) return true;
     if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
     if (item.view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
     if (item.view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
