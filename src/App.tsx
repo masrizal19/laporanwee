@@ -37,6 +37,7 @@ import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
 import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 import { PengajuanBarangView } from './views/PengajuanBarangView';
 import { ChatView } from './views/ChatView';
+import { GaleriLampiranView } from './views/GaleriLampiranView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -271,6 +272,7 @@ export function App() {
       '/profil/user',
       '/berkas',
       '/lampiran',
+      '/galeri-lampiran',
     ];
     if (hashPart && hashPart.startsWith('/chat')) {
       return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
@@ -468,8 +470,9 @@ export function App() {
     '/profil/ubahfoto': 'crop-setting',
     '/profil/setting-profile-picture': 'crop-setting',
     '/profil/user': 'user-profile',
-    '/berkas': 'reports',
-    '/lampiran': 'reports',
+    '/berkas': 'galeri-lampiran',
+    '/lampiran': 'galeri-lampiran',
+    '/galeri-lampiran': 'galeri-lampiran',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -496,6 +499,7 @@ export function App() {
     'ui_settings': '/ui-settings',
     'export-laporan': '/analitik/exporlaporan',
     'edit-laporan': '/analitik/editlaporan',
+    'galeri-lampiran': '/galeri-lampiran',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -2154,6 +2158,10 @@ export function App() {
 
         {currentView === 'pengajuan-barang' && (
           <PengajuanBarangView onAddToast={addToast} />
+        )}
+
+        {currentView === 'galeri-lampiran' && (
+          <GaleriLampiranView />
         )}
 
         {currentView === 'social-media' && (

@@ -420,15 +420,6 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
 
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('OPEN_REPORT_FILES_MODAL'))}
-            className="w-full mt-3 py-3 px-5 rounded-full bg-[#d4ee6b] hover:bg-[#c2dc5a] text-[#1f1d2b] font-bold text-xs tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg cursor-pointer"
-          >
-            <span>📁</span>
-            <span>FILE BERKAS LAPORAN</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setOpenFileModal(true)}
             className="px-4 sm:px-5 py-2.5 rounded-2xl font-bold text-xs sm:text-sm bg-white/80 dark:bg-[#1f1d2b]/80 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 transition-all text-gray-800 dark:text-white flex items-center justify-center gap-2 shadow-xs cursor-pointer"
           >
