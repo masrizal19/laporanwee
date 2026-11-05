@@ -2003,7 +2003,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className={`app-shell-main ${currentView === 'chat' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
+      <main className={`app-shell-main ${currentView === 'chat' || currentView === 'galeri-berkas' || currentView === 'galeri-lampiran' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
