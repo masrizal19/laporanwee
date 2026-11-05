@@ -171,6 +171,16 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
     refreshReports(true).catch(() => {});
   }, [refreshReports]);
 
+  // Paksa trigger initial dispatch saat data siap agar viewport/observer langsung mendeteksi kartu
+  useEffect(() => {
+    if (reportItems && reportItems.length > 0) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('scroll'));
+        window.dispatchEvent(new Event('resize'));
+      });
+    }
+  }, [reportItems]);
+
   // 3. Filter Tab & Search Bar Frontend Instan
   const filteredReports = useMemo(() => {
     return reportItems.filter((item) => {
@@ -387,13 +397,15 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filteredReports.map((report) => {
+          {filteredReports.map((report, index) => {
             const badge = getStatusBadge(report.status);
             return (
               <div
                 key={report.id}
                 onClick={() => handleOpenDetail(report.id)}
-                className="group relative p-5 rounded-3xl bg-white/70 dark:bg-[#181622]/80 backdrop-blur-xl border border-white/60 dark:border-white/10 shadow-card hover:shadow-xl hover:border-black/15 dark:hover:border-white/25 transition-all duration-300 flex flex-col justify-between cursor-pointer"
+                style={{ animationDelay: `${Math.min(index * 0.03, 0.3)}s` }}
+                data-motion="none"
+                className="group relative p-5 rounded-3xl bg-white/70 dark:bg-[#181622]/80 backdrop-blur-xl border border-white/60 dark:border-white/10 shadow-card hover:shadow-xl hover:border-black/15 dark:hover:border-white/25 transition-all duration-300 flex flex-col justify-between cursor-pointer animate-fadeIn"
               >
                 <div>
                   {/* Top: Status Badge & Submit Time */}

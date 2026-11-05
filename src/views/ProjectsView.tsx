@@ -30,6 +30,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Paksa trigger initial dispatch saat data proyek siap
+  React.useEffect(() => {
+    if (projects && projects.length > 0) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('scroll'));
+        window.dispatchEvent(new Event('resize'));
+      });
+    }
+  }, [projects]);
+
   // New Project Form State
   const [name, setName] = useState('');
   const [category, setCategory] = useState('palette');
@@ -249,10 +259,12 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
         </div>
       ) : (
         <div className="proj-grid">
-          {filteredProjects.map((p) => (
+          {filteredProjects.map((p, index) => (
             <div
               key={p.id}
-              className="proj-card proj-evidence-card"
+              className="proj-card proj-evidence-card animate-fadeIn"
+              data-motion="none"
+              style={{ animationDelay: `${Math.min(index * 0.03, 0.3)}s` }}
               onClick={() => {
                 onSelectProject(p.id);
                 onNavigate('project-detail');

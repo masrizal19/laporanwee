@@ -111,7 +111,7 @@ button {
   font-family: 'Caveat', cursive;
 }
 
-/* CSS Motion Keyframes for Bento Gallery */
+/* CSS Motion Keyframes for Cards & Viewport */
 .motion-fade-in { 
   animation: fadeIn 1.2s ease-out forwards; 
 }
@@ -119,6 +119,15 @@ button {
 @keyframes fadeIn {
   0% { opacity: 0; }
   100% { opacity: 1; }
+}
+
+@keyframes cardFadeIn {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fadeIn {
+  animation: cardFadeIn 0.35s ease-out forwards;
 }
 
 .dense {

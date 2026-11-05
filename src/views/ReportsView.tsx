@@ -113,6 +113,16 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     fastRefreshReports(true).catch(() => {});
   }, [fastRefreshReports]);
 
+  // Paksa trigger initial dispatch saat data siap agar observer/viewport langsung mendeteksi kartu
+  useEffect(() => {
+    if (localReports && localReports.length > 0) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event('scroll'));
+        window.dispatchEvent(new Event('resize'));
+      });
+    }
+  }, [localReports]);
+
   // Debounce search input by 300ms without triggering network requests
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -426,7 +436,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               <span style={{ fontSize: '13px' }}>Coba ubah kata kunci pencarian atau filter status.</span>
             </div>
           ) : (
-            filteredReports.map((r) => {
+            filteredReports.map((r, index) => {
               const statusClass =
                 r.status === 'Completed'
                   ? 'bg-[#e9f5b8] text-[#2a3308]'
@@ -445,7 +455,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
               return (
                 <article
                   key={r.id}
-                  className="report-card cursor-pointer"
+                  className="report-card cursor-pointer animate-fadeIn"
+                  data-motion="none"
                   tabIndex={0}
                   role="button"
                   aria-label={`Buka detail laporan ${r.task}`}
@@ -457,6 +468,7 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
                     }
                   }}
                   style={{
+                    animationDelay: `${Math.min(index * 0.03, 0.3)}s`,
                     background: 'var(--glass-solid, rgba(255, 255, 255, 0.92))',
                     backdropFilter: 'blur(20px)',
                     WebkitBackdropFilter: 'blur(20px)',

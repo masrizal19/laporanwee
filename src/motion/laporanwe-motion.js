@@ -118,6 +118,15 @@ export const initMotion = () => {
     if (p && (p.closest('.lw-reveal') || p.closest(cfg.overlays))) return;
     const cs = getComputedStyle(el);
     if (cs.position === 'fixed' || cs.display === 'inline' || (cs.animationName && cs.animationName !== 'none')) return;
+
+    // Check if element is already in or near visible viewport on mount
+    const rect = el.getBoundingClientRect();
+    const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+    if (rect.top >= -100 && rect.top <= vh + 150) {
+      el.classList.add('lw-in');
+      return;
+    }
+
     el.classList.add('lw-reveal');
     revealIO.observe(el);
   }
