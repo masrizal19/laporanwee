@@ -155,6 +155,51 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [selectedPreview, setSelectedPreview] = useState<AttachmentPreviewData | null>(null);
 
+  // Modal File Laporan State & Data
+  const [openFileModal, setOpenFileModal] = useState(false);
+  const [fileSearchQuery, setFileSearchQuery] = useState('');
+  const [reportFiles, setReportFiles] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('lw_report_files_cache');
+      return cached ? JSON.parse(cached) : [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    fetch('https://api-laporanwe.mkverse.my.id/api/daily-reports/files.php')
+      .then((r) => r.json())
+      .then((json) => {
+        if (json && json.success && Array.isArray(json.data)) {
+          setReportFiles(json.data);
+          try {
+            localStorage.setItem('lw_report_files_cache', JSON.stringify(json.data));
+          } catch (_) {}
+        }
+      })
+      .catch((err) => console.warn('Fetch report files error:', err));
+  }, []);
+
+  const activeReportFiles = useMemo(() => {
+    if (reportFiles.length > 0) return reportFiles;
+    const extracted: any[] = [];
+    reportItems.forEach((r) => {
+      const raw = r.raw_data || {};
+      const fileUrl = raw.file_url || raw.evidence_url || raw.attachment || raw.file_path;
+      if (fileUrl) {
+        extracted.push({
+          id: `ext_${r.id}`,
+          file_name: raw.file_name || raw.original_name || `Bukti_${r.title}`,
+          file_url: fileUrl,
+          report_title: r.title,
+          worker_name: r.author_name,
+          worker_job: r.author_job,
+          report_date: r.created_at || r.date || '',
+        });
+      }
+    });
+    return extracted;
+  }, [reportFiles, reportItems]);
+
   // Sync saat global store atau initialReportsProp diperbarui
   useEffect(() => {
     if (Array.isArray(fastReports) && fastReports.length > 0) {
@@ -303,6 +348,15 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
           >
             <Icon name="plus" style={{ width: 16, height: 16 }} />
             <span>Buat Laporan Baru</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setOpenFileModal(true)}
+            className="px-4 sm:px-5 py-2.5 rounded-2xl font-bold text-xs sm:text-sm bg-white/80 dark:bg-[#1f1d2b]/80 border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 transition-all text-gray-800 dark:text-white flex items-center justify-center gap-2 shadow-xs cursor-pointer"
+          >
+            <Icon name="folder" style={{ width: 16, height: 16 }} />
+            <span>File Laporan</span>
           </button>
         </div>
       </div>
@@ -654,6 +708,206 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
               >
                 {isDeleting ? 'Mereset...' : 'Ya, Reset Semua'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Berkas & Lampiran Laporan Kerja */}
+      {openFileModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fadeIn"
+          onClick={() => setOpenFileModal(false)}
+        >
+          <div
+            className="w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white/95 dark:bg-[#181622]/95 backdrop-blur-2xl p-6 sm:p-7 shadow-2xl border border-white/60 dark:border-white/10 flex flex-col gap-5 overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+            data-motion="none"
+          >
+            {/* Header Modal */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-black/5 dark:border-white/10 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-violet-500/10 text-violet-600 dark:text-[#d4ee6b] flex items-center justify-center font-bold">
+                    <Icon name="folder" style={{ width: 18, height: 18 }} />
+                  </div>
+                  <h2 className="text-lg sm:text-xl font-extrabold text-gray-900 dark:text-white">
+                    Berkas &amp; Lampiran Laporan
+                  </h2>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Daftar seluruh dokumen dan bukti pekerjaan yang terlampir pada laporan tim ({activeReportFiles.length} berkas).
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {/* Search Bar Input */}
+                <div className="relative min-w-[200px] sm:w-64">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                    <Icon name="search" style={{ width: 14, height: 14 }} />
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="Cari berkas, laporan, atau pengerja..."
+                    value={fileSearchQuery}
+                    onChange={(e) => setFileSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs border border-black/10 dark:border-white/10 bg-white/80 dark:bg-[#22202e] text-gray-900 dark:text-white outline-none focus:border-[#d4ee6b]"
+                  />
+                  {fileSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setFileSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setOpenFileModal(false)}
+                  className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 text-gray-500 hover:text-gray-900 dark:hover:text-white flex items-center justify-center transition-colors cursor-pointer"
+                  title="Tutup (Esc)"
+                >
+                  <Icon name="x" style={{ width: 16, height: 16 }} />
+                </button>
+              </div>
+            </div>
+
+            {/* List / Grid Berkas */}
+            <div className="flex-1 overflow-y-auto pr-1 space-y-3 min-h-[280px]">
+              {(() => {
+                const filteredFiles = activeReportFiles.filter((file) => {
+                  if (!fileSearchQuery.trim()) return true;
+                  const q = fileSearchQuery.toLowerCase();
+                  const nameMatch = (file.file_name || file.original_name || file.name || '').toLowerCase().includes(q);
+                  const titleMatch = (file.report_title || file.task || '').toLowerCase().includes(q);
+                  const workerMatch = (file.worker_name || file.author_name || file.person || '').toLowerCase().includes(q);
+                  return nameMatch || titleMatch || workerMatch;
+                });
+
+                if (filteredFiles.length === 0) {
+                  return (
+                    <div className="py-16 text-center text-xs text-gray-400 dark:text-gray-500 bg-black/5 dark:bg-white/5 rounded-2xl border border-dashed border-black/10 dark:border-white/10 p-6">
+                      <Icon name="folder" style={{ width: 32, height: 32, margin: '0 auto 8px', opacity: 0.5 }} />
+                      <p className="font-bold text-gray-700 dark:text-gray-300">Tidak ada berkas terlampir</p>
+                      <p className="mt-1">Tidak ditemukan berkas laporan yang sesuai dengan pencarian.</p>
+                    </div>
+                  );
+                }
+
+                return filteredFiles.map((file, idx) => {
+                  const fileUrl = file.file_url || file.url || file.file_path || '';
+                  const fileName = file.file_name || file.original_name || file.name || `Berkas_Laporan_${idx + 1}`;
+                  const reportTitle = file.report_title || file.task || file.title || 'Laporan Kerja Harian';
+                  const workerName = file.worker_name || file.author_name || file.person || 'Anggota Tim';
+                  const workerJob = file.worker_job || file.author_job || file.category || 'Divisi Kreatif';
+                  const reportDate = file.report_date || file.created_at || file.date || '';
+                  const ext = (fileName || fileUrl).split('.').pop()?.toLowerCase() || '';
+                  const isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) || fileUrl.match(/\.(jpg|jpeg|png|webp)/i);
+                  const isVid = ['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext) || fileUrl.match(/\.(mp4|mov|webm)/i);
+
+                  return (
+                    <div
+                      key={file.id || idx}
+                      className="p-4 rounded-2xl bg-white/70 dark:bg-[#22202e]/80 border border-black/5 dark:border-white/10 hover:border-black/15 dark:hover:border-white/20 transition-all flex items-center justify-between gap-4 shadow-xs"
+                    >
+                      {/* Left Thumbnail / Icon */}
+                      <div
+                        onClick={() => {
+                          setSelectedPreview({
+                            url: fileUrl,
+                            name: fileName,
+                            type: isImg ? 'image' : isVid ? 'video' : 'document',
+                            extension: ext,
+                            size_formatted: file.file_size_formatted || file.size_formatted,
+                          });
+                        }}
+                        className="w-14 h-14 rounded-xl overflow-hidden bg-black/5 dark:bg-white/10 flex-shrink-0 flex items-center justify-center border border-black/5 dark:border-white/10 cursor-pointer group/thumb relative"
+                      >
+                        {isImg ? (
+                          <>
+                            <img
+                              src={fileUrl}
+                              alt={fileName}
+                              className="w-full h-full object-cover group-hover/thumb:scale-105 transition-transform duration-300"
+                              loading="lazy"
+                              decoding="async"
+                            />
+                            <div className="absolute inset-0 bg-black/30 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
+                              <Icon name="search" style={{ width: 14, height: 14 }} />
+                            </div>
+                          </>
+                        ) : (
+                          <div className="text-xl">
+                            {isVid ? '🎥' : '📄'}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Middle Metadata */}
+                      <div className="flex-1 min-w-0">
+                        <div
+                          onClick={() => {
+                            setSelectedPreview({
+                              url: fileUrl,
+                              name: fileName,
+                              type: isImg ? 'image' : isVid ? 'video' : 'document',
+                              extension: ext,
+                              size_formatted: file.file_size_formatted || file.size_formatted,
+                            });
+                          }}
+                          className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white truncate cursor-pointer hover:text-violet-600 dark:hover:text-[#d4ee6b] transition-colors"
+                          title={fileName}
+                        >
+                          {fileName}
+                        </div>
+
+                        <div className="flex items-center gap-2 mt-1 flex-wrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold bg-violet-500/10 text-violet-600 dark:text-violet-300 border border-violet-500/20 truncate max-w-[200px]">
+                            Laporan: {reportTitle}
+                          </span>
+                          {reportDate && (
+                            <span className="text-[10px] text-gray-400 font-medium">
+                              🕒 {reportDate.substring(0, 10)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <div className="w-5 h-5 rounded-full bg-[#1e1d2b] dark:bg-[#d4ee6b] text-white dark:text-[#1e1d2b] flex items-center justify-center text-[9px] font-bold">
+                            {workerName.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-[11px] font-medium text-gray-600 dark:text-gray-300 truncate">
+                            {workerName} <span className="text-[10px] text-gray-400">({workerJob})</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right Action Button */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPreview({
+                              url: fileUrl,
+                              name: fileName,
+                              type: isImg ? 'image' : isVid ? 'video' : 'document',
+                              extension: ext,
+                              size_formatted: file.file_size_formatted || file.size_formatted,
+                            });
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-[#1e1d2b] dark:bg-[#d4ee6b] text-white dark:text-[#1e1d2b] font-bold text-xs hover:opacity-90 transition-all flex items-center gap-1 shadow-xs cursor-pointer"
+                        >
+                          <Icon name="search" style={{ width: 12, height: 12 }} />
+                          <span className="hidden sm:inline">Pratinjau</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         </div>
