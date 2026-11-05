@@ -106,7 +106,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
 }) => {
   const { reports: fastReports, counters: fastCounters, refreshReports } = useFastData();
 
-  // 1. Initial State from Fast Data Global Store (0ms Instant Load)
+  // 1. Initial State from Fast Data Store or Local Cache (0ms Instant Load)
   const [counters, setCounters] = useState<{
     total: number;
     selesai: number;
@@ -118,6 +118,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
     }
     try {
       const cached =
+        localStorage.getItem('lw_counters_cache') ||
         localStorage.getItem('lw_store_counters') ||
         localStorage.getItem('lw_reports_counters_cache');
       if (cached) return JSON.parse(cached);
@@ -134,6 +135,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
     }
     try {
       const cached =
+        localStorage.getItem('lw_reports_cache') ||
         localStorage.getItem('lw_store_reports') ||
         localStorage.getItem('lw_reports_data_cache');
       if (cached) {
@@ -166,9 +168,32 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
     }
   }, [fastCounters]);
 
-  // 2. Di background (useEffect), panggil refreshReports() secara senyap tanpa menampilkan skeleton/spinner
+  // 2. Di background (useEffect), panggil refreshReports() secara senyap di latar belakang (0ms UI delay)
   useEffect(() => {
     refreshReports(true).catch(() => {});
+
+    // Silent background fetch dengan token sync dari localStorage
+    try {
+      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+      fetch(REPORT_ENDPOINT, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then((res) => res.json())
+        .then((json) => {
+          if (json && json.success && Array.isArray(json.data) && json.data.length > 0) {
+            const norm = json.data.map(normalizeReport);
+            setReportItems(norm);
+            try {
+              localStorage.setItem('lw_reports_cache', JSON.stringify(json.data));
+              if (json.counters) {
+                setCounters(json.counters);
+                localStorage.setItem('lw_counters_cache', JSON.stringify(json.counters));
+              }
+            } catch (_) {}
+          }
+        })
+        .catch(() => {});
+    } catch (_) {}
   }, [refreshReports]);
 
   // Paksa trigger initial dispatch saat data siap agar viewport/observer langsung mendeteksi kartu
