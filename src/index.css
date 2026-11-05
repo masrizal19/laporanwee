@@ -1,4 +1,25 @@
 @import "tailwindcss";
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .dark, .dark *));
+
+/* Slim & Smooth Scrollbar System */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(140, 140, 160, 0.25);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(140, 140, 160, 0.45);
+}
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(140, 140, 160, 0.25) transparent;
+}
 
 :root {
   --bg1: #e6e5ec;
