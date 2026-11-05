@@ -155,6 +155,10 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [selectedPreview, setSelectedPreview] = useState<AttachmentPreviewData | null>(null);
 
+  // TITIK JANGKAR 1: STATE & EKSTRAKSI DATA BERKAS
+  const [showReportFilesModal, setShowReportFilesModal] = useState<boolean>(false);
+  const [searchFileQuery, setSearchFileQuery] = useState<string>('');
+
   // Modal File Laporan State & Data
   const [openFileModal, setOpenFileModal] = useState(false);
   const [fileSearchQuery, setFileSearchQuery] = useState('');
@@ -178,6 +182,64 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
       })
       .catch((err) => console.warn('Fetch report files error:', err));
   }, []);
+
+  // Ekstraksi otomatis seluruh berkas dari state 'reportItems' / 'initialReportsProp'
+  const allReportFiles = useMemo(() => {
+    const list: any[] = [];
+    const source = Array.isArray(reportItems) && reportItems.length > 0 ? reportItems : Array.isArray(initialReportsProp) ? initialReportsProp : [];
+    if (Array.isArray(source)) {
+      source.forEach((r: any) => {
+        const raw = r.raw_data || r;
+        const fileUrl = r.file_url || raw.file_url || raw.evidence_url || raw.attachment || raw.file_path;
+        if (fileUrl) {
+          list.push({
+            id: `file_${r.id}`,
+            file_name: raw.file_name || raw.original_name || `${r.title || r.task || 'Berkas'}.jpg`,
+            file_url: fileUrl,
+            report_title: r.title || r.task || 'Laporan Kerja',
+            report_date: r.created_at || r.report_date || r.date || 'Hari ini',
+            worker_name: r.author_name || r.person || 'Tim LaporanWee',
+            worker_avatar: r.avatar_url || raw.avatar_url || null
+          });
+        }
+        const atts = raw.attachments || r.attachments || r.evidence_urls;
+        if (Array.isArray(atts) && atts.length > 0) {
+          atts.forEach((att: any, idx: number) => {
+            const attUrl = typeof att === 'string' ? att : att.url || att.file_url;
+            const attName = typeof att === 'string' ? `${r.title || r.task || 'Lampiran'} (${idx + 1})` : att.name || att.file_name || `${r.title || r.task || 'Lampiran'} (${idx + 1})`;
+            if (attUrl && attUrl !== fileUrl) {
+              list.push({
+                id: `att_${r.id}_${idx}`,
+                file_name: attName,
+                file_url: attUrl,
+                report_title: r.title || r.task || 'Laporan Kerja',
+                report_date: r.created_at || r.report_date || r.date || 'Hari ini',
+                worker_name: r.author_name || r.person || 'Tim LaporanWee',
+                worker_avatar: r.avatar_url || raw.avatar_url || null
+              });
+            }
+          });
+        }
+      });
+    }
+    if (Array.isArray(reportFiles) && reportFiles.length > 0) {
+      reportFiles.forEach((f: any, idx: number) => {
+        const fUrl = f.file_url || f.url || f.file_path;
+        if (fUrl && !list.some((existing) => existing.file_url === fUrl)) {
+          list.push({
+            id: f.id || `api_file_${idx}`,
+            file_name: f.file_name || f.original_name || f.name || `File_${idx + 1}`,
+            file_url: fUrl,
+            report_title: f.report_title || f.task || 'Laporan Kerja',
+            report_date: f.report_date || f.created_at || f.date || 'Hari ini',
+            worker_name: f.worker_name || f.author_name || f.person || 'Tim LaporanWee',
+            worker_avatar: f.worker_avatar || f.avatar_url || null
+          });
+        }
+      });
+    }
+    return list;
+  }, [reportItems, initialReportsProp, reportFiles]);
 
   const activeReportFiles = useMemo(() => {
     if (reportFiles.length > 0) return reportFiles;
@@ -348,6 +410,15 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
           >
             <Icon name="plus" style={{ width: 16, height: 16 }} />
             <span>Buat Laporan Baru</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowReportFilesModal(true)}
+            className="w-full mt-2.5 py-3 px-5 rounded-full bg-white/90 dark:bg-[#201d2d] border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5 transition-all text-xs font-bold text-gray-800 dark:text-white flex items-center justify-center gap-2 shadow-sm hover:scale-[1.01] active:scale-[0.99] cursor-pointer"
+          >
+            <span className="text-sm">📁</span>
+            <span>FILE BERKAS LAPORAN</span>
           </button>
 
           <button
@@ -909,6 +980,115 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
                 });
               })()}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TITIK JANGKAR 3: MODAL POPUP BERKAS */}
+      {showReportFilesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-fadeIn">
+          <div className="w-full max-w-2xl max-h-[85vh] bg-white/95 dark:bg-[#1a1824]/95 rounded-3xl border border-white/40 dark:border-white/10 shadow-2xl flex flex-col overflow-hidden" data-motion="none">
+            
+            {/* Header Modal */}
+            <div className="p-5 border-b border-black/5 dark:border-white/5 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <span>📁</span> File Berkas Laporan ({allReportFiles.length})
+                </h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  Daftar seluruh dokumen dan bukti pekerjaan yang terlampir pada laporan kerja tim.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowReportFilesModal(false)}
+                className="w-8 h-8 rounded-full bg-black/5 dark:bg-white/10 flex items-center justify-center text-sm font-bold text-gray-600 dark:text-gray-300 hover:bg-black/10 dark:hover:bg-white/20 transition-all cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Search Bar Berkas */}
+            <div className="px-5 py-3 border-b border-black/5 dark:border-white/5 bg-black/[0.02] dark:bg-white/[0.02]">
+              <input
+                type="text"
+                value={searchFileQuery}
+                onChange={(e) => setSearchFileQuery(e.target.value)}
+                placeholder="Cari nama berkas, judul laporan, atau nama pengerja..."
+                className="w-full py-2 px-4 rounded-xl text-xs bg-white dark:bg-[#252233] border border-black/10 dark:border-white/10 outline-none text-gray-800 dark:text-white"
+              />
+            </div>
+
+            {/* Konten Daftar Berkas */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {allReportFiles
+                .filter(f => 
+                  (f.file_name || '').toLowerCase().includes(searchFileQuery.toLowerCase()) ||
+                  (f.report_title || '').toLowerCase().includes(searchFileQuery.toLowerCase()) ||
+                  (f.worker_name || '').toLowerCase().includes(searchFileQuery.toLowerCase())
+                )
+                .map((file) => (
+                  <div
+                    key={file.id}
+                    className="p-3.5 rounded-2xl border border-black/5 dark:border-white/5 bg-white/60 dark:bg-[#201d2d]/60 hover:bg-white dark:hover:bg-[#252233] transition-all flex items-center justify-between gap-4 shadow-xs"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-12 h-12 rounded-xl bg-[#d4ee6b]/20 text-[#1f1d2b] dark:text-[#d4ee6b] flex items-center justify-center font-bold text-lg flex-shrink-0 overflow-hidden">
+                        {file.file_url && file.file_url.match(/\.(jpg|jpeg|png|webp|gif)$/i) ? (
+                          <img src={file.file_url} alt={file.file_name} className="w-full h-full object-cover" />
+                        ) : (
+                          '📄'
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <h4 className="text-xs font-bold text-gray-900 dark:text-white truncate">
+                          {file.file_name}
+                        </h4>
+                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                          <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold truncate max-w-[180px]">
+                            📋 {file.report_title}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            🕒 {file.report_date ? String(file.report_date).substring(0, 10) : ''}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 flex items-center gap-1">
+                          <span>👤 Dikerjakan oleh:</span>
+                          <b className="text-gray-700 dark:text-gray-300">{file.worker_name}</b>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const ext = (file.file_name || '').split('.').pop()?.toLowerCase() || '';
+                          const isImg = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext) || (file.file_url || '').match(/\.(jpg|jpeg|png|webp)/i);
+                          const isVid = ['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext) || (file.file_url || '').match(/\.(mp4|mov|webm)/i);
+                          setSelectedPreview({
+                            url: file.file_url,
+                            name: file.file_name,
+                            type: isImg ? 'image' : isVid ? 'video' : 'document',
+                            extension: ext,
+                          });
+                        }}
+                        className="py-1.5 px-3 rounded-xl bg-[#d4ee6b] text-[#1f1d2b] text-xs font-bold hover:opacity-90 transition-opacity flex items-center gap-1 cursor-pointer"
+                      >
+                        <span>Buka</span>
+                        <span>↗</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+              {allReportFiles.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-xs">
+                  Belum ada berkas lampiran yang diunggah pada laporan kerja.
+                </div>
+              )}
+            </div>
+
           </div>
         </div>
       )}
