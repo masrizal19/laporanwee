@@ -22,7 +22,8 @@ export type ViewType =
   | 'export-laporan'
   | 'edit-laporan'
   | 'social-media'
-  | 'galeri-lampiran';
+  | 'galeri-lampiran'
+  | 'galeri-berkas';
 
 export interface UISettings {
   id?: number;

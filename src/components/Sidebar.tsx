@@ -46,15 +46,15 @@ export const NAV_MENU_ITEMS: NavMenuItem[] = [
     ),
   },
   {
-    id: 'lampiran',
-    view: 'galeri-lampiran',
-    label: 'Lampiran & Berkas',
-    path: '/galeri-lampiran',
+    id: 'galeri-berkas',
+    view: 'galeri-berkas',
+    label: 'Galeri Berkas',
+    path: '/galeri-berkas',
     icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-        <circle cx="8.5" cy="8.5" r="1.5" />
-        <polyline points="21 15 16 10 5 21" />
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
+        <circle cx="9" cy="9" r="2"/>
+        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
       </svg>
     ),
   },
@@ -234,6 +234,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isActive =
             (item.path && currentPath === item.path) ||
             (item.view && currentView === item.view) ||
+            (item.id === 'galeri-berkas' && (currentPath === '/galeri-berkas' || currentPath === '/galeri-lampiran' || currentPath === '/lampiran' || currentPath === '/berkas' || currentView === 'galeri-berkas')) ||
             (item.id === 'chat' && (currentPath === '/chat' || currentPath === '/chat/preview-file' || currentView === 'chat'));
 
           return (

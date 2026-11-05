@@ -1,73 +1,86 @@
-# Implementation Plan — Viewport Render Unblocking & Direct Card Mounting
+# Implementasi Navigation Menu & View 'Galeri Berkas' (/galeri-berkas)
 
-Disable all viewport render blockers (IntersectionObserver, content-visibility, or virtual listing) on daily report views (`LaporanView.tsx` & `ReportsView.tsx`), ensuring all report items render directly into the DOM on initial page mount with instant fade-in animations and zero scroll-triggered delay.
+Menambahkan menu navigasi **Galeri Berkas** di Sidebar, menghubungkan ke rute `/galeri-berkas` yang merender antarmuka Bento Grid lengkap dari `https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php` via iframe glassmorphism responsif, serta mengatur *redirect* otomatis dari rute lama `/galeri-lampiran` dan `/lampiran`.
 
-## Confirmed User Decisions
+## User Review & Decisions
 
-- **Animation Style**: Smooth instant fade-in animation (`animate-fadeIn`) on mount without scroll delay.
-- **Report Limit**: Render all reports directly without virtual list pagination or 30-item slice limits.
+> [!IMPORTANT] Keputusan yang telah dikonfirmasi pengguna:
+- **Tampilan Container Galeri Berkas**: Floating glassmorphism card dengan sudut rounded (`rounded-3xl`) dan bayangan halus (`shadow-xl`) berukuran terkunci pas 1 layar penuh (`calc(100vh-24px)`).
+- **Penanganan Rute Galeri Lama**: Mengalihkan secara otomatis (*redirect*) rute `/galeri-lampiran` dan `/lampiran` menuju rute resmi `/galeri-berkas`.
 
 ---
 
-## 1. Overview & Goal
+## 1. Overview & Core Concept
 
-Prevent Chrome/Edge viewport render suppression where report cards remain transparent/blank until the user scrolls the mouse. All report cards stored in Fast Cache memory will map directly to the DOM in a 3-column grid container with explicit `opacity: 1` CSS state and immediate on-mount keyframe animation.
+- **Tujuan Utama**: Menyediakan akses terpusat ke galeri bukti berkas, foto, video, dan dokumen proyek melalui menu samping yang bersih dan menyatu secara visual dengan tema LaporanWee.
+- **Urutan Sidebar**: Menu "Galeri Berkas" dipasang presisi di antara menu **Proyek** (`/proyek`) dan **Laporan** (`/laporan`).
+- **Integrasi Backend**: Memuat antarmuka `galeri-berkas.php` melalui iframe aman dengan dukungan penuh *clipboard*, *camera*, dan *microphone* untuk pengunggahan berkas.
 
 ---
 
 ## 2. User Experience & Visual Design
 
-- **Zero-Wait Card Rendering**: Cards render in DOM immediately upon component mount.
-- **Instant Fade-In**: Clean CSS `@keyframes cardFadeIn` with `animation-fill-mode: forwards` (no static `opacity: 0` resting state).
-- **Glassmorphism & Theme Integrity**: Preserves all floating sidebar, glassmorphism card surfaces, counter chips, dark/light theme tokens, and preview lightbox triggers.
+### Key User Flows
+1. Pengguna mengklik menu **"Galeri Berkas"** di Sidebar.
+2. Browser berpindah ke rute `/galeri-berkas`.
+3. Tampilan merender kontainer floating glassmorphism berisi `iframe` yang memuat antarmuka Bento Grid Galeri Berkas lengkap.
+4. Indikator menu aktif pada Sidebar menempel rapi pada item "Galeri Berkas".
+5. Jika pengguna mengakses URL lama `/galeri-lampiran` atau `/lampiran`, sistem langsung mengalihkan ke `/galeri-berkas`.
+
+### Visual Identity & Theme
+- **Styling Container**: `bg-white/40 dark:bg-[#181622]/40 backdrop-blur-2xl border border-white/60 dark:border-white/10 rounded-3xl shadow-xl`.
+- **Indikator Aktif Sidebar**: Warna kontras `#1e1d2b` (Light) / `#d4ee6b` (Dark) menempel presisi saat rute `/galeri-berkas` aktif.
 
 ---
 
-## 3. Key Technical Decisions
+## 3. Architecture & Data Strategy
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                          Root FastDataContext                         │
-│         (0ms Persistent In-Memory Store & localStorage Hydration)      │
+│                          App Routing (/App.tsx)                        │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Instant Array Access
+                                    │
+           ┌────────────────────────┼────────────────────────┐
+           ▼                        ▼                        ▼
+  /proyek (Projects)      /galeri-berkas (Galeri)    /laporan (Reports)
+                                    │
                                     ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                LaporanView.tsx & ReportsView.tsx                      │
-│   • Direct .map() of ALL filtered reports into 3-column grid           │
-│   • data-motion="none" + animate-fadeIn (0ms mount trigger)            │
-│   • Zero content-visibility or opacity: 0 resting rules                │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Flex/Grid Container Layout
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                        MainLayout & Parent Shell                       │
-│   • Validated flex-1 min-h-0 container overflow geometry              │
-│   • Non-zero height calculation on initial render frame                │
-└────────────────────────────────────────────────────────────────────────┘
+                      ┌───────────────────────────┐
+                      │    GaleriBerkasView.tsx   │
+                      │  ┌─────────────────────┐  │
+                      │  │  iframe (Bento Grid)│  │
+                      │  │  galeri-berkas.php  │  │
+                      │  └─────────────────────┘  │
+                      └───────────────────────────┘
 ```
 
-1. **Purge Content-Visibility & Observer Blockers**:
-   - Verify no `content-visibility: auto` or `[content-visibility:auto]` rules exist in CSS/Tailwind.
-   - Set `data-motion="none"` on report card containers so external observer scripts (`laporanwe-motion.js`) never attach `.lw-reveal` (which sets `opacity: 0`).
+### Component & File Mapping
 
-2. **Direct Unrestricted DOM Mapping**:
-   - Render `filteredReports.map()` directly without slicing or virtual list pagination.
-   - Use standard CSS grid layout (`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4`).
+1. **`src/types.ts`**:
+   - Menambahkan `'galeri-berkas'` ke dalam union type `ViewType`.
 
-3. **Parent Overflow & Container Geometry**:
-   - Ensure `MainLayout` and view parent wrapper containers use explicit `min-h-0 flex-1 w-full` styling so flex child scroll containers do not collapse to 0px height prior to scroll.
+2. **`src/views/GaleriBerkasView.tsx`**:
+   - Komponen view anyar berisi iframe responsif yang terkunci 1 layar penuh (`h-[calc(100vh-24px)]`).
+
+3. **`src/components/Sidebar.tsx`**:
+   - Menambahkan item `galeri-berkas` di dalam array `NAV_MENU_ITEMS` tepat di antara item `proyek` dan `laporan`.
+   - Menggunakan ikon SVG galeri foto (`rect` + `circle` + `path`).
+
+4. **`src/App.tsx`**:
+   - Menambahkan `/galeri-berkas` ke `validPaths`, `pathToViewMap`, dan `viewToPathMap`.
+   - Mengarahkan rute lama `/galeri-lampiran`, `/lampiran`, dan `/berkas` ke view `galeri-berkas`.
+   - Mengimpor dan merender `<GaleriBerkasView />` saat `currentView === 'galeri-berkas'`.
+
+5. **`src/views/LaporanView.tsx` & `src/views/ReportsView.tsx`**:
+   - Memastikan tombol lime bekas `"FILE BERKAS LAPORAN"` bersih tanpa sisa.
 
 ---
 
-## 4. Execution Steps
+## 4. Verification Plan
 
-1. **CSS Audit**: Confirm `src/index.css` contains `@keyframes cardFadeIn` and `.animate-fadeIn` with `animation-fill-mode: forwards` and zero `content-visibility: auto`.
-2. **LaporanView & ReportsView Updates**:
-   - Ensure card container renders `filteredReports.map()` directly into DOM.
-   - Apply `data-motion="none"` and `className="... animate-fadeIn"`.
-   - Dispatch immediate `scroll` and `resize` events in `useEffect` on data mount frame.
-3. **Parent Container Geometry Check**:
-   - Verify `MainLayout.tsx` and main view containers have explicit flex/grid container dimensions (`min-h-0 flex-1`).
-4. **Verification**:
-   - Execute `compile_applet` and `lint_applet` to ensure 0 build or lint errors.
+1. **Pengujian Kompilasi**:
+   - Menjalankan `compile_applet` dan `lint_applet` (`tsc --noEmit`) untuk memastikan 0 error TypeScript.
+2. **Pengujian Visual & Navigasi**:
+   - Memeriksa Sidebar untuk urutan menu: Dashboard ➔ Proyek ➔ Galeri Berkas ➔ Laporan ➔ Tugas ➔ ...
+   - Verifikasi iframe memuat `https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php` dengan mulus.
+   - Verifikasi pengalihan otomatis dari URL `/galeri-lampiran` menuju `/galeri-berkas`.

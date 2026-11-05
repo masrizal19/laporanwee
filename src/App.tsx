@@ -38,6 +38,7 @@ import { EditLaporanStandalone } from './views/EditLaporanStandalone';
 import { PengajuanBarangView } from './views/PengajuanBarangView';
 import { ChatView } from './views/ChatView';
 import { GaleriLampiranView } from './views/GaleriLampiranView';
+import { GaleriBerkasView } from './views/GaleriBerkasView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -273,6 +274,7 @@ export function App() {
       '/berkas',
       '/lampiran',
       '/galeri-lampiran',
+      '/galeri-berkas',
     ];
     if (hashPart && hashPart.startsWith('/chat')) {
       return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
@@ -470,9 +472,10 @@ export function App() {
     '/profil/ubahfoto': 'crop-setting',
     '/profil/setting-profile-picture': 'crop-setting',
     '/profil/user': 'user-profile',
-    '/berkas': 'galeri-lampiran',
-    '/lampiran': 'galeri-lampiran',
-    '/galeri-lampiran': 'galeri-lampiran',
+    '/berkas': 'galeri-berkas',
+    '/lampiran': 'galeri-berkas',
+    '/galeri-lampiran': 'galeri-berkas',
+    '/galeri-berkas': 'galeri-berkas',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -499,7 +502,8 @@ export function App() {
     'ui_settings': '/ui-settings',
     'export-laporan': '/analitik/exporlaporan',
     'edit-laporan': '/analitik/editlaporan',
-    'galeri-lampiran': '/galeri-lampiran',
+    'galeri-lampiran': '/galeri-berkas',
+    'galeri-berkas': '/galeri-berkas',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -2160,8 +2164,8 @@ export function App() {
           <PengajuanBarangView onAddToast={addToast} />
         )}
 
-        {currentView === 'galeri-lampiran' && (
-          <GaleriLampiranView />
+        {(currentView === 'galeri-berkas' || currentView === 'galeri-lampiran') && (
+          <GaleriBerkasView />
         )}
 
         {currentView === 'social-media' && (
