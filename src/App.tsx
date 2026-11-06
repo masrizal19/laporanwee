@@ -477,7 +477,7 @@ export function App() {
     '/lampiran': 'galeri-berkas',
     '/galeri-lampiran': 'galeri-berkas',
     '/galeri-berkas': 'galeri-berkas',
-    '/pengajuan-barang/pratinjau': 'pengajuan-barang-pratinjau',
+    '/pengajuan-barang/pratinjau-dokumen': 'pengajuan-barang-pratinjau-dokumen',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -506,7 +506,7 @@ export function App() {
     'edit-laporan': '/analitik/editlaporan',
     'galeri-lampiran': '/galeri-berkas',
     'galeri-berkas': '/galeri-berkas',
-    'pengajuan-barang-pratinjau': '/pengajuan-barang/pratinjau',
+    'pengajuan-barang-pratinjau-dokumen': '/pengajuan-barang/pratinjau-dokumen',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -2167,7 +2167,7 @@ export function App() {
           <PengajuanBarangView onAddToast={addToast} />
         )}
 
-        {currentView === 'pengajuan-barang-pratinjau' && (
+        {currentView === 'pengajuan-barang-pratinjau-dokumen' && (
           <PengajuanBarangPratinjauView />
         )}
 

@@ -24,7 +24,7 @@ export type ViewType =
   | 'social-media'
   | 'galeri-lampiran'
   | 'galeri-berkas'
-  | 'pengajuan-barang-pratinjau';
+  | 'pengajuan-barang-pratinjau-dokumen';
 
 export interface UISettings {
   id?: number;

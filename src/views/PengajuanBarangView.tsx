@@ -542,9 +542,20 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   const [historyList, setHistoryList] = useState<any[]>([]);
 
 
+  /* ── Auth Headers ── */
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
+    return {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    };
+  };
+
   const fetchHistory = async () => {
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/api.php?action=history');
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/read.php', {
+        headers: getAuthHeaders()
+      });
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setHistoryList(json.data);
@@ -562,8 +573,8 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     } catch (e) {}
     
     const url = id 
-      ? `/pengajuan-barang/pratinjau?id=${id}` 
-      : '/pengajuan-barang/pratinjau';
+      ? `/pengajuan-barang/pratinjau-dokumen?id=${id}` 
+      : '/pengajuan-barang/pratinjau-dokumen';
     window.open(url, '_blank');
   };
 
@@ -578,9 +589,9 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       sign,
     };
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/api.php?action=save', {
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       });
       const json = await res.json();
@@ -602,9 +613,9 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   const handleSoftDelete = async (id: number) => {
     if (!window.confirm('Yakin ingin menghapus pengajuan ini dari riwayat?')) return;
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/api.php?action=delete', {
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/delete.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ id })
       });
       const json = await res.json();
