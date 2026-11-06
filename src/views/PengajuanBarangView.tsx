@@ -483,78 +483,62 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Direct PHP Pratinjau Sync ── */
-  const handleOpenPratinjau = () => {
-    // 1. Susun data formulir saat ini sesuai skema PBDoc
+  const handleOpenPreviewDocument = () => {
+    // 1. Ambil barang yang valid (hanya yang memiliki nama atau harga > 0)
+    const validItems = items
+      .filter((it: any) => (it.name && it.name.trim() !== '') || (Number(it.price) > 0))
+      .map((it: any) => ({
+        name: it.name || '',
+        spec: it.spec || '',
+        price: Number(it.price) || 0,
+        qty: Math.max(1, Number(it.qty) || 1),
+        online: Boolean(it.online),
+        link: it.link || '',
+        imgs: Array.isArray(it.imgs) ? it.imgs : []
+      }));
+
+    // 2. Susun payload draf aktif
     const payload = {
       meta: {
         instansi: meta.instansi || 'SMK MULTI KARYA',
-        alamat: meta.alamat || 'Jl. STM No. 10, Sitirejo II, Kec. Medan Amplas, Kota Medan, Sumatera Utara',
+        alamat: meta.alamat || '',
         divisi: meta.divisi || 'Kreatif',
-        keperluan: meta.keperluan || 'Keperluan Barang',
-        orient: meta.orient || 'landscape',
+        keperluan: meta.keperluan || '',
+        orient: meta.orient || 'landscape'
       },
-      items: items.map((item) => ({
-        name: item.name || '',
-        spec: item.spec || '',
-        price: Number(item.price) || 0,
-        qty: Number(item.qty) || 1,
-        online: Boolean(item.online),
-        link: item.link || '',
-        imgs: Array.isArray(item.imgs) ? item.imgs : [],
-      })),
+      items: validItems, // KOSONG JIKA FORM BELUM DIISI BARANG
       sign: {
         kota: sign.kota || 'Medan',
         tanggal: sign.tanggal || today(),
-        kepala: {
-          label: sign.kepala?.label || 'Kepala Sekolah',
-          name: sign.kepala?.name || 'Lyly Rismaidy, S.Pd',
-          sig: sign.kepala?.sig || '',
-        },
-        waka: {
-          label: sign.waka?.label || 'Waka Sarana Prasarana',
-          name: sign.waka?.name || 'Faisal Azmi, Sp',
-          sig: sign.waka?.sig || '',
-        },
-        pemohon: {
-          label: 'PEMOHON',
-          name: sign.pemohon?.name || 'M. Rizqy Aditya Fahrezi, S.Ds',
-          sig: sign.pemohon?.sig || '',
-        },
-      },
+        kepala: { label: sign.kepala.label || 'Kepala Sekolah', name: sign.kepala.name || '', sig: sign.kepala.sig || '' },
+        waka: { label: sign.waka.label || 'Waka Sarana Prasarana', name: sign.waka.name || '', sig: sign.waka.sig || '' },
+        pemohon: { label: sign.pemohon.label || 'PEMOHON', name: sign.pemohon.name || '', sig: sign.pemohon.sig || '' }
+      }
     };
 
-    // 2. Simpan draf ke localStorage (kunci pb.v1) agar pratinjau.php membaca data terkini
+    // Simpan ke localStorage 'pb.v1'
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch (e) {
-      console.warn('Gagal menyimpan draf pb.v1:', e);
-    }
+      localStorage.setItem('pb.v1', JSON.stringify(payload));
+    } catch (e) {}
 
-    // 3. Buka halaman PHP pratinjau resmi di tab baru
-    const targetUrl = meta.id
-      ? `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php?id=${meta.id}`
-      : 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php';
-
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    // Buka URL web resmi frontend:
+    const targetUrl = meta.id 
+      ? `/pengajuan-barang/pratinjau-dokumen?id=${meta.id}`
+      : `/pengajuan-barang/pratinjau-dokumen`;
+    
+    window.open(targetUrl, '_blank');
   };
 
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
 
-
-  /* ── Auth Headers ── */
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
-    return {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
-    };
-  };
-
   const fetchHistory = async () => {
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
     try {
       const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/read.php', {
-        headers: getAuthHeaders()
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
       });
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
@@ -565,25 +549,12 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
   };
 
-  /* ── Direct PHP Pratinjau Sync ── */
-  const handleOpenPreview = (id?: number) => {
-    // Simpan draf form aktif ke localStorage pb.v1
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta, items, sign }));
-    } catch (e) {}
-    
-    const url = id 
-      ? `/pengajuan-barang/pratinjau-dokumen?id=${id}` 
-      : '/pengajuan-barang/pratinjau-dokumen';
-    window.open(url, '_blank');
-  };
-
   /* ── Save to Database API ── */
   const handleSaveToDatabase = async () => {
     if (!validateForm()) return;
     setSaving(true);
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
     const payload = {
-      id: meta.id || undefined,
       meta,
       items,
       sign,
@@ -591,13 +562,15 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     try {
       const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(payload)
       });
       const json = await res.json();
       if (json.success) {
         setMeta(prev => ({ ...prev, id: json.id }));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, meta: { ...meta, id: json.id } }));
         showToast('✓ Pengajuan barang berhasil disimpan ke database!');
         fetchHistory();
       } else {
@@ -612,10 +585,14 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   const handleSoftDelete = async (id: number) => {
     if (!window.confirm('Yakin ingin menghapus pengajuan ini dari riwayat?')) return;
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
     try {
       const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/delete.php', {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({ id })
       });
       const json = await res.json();
