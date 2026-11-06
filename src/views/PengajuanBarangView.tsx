@@ -51,24 +51,29 @@ const today = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-function terbilang(n: number) {
-  n = Math.floor(Math.abs(n));
-  const s = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'];
-  const t = (num: number): string => {
-    if (num < 12) return s[num];
-    if (num < 20) return t(num - 10) + ' belas';
-    if (num < 100) return t(Math.floor(num / 10)) + ' puluh' + (num % 10 ? ' ' + t(num % 10) : '');
-    if (num < 200) return 'seratus' + (num > 100 ? ' ' + t(num - 100) : '');
-    if (num < 1e3) return t(Math.floor(num / 100)) + ' ratus' + (num % 100 ? ' ' + t(num % 100) : '');
-    if (num < 2e3) return 'seribu' + (num > 1e3 ? ' ' + t(num - 1e3) : '');
-    if (num < 1e6) return t(Math.floor(num / 1e3)) + ' ribu' + (num % 1e3 ? ' ' + t(num % 1e3) : '');
-    if (num < 1e9) return t(Math.floor(num / 1e6)) + ' juta' + (num % 1e6 ? ' ' + t(num % 1e6) : '');
-    if (num < 1e12) return t(Math.floor(num / 1e9)) + ' miliar' + (num % 1e9 ? ' ' + t(num % 1e9) : '');
-    return t(Math.floor(num / 1e12)) + ' triliun' + (num % 1e12 ? ' ' + t(num % 1e12) : '');
+const terbilangRupiah = (val: any): string => {
+  const n = Number(val);
+  if (isNaN(n) || !isFinite(n) || n <= 0) return 'Nol rupiah';
+  const kata = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'];
+  const konversi = (num: number): string => {
+    if (num < 12) return kata[num];
+    if (num < 20) return konversi(num - 10) + ' belas';
+    if (num < 100) return konversi(Math.floor(num / 10)) + ' puluh' + (num % 10 ? ' ' + kata[num % 10] : '');
+    if (num < 200) return 'seratus' + (num > 100 ? ' ' + konversi(num - 100) : '');
+    if (num < 1000) return konversi(Math.floor(num / 100)) + ' ratus' + (num % 100 ? ' ' + konversi(num % 100) : '');
+    if (num < 2000) return 'seribu' + (num > 1000 ? ' ' + konversi(num - 1000) : '');
+    if (num < 1000000) return konversi(Math.floor(num / 1000)) + ' ribu' + (num % 1000 ? ' ' + konversi(num % 1000) : '');
+    if (num < 1000000000) return konversi(Math.floor(num / 1000000)) + ' juta' + (num % 1000000 ? ' ' + konversi(num % 1000000) : '');
+    if (num < 1000000000000) return konversi(Math.floor(num / 1000000000)) + ' miliar' + (num % 1000000000 ? ' ' + konversi(num % 1000000000) : '');
+    return konversi(Math.floor(num / 1000000000000)) + ' triliun';
   };
-  const r = n === 0 ? 'nol' : t(n);
-  return r.charAt(0).toUpperCase() + r.slice(1) + ' rupiah';
-}
+  try {
+    const res = konversi(Math.floor(n)).trim();
+    return (res ? res.charAt(0).toUpperCase() + res.slice(1) : 'Nol') + ' rupiah';
+  } catch {
+    return 'Nol rupiah';
+  }
+};
 
 export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddToast }) => {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -311,7 +316,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       onlineCount,
       withImgsCount,
       grandTotal,
-      terbilangText: grandTotal > 0 ? terbilang(grandTotal) : '',
+      terbilangText: grandTotal > 0 ? terbilangRupiah(grandTotal) : '',
       step1Progress,
       step2Progress,
       step3Progress,
@@ -483,8 +488,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Direct PHP Pratinjau Sync ── */
-  const handleOpenPreviewDocument = () => {
-    // 1. Ambil barang yang valid (hanya yang memiliki nama atau harga > 0)
+  const handleOpenPreview = () => {
     const validItems = items
       .filter((it: any) => (it.name && it.name.trim() !== '') || (Number(it.price) > 0))
       .map((it: any) => ({
@@ -497,33 +501,23 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         imgs: Array.isArray(it.imgs) ? it.imgs : []
       }));
 
-    // 2. Susun payload draf aktif
     const payload = {
-      meta: {
-        instansi: meta.instansi || 'SMK MULTI KARYA',
-        alamat: meta.alamat || '',
-        divisi: meta.divisi || 'Kreatif',
-        keperluan: meta.keperluan || '',
-        orient: meta.orient || 'landscape'
-      },
-      items: validItems, // KOSONG JIKA FORM BELUM DIISI BARANG
+      meta: { instansi: meta.instansi, alamat: meta.alamat, divisi: 'Kreatif', keperluan: meta.keperluan, orient: meta.orient, judul: meta.judul },
+      items: validItems,
       sign: {
-        kota: sign.kota || 'Medan',
-        tanggal: sign.tanggal || today(),
-        kepala: { label: sign.kepala.label || 'Kepala Sekolah', name: sign.kepala.name || '', sig: sign.kepala.sig || '' },
-        waka: { label: sign.waka.label || 'Waka Sarana Prasarana', name: sign.waka.name || '', sig: sign.waka.sig || '' },
-        pemohon: { label: sign.pemohon.label || 'PEMOHON', name: sign.pemohon.name || '', sig: sign.pemohon.sig || '' }
+        kota: sign.kota, tanggal: sign.tanggal,
+        kepala: { label: sign.kepala.label, name: sign.kepala.name, sig: sign.kepala.sig },
+        waka: { label: sign.waka.label, name: sign.waka.name, sig: sign.waka.sig },
+        pemohon: { label: sign.pemohon.label, name: sign.pemohon.name, sig: sign.pemohon.sig }
       }
     };
 
-    // Simpan ke localStorage 'pb.v1'
     try {
       localStorage.setItem('pb.v1', JSON.stringify(payload));
     } catch (e) {}
 
-    // Buka URL web resmi frontend:
     const targetUrl = meta.id 
-      ? `/pengajuan-barang/pratinjau-dokumen?id=${meta.id}`
+      ? `/pengajuan-barang/pratinjau-dokumen?id=${meta.id}` 
       : `/pengajuan-barang/pratinjau-dokumen`;
     
     window.open(targetUrl, '_blank');
@@ -612,7 +606,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     setPrinting(true);
     try {
       await handleSaveToDatabase();
-      handleOpenPratinjau();
+      handleOpenPreview();
     } finally {
       setPrinting(false);
     }
@@ -714,7 +708,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         if (st.sign) setSign((prev) => ({ ...prev, ...st.sign }));
       },
       save: () => handleSaveToDatabase(),
-      pratinjau: handleOpenPratinjau,
+      pratinjau: handleOpenPreview,
       print: () => handlePrint(),
       reset: handleReset,
     };
@@ -904,7 +898,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             {/* Tombol Pratinjau Dokumen ↗ */}
             <button
               type="button"
-              onClick={handleOpenPratinjau}
+              onClick={handleOpenPreview}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#1c2340] text-white text-xs font-bold shadow-md hover:bg-[#2f3b6b] transition-all cursor-pointer"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
