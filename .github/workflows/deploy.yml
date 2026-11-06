@@ -1,8 +1,9 @@
-name: Deploy LaporanWee to Pages
+name: Build and Deploy
 
 on:
   push:
-    branches: ["main", "master"]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -10,43 +11,47 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
-
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: npm install
 
-      - name: Build Project
+      - name: Build
         run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://api-laporanwe.mkverse.my.id/api' }}
 
-      - name: Ensure CNAME Exists in Dist
-        run: |
-          echo "laporanwe.mkverse.my.id" > dist/CNAME
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v5
 
-      - name: Upload Pages Artifact
+      - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
+          path: ./dist
 
   deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
+
+    permissions:
+      pages: write
+      id-token: write
+
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
