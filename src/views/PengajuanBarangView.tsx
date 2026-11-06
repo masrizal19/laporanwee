@@ -538,60 +538,83 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
-  /* ── Save to Database API ── */
-  const handleSaveToDatabase = async (quiet = false): Promise<boolean> => {
-    if (!validateForm()) return false;
-    setSaving(true);
+  const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+
+
+  const fetchHistory = async () => {
     try {
-      const token =
-        localStorage.getItem('auth_token') ||
-        localStorage.getItem('token') ||
-        localStorage.getItem('laporanwee_token') ||
-        '';
-
-      const payload = {
-        meta,
-        items,
-        sign,
-      };
-
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/api.php?action=history');
+      const json = await res.json();
+      if (json.success && Array.isArray(json.data)) {
+        setHistoryList(json.data);
       }
+    } catch (e) {
+      console.warn('Gagal memuat riwayat:', e);
+    }
+  };
 
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
+  /* ── Direct PHP Pratinjau Sync ── */
+  const handleOpenPreview = (id?: number) => {
+    // Simpan draf form aktif ke localStorage pb.v1
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta, items, sign }));
+    } catch (e) {}
+    
+    const url = id 
+      ? `/pengajuan-barang/pratinjau?id=${id}` 
+      : '/pengajuan-barang/pratinjau';
+    window.open(url, '_blank');
+  };
+
+  /* ── Save to Database API ── */
+  const handleSaveToDatabase = async () => {
+    if (!validateForm()) return;
+    setSaving(true);
+    const payload = {
+      id: meta.id || undefined,
+      meta,
+      items,
+      sign,
+    };
+    try {
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/api.php?action=save', {
         method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       });
-
-      const json = await res.json().catch(() => ({}));
-      if (res.ok && json.success) {
-        const noPengajuan =
-          json.data?.nomor_pengajuan ||
-          json.nomor_pengajuan ||
-          json.data?.no_pengajuan ||
-          json.no_pengajuan ||
-          '';
-        if (!quiet) {
-          showToast('Pengajuan berhasil disimpan!' + (noPengajuan ? ` No: ${noPengajuan}` : ''));
-        }
-        return true;
+      const json = await res.json();
+      if (json.success) {
+        setMeta(prev => ({ ...prev, id: json.id }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, meta: { ...meta, id: json.id } }));
+        showToast('✓ Pengajuan barang berhasil disimpan ke database!');
+        fetchHistory();
       } else {
-        const errMsg = json.message || json.error || 'Gagal menyimpan pengajuan ke database.';
-        showToast(errMsg);
-        return false;
+        showToast(json.message || 'Gagal menyimpan.');
       }
-    } catch (err: any) {
-      console.error('Save error:', err);
-      showToast(err?.message || 'Gagal menyimpan pengajuan ke database.');
-      return false;
+    } catch {
+      showToast('Terjadi kesalahan jaringan.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSoftDelete = async (id: number) => {
+    if (!window.confirm('Yakin ingin menghapus pengajuan ini dari riwayat?')) return;
+    try {
+      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/api.php?action=delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const json = await res.json();
+      if (json.success) {
+        fetchHistory();
+      } else {
+        showToast(json.message || 'Gagal menghapus.');
+      }
+    } catch {
+      showToast('Gagal menghubungi server.');
     }
   };
 
@@ -600,7 +623,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     if (!validateForm()) return;
     setPrinting(true);
     try {
-      await handleSaveToDatabase(true);
+      await handleSaveToDatabase();
       handleOpenPratinjau();
     } finally {
       setPrinting(false);
@@ -1621,7 +1644,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                     className={`pb-btn lime lg ${saving ? 'load' : ''}`}
                     type="button"
                     style={{ marginBottom: '10px' }}
-                    onClick={() => handleSaveToDatabase(false)}
+                    onClick={handleSaveToDatabase}
                     disabled={saving}
                   >
                     <svg viewBox="0 0 24 24">
@@ -1632,12 +1655,19 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                     <span>{saving ? 'Menyimpan...' : 'Simpan ke Database'}</span>
                   </button>
 
+                  <button
+                    type="button"
+                    onClick={() => { fetchHistory(); setShowHistoryModal(true); }}
+                    className="w-full mt-2.5 py-3 px-5 rounded-2xl bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    <span>📜</span> Riwayat Pengajuan
+                  </button>
+
                   {/* Tombol Pratinjau Dokumen ↗ */}
                   <button
                     type="button"
-                    className="pb-btn dark lg"
-                    style={{ marginBottom: '10px' }}
-                    onClick={handleOpenPratinjau}
+                    className="pb-btn dark lg mt-2.5"
+                    onClick={() => handleOpenPreview(meta.id ? Number(meta.id) : undefined)}
                   >
                     <svg style={{ width: '20px', height: '20px', marginRight: '6px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -1695,7 +1725,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             <button
               className="pb-btn lime sm"
               type="button"
-              onClick={() => handleSaveToDatabase(false)}
+              onClick={handleSaveToDatabase}
               disabled={saving}
             >
               {saving ? 'Simpan...' : 'Simpan'}
@@ -1726,6 +1756,33 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         >
           {toastMessage}
         </div>
+
+        {/* Modal Riwayat Pengajuan */}
+        {showHistoryModal && (
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+            <div className="w-full max-w-2xl bg-white dark:bg-[#1a1824] rounded-3xl p-6 shadow-2xl border border-white/10">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-bold">📜 Riwayat Pengajuan</h2>
+                <button onClick={() => setShowHistoryModal(false)} className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full">✕</button>
+              </div>
+              <div className="max-h-[60vh] overflow-y-auto space-y-3">
+                {historyList.length === 0 && <p className="text-center text-muted">Belum ada riwayat.</p>}
+                {historyList.map(item => (
+                  <div key={item.id} className="p-4 rounded-xl border border-line bg-black/5 dark:bg-white/5 flex justify-between items-center">
+                    <div>
+                      <p className="font-semibold">{item.meta?.keperluan || 'Tanpa keperluan'}</p>
+                      <p className="text-xs text-muted">{item.created_at}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleOpenPreview(Number(item.id))} className="text-xs font-bold text-accent">Pratinjau</button>
+                      <button onClick={() => handleSoftDelete(Number(item.id))} className="text-xs font-bold text-bad">Hapus</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

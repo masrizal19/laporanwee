@@ -39,6 +39,7 @@ import { PengajuanBarangView } from './views/PengajuanBarangView';
 import { ChatView } from './views/ChatView';
 import { GaleriLampiranView } from './views/GaleriLampiranView';
 import { GaleriBerkasView } from './views/GaleriBerkasView';
+import { PengajuanBarangPratinjauView } from './views/PengajuanBarangPratinjauView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -476,6 +477,7 @@ export function App() {
     '/lampiran': 'galeri-berkas',
     '/galeri-lampiran': 'galeri-berkas',
     '/galeri-berkas': 'galeri-berkas',
+    '/pengajuan-barang/pratinjau': 'pengajuan-barang-pratinjau',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -504,6 +506,7 @@ export function App() {
     'edit-laporan': '/analitik/editlaporan',
     'galeri-lampiran': '/galeri-berkas',
     'galeri-berkas': '/galeri-berkas',
+    'pengajuan-barang-pratinjau': '/pengajuan-barang/pratinjau',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -2162,6 +2165,10 @@ export function App() {
 
         {currentView === 'pengajuan-barang' && (
           <PengajuanBarangView onAddToast={addToast} />
+        )}
+
+        {currentView === 'pengajuan-barang-pratinjau' && (
+          <PengajuanBarangPratinjauView />
         )}
 
         {(currentView === 'galeri-berkas' || currentView === 'galeri-lampiran') && (
