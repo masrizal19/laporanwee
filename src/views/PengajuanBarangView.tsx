@@ -21,6 +21,8 @@ export interface Meta {
   judul: string;
   keperluan: string;
   orient: 'landscape' | 'portrait';
+  divisi?: string;
+  id?: string;
 }
 
 export interface SigPerson {
@@ -49,12 +51,6 @@ const today = () => {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
 
-const longDate = (v: string) => {
-  if (!v) return '';
-  const [y, m, d] = v.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
-};
-
 function terbilang(n: number) {
   n = Math.floor(Math.abs(n));
   const s = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'];
@@ -76,8 +72,6 @@ function terbilang(n: number) {
 
 export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddToast }) => {
   const rootRef = useRef<HTMLDivElement>(null);
-  const paperWrapRef = useRef<HTMLDivElement>(null);
-  const paperRef = useRef<HTMLDivElement>(null);
 
   /* ── Initial states ── */
   const [items, setItems] = useState<Item[]>(() => {
@@ -125,6 +119,8 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             judul: parsed.meta.judul || 'Pengajuan Pembelian Barang',
             keperluan: parsed.meta.keperluan || '',
             orient: parsed.meta.orient === 'portrait' ? 'portrait' : 'landscape',
+            divisi: parsed.meta.divisi || 'Kreatif',
+            id: parsed.meta.id || '',
           };
         }
       }
@@ -135,6 +131,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       judul: 'Pengajuan Pembelian Barang',
       keperluan: '',
       orient: 'landscape',
+      divisi: 'Kreatif',
     };
   });
 
@@ -175,7 +172,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     };
   });
 
-  const [activeView, setActiveView] = useState<'form' | 'prev'>('form');
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const saved = localStorage.getItem('laporanwee_theme') || localStorage.getItem('pb.theme');
     return saved === 'dark' ? 'dark' : 'light';
@@ -261,6 +257,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
               judul: settings.judul || settings.meta?.judul || prev.judul,
               keperluan: settings.keperluan || settings.meta?.keperluan || prev.keperluan,
               orient: (settings.orient || settings.meta?.orient || prev.orient) as any,
+              divisi: settings.divisi || settings.meta?.divisi || prev.divisi,
             }));
 
             if (settings.sign || settings.kepala || settings.waka || settings.pemohon) {
@@ -471,7 +468,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     setBadFields(newBad);
 
     if (firstBadField) {
-      setActiveView('form');
       showToast('Lengkapi isian yang ditandai merah.');
       setTimeout(() => {
         const el = document.getElementById(firstBadField);
@@ -484,6 +480,62 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
 
     return true;
+  };
+
+  /* ── Direct PHP Pratinjau Sync ── */
+  const handleOpenPratinjau = () => {
+    // 1. Susun data formulir saat ini sesuai skema PBDoc
+    const payload = {
+      meta: {
+        instansi: meta.instansi || 'SMK MULTI KARYA',
+        alamat: meta.alamat || 'Jl. STM No. 10, Sitirejo II, Kec. Medan Amplas, Kota Medan, Sumatera Utara',
+        divisi: meta.divisi || 'Kreatif',
+        keperluan: meta.keperluan || 'Keperluan Barang',
+        orient: meta.orient || 'landscape',
+      },
+      items: items.map((item) => ({
+        name: item.name || '',
+        spec: item.spec || '',
+        price: Number(item.price) || 0,
+        qty: Number(item.qty) || 1,
+        online: Boolean(item.online),
+        link: item.link || '',
+        imgs: Array.isArray(item.imgs) ? item.imgs : [],
+      })),
+      sign: {
+        kota: sign.kota || 'Medan',
+        tanggal: sign.tanggal || today(),
+        kepala: {
+          label: sign.kepala?.label || 'Kepala Sekolah',
+          name: sign.kepala?.name || 'Lyly Rismaidy, S.Pd',
+          sig: sign.kepala?.sig || '',
+        },
+        waka: {
+          label: sign.waka?.label || 'Waka Sarana Prasarana',
+          name: sign.waka?.name || 'Faisal Azmi, Sp',
+          sig: sign.waka?.sig || '',
+        },
+        pemohon: {
+          label: 'PEMOHON',
+          name: sign.pemohon?.name || 'M. Rizqy Aditya Fahrezi, S.Ds',
+          sig: sign.pemohon?.sig || '',
+        },
+      },
+    };
+
+    // 2. Simpan draf ke localStorage (kunci pb.v1) agar pratinjau.php membaca data terkini
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.warn('Gagal menyimpan draf pb.v1:', e);
+    }
+
+    // 3. Buka halaman PHP pratinjau resmi di tab baru
+    const targetUrl = meta.id
+      ? `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php?id=${meta.id}`
+      : 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php';
+
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
   };
 
   /* ── Save to Database API ── */
@@ -543,24 +595,16 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
   };
 
-  /* ── Print Document ── */
+  /* ── Print Document Action ── */
   const handlePrint = async () => {
     if (!validateForm()) return;
     setPrinting(true);
     try {
       await handleSaveToDatabase(true);
+      handleOpenPratinjau();
     } finally {
       setPrinting(false);
     }
-
-    const prevTitle = document.title;
-    document.title = `Pengajuan Barang - ${longDate(sign.tanggal) || ''}`;
-    setActiveView('prev');
-
-    setTimeout(() => {
-      window.print();
-      document.title = prevTitle;
-    }, 350);
   };
 
   /* ── Export & Import JSON ── */
@@ -637,6 +681,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       judul: 'Pengajuan Pembelian Barang',
       keperluan: '',
       orient: 'landscape',
+      divisi: 'Kreatif',
     });
     setSign({
       kota: 'Medan',
@@ -648,50 +693,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     showToast('Formulir berhasil direset.');
   };
 
-  /* ── Responsive scale for paper preview ── */
-  const fitDocument = () => {
-    const wrapper = document.getElementById('pb-pw') || paperWrapRef.current;
-    const paper = document.getElementById('pb-paper') || paperRef.current;
-    if (!wrapper || !paper) return;
-
-    const availableWidth = wrapper.clientWidth - 32;
-    const paperWidth = paper.offsetWidth || (meta.orient === 'portrait' ? 794 : 1122);
-
-    if (availableWidth > 0 && availableWidth < paperWidth) {
-      const scale = Math.max(0.4, availableWidth / paperWidth);
-      paper.style.transform = `scale(${scale})`;
-      paper.style.transformOrigin = 'top center';
-      const scaledHeight = paper.offsetHeight * scale;
-      wrapper.style.minHeight = `${scaledHeight + 40}px`;
-    } else {
-      paper.style.transform = 'none';
-      wrapper.style.minHeight = 'auto';
-    }
-  };
-
-  useEffect(() => {
-    if (activeView === 'prev') {
-      const t = setTimeout(() => {
-        fitDocument();
-      }, 50);
-      const raf = requestAnimationFrame(fitDocument);
-      return () => {
-        clearTimeout(t);
-        cancelAnimationFrame(raf);
-      };
-    }
-  }, [activeView, meta.orient, items, sign]);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (activeView === 'prev') {
-        fitDocument();
-      }
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [activeView, meta.orient]);
-
   /* ── Global window.PB interface ── */
   useEffect(() => {
     (window as any).PB = {
@@ -702,6 +703,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         if (st.sign) setSign((prev) => ({ ...prev, ...st.sign }));
       },
       save: () => handleSaveToDatabase(),
+      pratinjau: handleOpenPratinjau,
       print: () => handlePrint(),
       reset: handleReset,
     };
@@ -710,44 +712,8 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     };
   }, [meta, items, sign]);
 
-  const isLandscape = meta.orient !== 'portrait';
-
   return (
     <div className="pb-page-wrapper" ref={rootRef} style={{ width: '100%', minHeight: '100%' }}>
-      {/* Dynamic @page CSS for printing */}
-      <style>{`
-        @page {
-          size: A4 ${isLandscape ? 'landscape' : 'portrait'};
-          margin: 0;
-        }
-        @media print {
-          body * {
-            visibility: hidden;
-          }
-          #pb-vprev, #pb-vprev *, #pb-paper, #pb-paper * {
-            visibility: visible;
-          }
-          #pb-paper {
-            position: absolute !important;
-            left: 0 !important;
-            top: 0 !important;
-            width: 100% !important;
-            transform: none !important;
-            box-shadow: none !important;
-            margin: 0 !important;
-            padding: 0 !important;
-          }
-          .pb-pg {
-            box-shadow: none !important;
-            page-break-after: always;
-            break-after: page;
-          }
-          .pb-top, .pb-right, .pb-dock, .pb-toast, #pb-vform, nav, header, aside, .sidebar {
-            display: none !important;
-          }
-        }
-      `}</style>
-
       {/* Scoped CSS from standard design */}
       <style>{`
         .pb-root {
@@ -779,11 +745,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         .pb-logo svg{width:24px;height:24px;stroke:var(--on-dark);fill:none;stroke-width:2;stroke-linecap:round}
         .pb-top h1{font-size:clamp(28px,3.6vw,40px);font-weight:600;letter-spacing:-.035em;line-height:1.05;margin:0}
         .pb-top p{color:var(--muted);font-size:14px;margin:4px 0 0}
-        
-        .pb-seg{position:relative;display:inline-flex;padding:5px;border-radius:999px;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
-        .pb-seg button{display:flex;align-items:center;gap:8px;padding:9px 18px;border-radius:999px;font-size:14px;font-weight:500;color:var(--muted);transition:all .2s ease}
-        .pb-seg button.on{background:var(--dark);color:var(--on-dark);box-shadow:0 10px 20px -10px rgba(35,33,46,.6)}
-        .pb-seg svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 
         .pb-theme{display:flex;padding:4px;border-radius:999px;background:var(--glass);border:1px solid var(--line);position:relative}
         .pb-theme button{width:36px;height:32px;display:grid;place-items:center;border-radius:999px;color:var(--muted);transition:all .2s ease}
@@ -899,88 +860,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         /* Toast */
         .pb-toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(30px);opacity:0;pointer-events:none;z-index:999;padding:12px 24px;border-radius:999px;background:var(--dark);color:var(--on-dark);font-size:14px;font-weight:500;box-shadow:0 12px 30px rgba(0,0,0,.25);transition:all .3s cubic-bezier(.34,1.56,.64,1)}
         .pb-toast.on{transform:translateX(-50%) translateY(0);opacity:1}
-
-        /* Dokumen Cetak A4 Sheet CSS */
-        .pb-paperwrap {
-          width: 100%;
-          overflow-x: auto !important;
-          overflow-y: visible !important;
-          height: auto !important;
-          padding: 20px 0;
-          display: flex;
-          justify-content: center;
-        }
-        .pb-paper {
-          --pw: ${isLandscape ? '297mm' : '210mm'};
-          --ph: ${isLandscape ? '210mm' : '297mm'};
-          --th: ${isLandscape ? '27mm' : '16mm'};
-          --cols: ${isLandscape ? '12mm minmax(0,1fr) 28mm 12mm 30mm 38mm' : '10mm minmax(0,1fr) 25mm 10mm 26mm 30mm'};
-          --nv:#2f3b6b;--nv2:#44558f;--tx:#1c2340;--mu:#7c84a0;--ln:#cfd4e1;
-          width: var(--pw);
-          display: flex;
-          flex-direction: column;
-          gap: 6mm;
-          transform-origin: top center !important;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-          margin-bottom: 24px;
-          font-family: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
-          color: var(--tx);
-          line-height: 1.4;
-        }
-        .pb-pg {
-          position: relative;
-          flex: none;
-          width: var(--pw);
-          height: auto !important;
-          min-height: var(--ph, 210mm) !important;
-          overflow: visible !important;
-          display: flex;
-          flex-direction: column;
-          background: #eceef3;
-          box-shadow: 0 30px 70px -30px rgba(40,30,90,.55);
-        }
-        .pb-hd{position:relative;flex:none;background:var(--nv);padding:8mm 9mm 17mm;border-bottom-right-radius:18mm;overflow:hidden;color:#fff}
-        .pb-hd::before{content:"";position:absolute;right:-22mm;top:-50mm;width:108mm;height:108mm;border-radius:50%;background:var(--nv2);opacity:.85}
-        .pb-hd::after{content:"";position:absolute;left:-26mm;bottom:-36mm;width:82mm;height:82mm;border-radius:50%;background:rgba(255,255,255,.08)}
-        .pb-hd>*{position:relative;z-index:1}
-        .pb-hr1,.pb-hr2{display:flex;justify-content:space-between;gap:8mm}.pb-hr1{align-items:flex-start}.pb-hr2{align-items:flex-end;margin-top:7mm}
-        .pb-bd{display:flex;align-items:center;gap:3mm}
-        .pb-dots{display:grid;grid-template-columns:repeat(3,1.7mm);gap:.9mm}.pb-dots i{width:1.7mm;height:1.7mm;border-radius:50%;background:#ee5a73}
-        .pb-bd b{display:block;font-size:17pt;font-weight:700;letter-spacing:.02em;line-height:1.05;color:#fff}
-        .pb-bd small{display:block;font-size:6.5pt;letter-spacing:.2em;text-transform:uppercase;font-weight:600;opacity:.85;margin-top:.6mm;color:#fff}
-        .pb-org{text-align:right;font-size:7.5pt;line-height:1.55;color:#fff}.pb-org b{display:block;font-size:8.5pt;text-transform:uppercase;font-weight:700}
-        .pb-hr2 small{display:block;font-size:7pt;opacity:.85;color:#fff}.pb-hr2 b{display:block;font-size:14pt;font-weight:700;line-height:1.2;margin:.6mm 0;color:#fff}
-        .pb-hr2 span{display:block;font-size:6.5pt;text-transform:uppercase;letter-spacing:.05em;opacity:.9;color:#fff}.pb-hr2 .r{text-align:right}
-
-        .pb-tb{position:relative;z-index:2;flex:none;margin:-9mm 9mm 0;display:grid;grid-template-columns:var(--cols);background:#f4f6fb;border-radius:6mm;box-shadow:0 2mm 6mm -2mm rgba(30,40,90,.28);padding:3.6mm 0;font-size:8pt;font-weight:600;text-align:center}
-        .pb-tb div{padding:0 2mm;border-left:.3mm solid var(--ln)}.pb-tb div:first-child{border:0}
-        .pb-sec{flex:none;margin:5mm 9mm 0;padding:0 2mm 1.6mm;border-bottom:.35mm solid var(--nv);display:flex;justify-content:space-between;align-items:baseline;gap:6mm}
-        .pb-sec b{font-size:10pt;font-weight:700;color:var(--nv)}.pb-sec span{font-size:7.5pt;color:var(--mu);text-align:right}
-        .pb-kp{flex:none;margin:1.6mm 11mm 0;font-size:7.5pt;color:#5b6483;font-style:italic;line-height:1.45}
-
-        .pb-pbody{flex:1;min-height:0;margin:0 9mm;overflow:hidden}
-        .pb-rw{display:grid;grid-template-columns:var(--cols);border-bottom:.3mm solid var(--ln)}
-        .pb-rw>div{padding:3mm 2.5mm;border-left:.3mm solid var(--ln);min-width:0}.pb-rw>div:first-child{border-left:0}
-        .pb-rw .c1{text-align:center}.pb-rw .c1 b{display:block;font-size:11pt;font-weight:700;color:var(--nv);line-height:1.2}.pb-rw .c1 span{font-size:6.5pt;color:var(--mu)}
-        .pb-rw .nm{display:block;font-size:9.5pt;font-weight:600;line-height:1.3;color:var(--tx)}
-        .pb-rw .sp{font-size:7.5pt;color:var(--mu);white-space:pre-line;margin-top:.6mm;overflow-wrap:anywhere}
-        .pb-rw .bd2{display:inline-block;margin-top:1.8mm;padding:.7mm 2.6mm;border-radius:99px;font-size:6.5pt;font-weight:600;background:#e3e6f5;color:#3a4a86}
-        .pb-rw .bd2.on{background:#d7f3e3;color:#1c7a4a}
-        .pb-rw .c3,.pb-rw .c5{text-align:right;font-size:8.5pt;font-weight:500;white-space:nowrap}.pb-rw .c5{font-weight:700}.pb-rw .c4{text-align:center;font-size:9pt;font-weight:600}
-        .pb-rw .c6{text-align:center;font-size:7.5pt;display:flex;align-items:center;justify-content:center;word-break:break-all}
-        .pb-th2{display:flex;gap:2mm;flex-wrap:wrap}
-        .pb-lk{display:block;font-size:6.5pt;color:#3a4a86;text-decoration:underline;overflow-wrap:anywhere;line-height:1.35;margin-top:1.6mm}
-        .pb-th2+.pb-lk{margin-top:2mm}
-        .pb-lampiran-section{break-inside:avoid;page-break-inside:avoid}
-
-        .pb-fin{padding-top:5mm}
-        .pb-gt2{display:flex;justify-content:space-between;align-items:center;gap:6mm;padding:3.4mm 6mm;background:var(--nv);border-radius:6mm;color:#fff}
-        .pb-gt2 span{font-size:8pt;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:#fff}.pb-gt2 b{font-size:13pt;font-weight:700;letter-spacing:-.01em;color:#fff}
-        .pb-tbl{margin:2mm 3mm 0;font-size:7.5pt;font-style:italic;color:#4a5373}
-        .pb-ttd{display:grid;grid-template-columns:repeat(3,1fr);gap:6mm;margin-top:5mm;text-align:center;font-size:8.5pt}
-        .pb-ttd .pb-l1,.pb-ttd .pb-l2{min-height:1.5em}.pb-ttd .pb-l2{font-weight:600}.pb-ttd .pb-sg{height:17mm;display:flex;align-items:center;justify-content:center}.pb-ttd .pb-sg img{max-height:16mm;max-width:42mm;object-fit:contain}
-        .pb-ttd .pb-nm2{font-weight:700;font-size:8.5pt}.pb-ttd u{text-decoration:underline}
-        .pb-ft{flex:none;margin:3mm 9mm 6mm;height:8mm;border-radius:99px;background:var(--nv);display:grid;place-items:center;font-size:7.5pt;font-weight:500;letter-spacing:.02em;color:#fff}
         .pb-ori{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:14px}
         .pb-ori span{font-size:13.5px;color:var(--muted);margin-right:4px}
         .pb-ori button{padding:9px 16px;border-radius:999px;font-size:13.5px;background:var(--glass);border:1.5px solid var(--line);transition:all .2s ease}
@@ -1011,33 +890,18 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
               </div>
             </div>
 
-            {/* Segmented View Switch */}
-            <div className="pb-seg" role="tablist" aria-label="Tampilan">
-              <button
-                type="button"
-                className={activeView === 'form' ? 'on' : ''}
-                role="tab"
-                aria-selected={activeView === 'form'}
-                onClick={() => setActiveView('form')}
-              >
-                <svg viewBox="0 0 24 24">
-                  <path d="M4 6h16M4 12h16M4 18h10" />
-                </svg>
-                Formulir
-              </button>
-              <button
-                type="button"
-                className={activeView === 'prev' ? 'on' : ''}
-                role="tab"
-                aria-selected={activeView === 'prev'}
-                onClick={() => setActiveView('prev')}
-              >
-                <svg viewBox="0 0 24 24">
-                  <path d="M7 3h7l5 5v13H7zM14 3v5h5" />
-                </svg>
-                Pratinjau
-              </button>
-            </div>
+            {/* Tombol Pratinjau Dokumen ↗ */}
+            <button
+              type="button"
+              onClick={handleOpenPratinjau}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#1c2340] text-white text-xs font-bold shadow-md hover:bg-[#2f3b6b] transition-all cursor-pointer"
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+              <span>Pratinjau Dokumen ↗</span>
+            </button>
 
             {/* Theme Toggle */}
             <div className="pb-theme" role="group" aria-label="Tema">
@@ -1140,7 +1004,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
               </div>
 
               {/* View Formulir */}
-              <div style={{ display: activeView === 'form' ? 'flex' : 'none', flexDirection: 'column', gap: '20px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 {/* 1. Informasi Dokumen */}
                 <section className="pb-card">
                   <div className="pb-ch">
@@ -1362,7 +1226,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                               )}
                             </div>
 
-                            {/* ── BUKTI / GAMBAR BARANG (JSX REAKTIF MURNI) ── */}
+                            {/* ── BUKTI / GAMBAR BARANG ── */}
                             <div
                               className="pb-imgs"
                               style={{
@@ -1716,277 +1580,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                   </div>
                 </section>
               </div>
-
-              {/* View Pratinjau Dokumen A4 (Reaktif) */}
-              <div
-                id="pb-vprev"
-                style={{
-                  display: activeView === 'prev' ? 'block' : 'none',
-                  width: '100%',
-                }}
-              >
-                <div className="pb-paperwrap" ref={paperWrapRef} id="pb-pw">
-                  <div className="pb-paper" ref={paperRef} id="pb-paper">
-                    <section className="pb-pg">
-                      {/* Kop Surat Header */}
-                      <header className="pb-hd">
-                        <div className="pb-hr1">
-                          <div className="pb-bd">
-                            <div className="pb-dots">
-                              <i></i><i></i><i></i><i></i><i></i><i></i>
-                            </div>
-                            <div>
-                              <b>WEE LAPORAN</b>
-                              <small>{meta.judul || 'Pengajuan Barang'}</small>
-                            </div>
-                          </div>
-                          <div className="pb-org">
-                            {meta.instansi && <b>{meta.instansi}</b>}
-                            {meta.alamat && <span>{meta.alamat}</span>}
-                          </div>
-                        </div>
-
-                        <div className="pb-hr2">
-                          <div>
-                            <small>Pengajuan oleh</small>
-                            <b>{sign.pemohon.name || '—'}</b>
-                            <span>{sign.pemohon.label}</span>
-                          </div>
-                          <div className="r">
-                            <small>Tanggal</small>
-                            <b>{longDate(sign.tanggal) || '—'}</b>
-                            <span>{items.length} barang</span>
-                          </div>
-                        </div>
-                      </header>
-
-                      {/* Header Kolom Tabel */}
-                      <div className="pb-tb">
-                        <div>No</div>
-                        <div>Nama Barang &amp; Spesifikasi</div>
-                        <div>Harga Satuan</div>
-                        <div>Qty</div>
-                        <div>Jumlah</div>
-                        <div>Link Pembelian</div>
-                      </div>
-
-                      <div className="pb-sec">
-                        <b>Daftar Barang</b>
-                        <span>
-                          {items.length} jenis · {IDR.format(summary.totalUnits)} unit
-                        </span>
-                      </div>
-                      {meta.keperluan && <p className="pb-kp">Keperluan: {meta.keperluan}</p>}
-
-                      {/* Body Baris Barang */}
-                      <div className="pb-pbody">
-                        {items.length === 0 ? (
-                          <div style={{ padding: '12mm 0', textAlign: 'center', color: 'var(--mu)', fontSize: '9pt' }}>
-                            Belum ada barang yang diajukan.
-                          </div>
-                        ) : (
-                          items.map((item, idx) => {
-                            const lineTotal = (item.price || 0) * (item.qty || 1);
-                            return (
-                              <div key={item.id} className="pb-rw">
-                                <div className="c1">
-                                  <b>{idx + 1}</b>
-                                  <span>Barang</span>
-                                </div>
-                                <div className="c2">
-                                  <b className="nm">{item.name || '—'}</b>
-                                  {item.spec && <p className="sp">{item.spec}</p>}
-                                  <span className={`bd2 ${item.online ? 'on' : ''}`}>
-                                    {item.online ? 'Beli Online' : 'Beli Langsung'}
-                                  </span>
-                                </div>
-                                <div className="c3">{rp(item.price)}</div>
-                                <div className="c4">{item.qty}</div>
-                                <div className="c5">{rp(lineTotal)}</div>
-                                <div className="c6">
-                                  {item.online && item.link ? (
-                                    <a
-                                      className="pb-lk"
-                                      href={item.link}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      style={{
-                                        color: '#2563eb',
-                                        textDecoration: 'underline',
-                                        fontSize: '7pt',
-                                        wordBreak: 'break-all',
-                                        display: 'inline-block',
-                                        lineHeight: 1.3,
-                                      }}
-                                    >
-                                      {item.link.includes('shopee')
-                                        ? 'Shopee'
-                                        : item.link.includes('tokopedia')
-                                        ? 'Tokopedia'
-                                        : 'Buka Link Produk'}
-                                    </a>
-                                  ) : (
-                                    <span className="pb-dash" style={{ color: '#9ca3af', fontSize: '8pt' }}>
-                                      –
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-
-                        {/* Section Khusus Lampiran Bukti Gambar */}
-                        {items.some((it) => it.imgs && it.imgs.length > 0) && (
-                          <div className="pb-lampiran-section" style={{ marginTop: '6mm', padding: '0 0' }}>
-                            <div
-                              className="pb-sec"
-                              style={{
-                                margin: '0 0 3mm 0',
-                                padding: '0 0 1.6mm 0',
-                                borderBottom: '0.35mm solid #2f3b6b',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'baseline',
-                              }}
-                            >
-                              <b style={{ fontSize: '9pt', fontWeight: 700, color: '#2f3b6b' }}>
-                                Lampiran Bukti Gambar / Foto Produk
-                              </b>
-                              <span style={{ fontSize: '7pt', color: '#7c84a0' }}>
-                                Foto referensi spesifikasi barang
-                              </span>
-                            </div>
-
-                            <div
-                              className="pb-lampiran-grid"
-                              style={{
-                                display: 'grid',
-                                gridTemplateColumns: 'repeat(auto-fill, minmax(36mm, 1fr))',
-                                gap: '3mm',
-                                marginTop: '2.5mm',
-                              }}
-                            >
-                              {items.map((item, itemIdx) =>
-                                item.imgs &&
-                                item.imgs.map((imgSrc, imgIdx) => (
-                                  <div
-                                    key={`${item.id}-${imgIdx}`}
-                                    style={{
-                                      background: '#f8fafc',
-                                      border: '0.3mm solid #cfd4e1',
-                                      borderRadius: '2.5mm',
-                                      padding: '1.5mm',
-                                      display: 'flex',
-                                      flexDirection: 'column',
-                                      alignItems: 'center',
-                                      gap: '1.5mm',
-                                    }}
-                                  >
-                                    <img
-                                      src={imgSrc}
-                                      alt={`Bukti ${item.name}`}
-                                      style={{
-                                        width: '100%',
-                                        height: '24mm',
-                                        objectFit: 'cover',
-                                        borderRadius: '1.5mm',
-                                        border: '0.2mm solid #e2e8f0',
-                                        display: 'block',
-                                      }}
-                                    />
-                                    <span
-                                      style={{
-                                        fontSize: '6.5pt',
-                                        fontWeight: 600,
-                                        color: '#1c2340',
-                                        textAlign: 'center',
-                                        lineHeight: 1.2,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                        whiteSpace: 'nowrap',
-                                        width: '100%',
-                                      }}
-                                    >
-                                      [{itemIdx + 1}] {item.name || 'Barang'}
-                                    </span>
-                                  </div>
-                                ))
-                              )}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Grand Total & Tanda Tangan */}
-                        <div className="pb-fin">
-                          <div className="pb-gt2">
-                            <span>Total Pengajuan</span>
-                            <b>{rp(summary.grandTotal)}</b>
-                          </div>
-                          {summary.grandTotal > 0 && (
-                            <p className="pb-tbl">Terbilang: {summary.terbilangText}</p>
-                          )}
-
-                          <div className="pb-ttd">
-                            {/* Kepala Sekolah */}
-                            <div>
-                              <div className="pb-l1">&nbsp;</div>
-                              <div className="pb-l2">{sign.kepala.label}</div>
-                              <div className="pb-sg">
-                                {sign.kepala.sig ? (
-                                  <img src={sign.kepala.sig} alt="TTD Kepala" />
-                                ) : (
-                                  ''
-                                )}
-                              </div>
-                              <div className="pb-nm2">( {sign.kepala.name || '………………………'} )</div>
-                            </div>
-
-                            {/* Waka Sarana */}
-                            <div>
-                              <div className="pb-l1">&nbsp;</div>
-                              <div className="pb-l2">{sign.waka.label}</div>
-                              <div className="pb-sg">
-                                {sign.waka.sig ? (
-                                  <img src={sign.waka.sig} alt="TTD Waka" />
-                                ) : (
-                                  ''
-                                )}
-                              </div>
-                              <div className="pb-nm2">( {sign.waka.name || '………………………'} )</div>
-                            </div>
-
-                            {/* Pemohon */}
-                            <div>
-                              <div className="pb-l1">
-                                {sign.kota}
-                                {sign.kota && sign.tanggal ? ', ' : ''}
-                                <u>{longDate(sign.tanggal)}</u>
-                              </div>
-                              <div className="pb-l2">
-                                <u>{sign.pemohon.label}</u>
-                              </div>
-                              <div className="pb-sg">
-                                {sign.pemohon.sig ? (
-                                  <img src={sign.pemohon.sig} alt="TTD Pemohon" />
-                                ) : (
-                                  ''
-                                )}
-                              </div>
-                              <div className="pb-nm2">( {sign.pemohon.name || '………………………'} )</div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Footer Sheet */}
-                      <footer className="pb-ft">
-                        Halaman 1 dari 1 · {(sign.pemohon.name || '').toUpperCase()}
-                      </footer>
-                    </section>
-                  </div>
-                </div>
-              </div>
             </main>
 
             {/* Sidebar Ringkasan (Kanan) */}
@@ -2039,24 +1632,18 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                     <span>{saving ? 'Menyimpan...' : 'Simpan ke Database'}</span>
                   </button>
 
-                  {/* Tombol Unduh Dokumen (PDF) */}
+                  {/* Tombol Pratinjau Dokumen ↗ */}
                   <button
                     type="button"
                     className="pb-btn dark lg"
                     style={{ marginBottom: '10px' }}
-                    onClick={() => {
-                      setActiveView('prev');
-                      setTimeout(() => {
-                        window.print();
-                      }, 200);
-                    }}
+                    onClick={handleOpenPratinjau}
                   >
                     <svg style={{ width: '20px', height: '20px', marginRight: '6px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
+                      <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                      <circle cx="12" cy="12" r="3" />
                     </svg>
-                    <span>Unduh Dokumen (PDF)</span>
+                    <span>Pratinjau Dokumen ↗</span>
                   </button>
 
                   {/* Tombol Cetak Dokumen */}
@@ -2070,16 +1657,6 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                       <path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z" />
                     </svg>
                     <span>{printing ? 'Menyimpan & Mencetak...' : 'Cetak Dokumen'}</span>
-                  </button>
-
-                  {/* Tombol Alih Tampilan */}
-                  <button
-                    className="pb-btn soft lg"
-                    type="button"
-                    style={{ marginTop: '10px' }}
-                    onClick={() => setActiveView(activeView === 'form' ? 'prev' : 'form')}
-                  >
-                    <span>{activeView === 'form' ? 'Lihat Pratinjau' : 'Kembali ke Formulir'}</span>
                   </button>
 
                   {/* Alat Ekspor, Impor, Reset */}
@@ -2126,12 +1703,9 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             <button
               className="pb-btn dark sm"
               type="button"
-              onClick={() => {
-                setActiveView('prev');
-                setTimeout(() => window.print(), 200);
-              }}
+              onClick={handleOpenPratinjau}
             >
-              Unduh PDF
+              Pratinjau ↗
             </button>
             <button
               className="pb-btn soft sm"
