@@ -276,6 +276,8 @@ export function App() {
       '/lampiran',
       '/galeri-lampiran',
       '/galeri-berkas',
+      '/pengajuan-barang/pratinjau',
+      '/pengajuan-barang/pratinjau-dokumen',
     ];
     if (hashPart && hashPart.startsWith('/chat')) {
       return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
@@ -477,6 +479,7 @@ export function App() {
     '/lampiran': 'galeri-berkas',
     '/galeri-lampiran': 'galeri-berkas',
     '/galeri-berkas': 'galeri-berkas',
+    '/pengajuan-barang/pratinjau': 'pengajuan-barang-pratinjau-dokumen',
     '/pengajuan-barang/pratinjau-dokumen': 'pengajuan-barang-pratinjau-dokumen',
   };
 
@@ -506,7 +509,7 @@ export function App() {
     'edit-laporan': '/analitik/editlaporan',
     'galeri-lampiran': '/galeri-berkas',
     'galeri-berkas': '/galeri-berkas',
-    'pengajuan-barang-pratinjau-dokumen': '/pengajuan-barang/pratinjau-dokumen',
+    'pengajuan-barang-pratinjau-dokumen': '/pengajuan-barang/pratinjau',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {

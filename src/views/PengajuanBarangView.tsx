@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { getStoredToken } from '../utils/api';
 
 export interface PengajuanBarangViewProps {
   onAddToast?: (message: string) => void;
@@ -482,73 +483,129 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     return true;
   };
 
-  /* ── Direct PHP Pratinjau Sync ── */
-  const handleOpenPratinjau = () => {
-    // 1. Susun data formulir saat ini sesuai skema PBDoc
-    const payload = {
-      meta: {
-        instansi: meta.instansi || 'SMK MULTI KARYA',
-        alamat: meta.alamat || 'Jl. STM No. 10, Sitirejo II, Kec. Medan Amplas, Kota Medan, Sumatera Utara',
-        divisi: meta.divisi || 'Kreatif',
-        keperluan: meta.keperluan || 'Keperluan Barang',
-        orient: meta.orient || 'landscape',
-      },
-      items: items.map((item) => ({
-        name: item.name || '',
-        spec: item.spec || '',
-        price: Number(item.price) || 0,
-        qty: Number(item.qty) || 1,
-        online: Boolean(item.online),
-        link: item.link || '',
-        imgs: Array.isArray(item.imgs) ? item.imgs : [],
-      })),
-      sign: {
-        kota: sign.kota || 'Medan',
-        tanggal: sign.tanggal || today(),
-        kepala: {
-          label: sign.kepala?.label || 'Kepala Sekolah',
-          name: sign.kepala?.name || 'Lyly Rismaidy, S.Pd',
-          sig: sign.kepala?.sig || '',
-        },
-        waka: {
-          label: sign.waka?.label || 'Waka Sarana Prasarana',
-          name: sign.waka?.name || 'Faisal Azmi, Sp',
-          sig: sign.waka?.sig || '',
-        },
-        pemohon: {
-          label: 'PEMOHON',
-          name: sign.pemohon?.name || 'M. Rizqy Aditya Fahrezi, S.Ds',
-          sig: sign.pemohon?.sig || '',
-        },
-      },
-    };
-
-    // 2. Simpan draf ke localStorage (kunci pb.v1) agar pratinjau.php membaca data terkini
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-    } catch (e) {
-      console.warn('Gagal menyimpan draf pb.v1:', e);
+  /* ── Open Preview via Authenticated Fetch and Blob URL ── */
+  const openPratinjauWithAuth = async (id?: string | number) => {
+    const token = getStoredToken();
+    if (!token) {
+      showToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.');
+      return;
     }
 
-    // 3. Buka halaman PHP pratinjau resmi di tab baru
-    const targetUrl = meta.id
-      ? `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php?id=${meta.id}`
-      : 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php';
+    // Pre-open a blank tab synchronously to prevent browser popup blockers during async fetch
+    let newTab: Window | null = null;
+    try {
+      newTab = window.open('about:blank', '_blank');
+      if (newTab) {
+        newTab.document.write(`
+          <!doctype html>
+          <html lang="id">
+          <head>
+            <meta charset="utf-8">
+            <title>Memuat Dokumen Pratinjau...</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>
+              body { margin:0; display:flex; align-items:center; justify-content:center; height:100vh; font-family:'Poppins',system-ui,-apple-system,sans-serif; background:#eceef3; color:#1c2340; }
+              .box { text-align:center; padding:24px; max-width:420px; }
+              .spinner { width:42px; height:42px; border:4px solid #cfd4e1; border-top-color:#2f3b6b; border-radius:50%; animation:spin 0.9s linear infinite; margin:0 auto 16px; }
+              @keyframes spin { to { transform:rotate(360deg); } }
+              h2 { margin:0 0 8px; font-size:18px; font-weight:600; }
+              p { margin:0; font-size:13px; color:#7c84a0; line-height:1.5; }
+            </style>
+          </head>
+          <body>
+            <div class="box">
+              <div class="spinner"></div>
+              <h2>Menyiapkan Dokumen...</h2>
+              <p>Mengambil data pengajuan resmi dari database LaporanWee</p>
+            </div>
+          </body>
+          </html>
+        `);
+        newTab.document.close();
+      }
+    } catch (_) {}
 
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    const queryParam = id ? `?id=${encodeURIComponent(String(id))}` : '';
+    const primaryUrl = `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php${queryParam}`;
+    const fallbackUrl = `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php${queryParam}`;
+
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'text/html,application/json,*/*'
+    };
+
+    try {
+      let response = await fetch(primaryUrl, {
+        method: 'GET',
+        headers
+      });
+
+      if (response.status === 404 || response.status === 405) {
+        response = await fetch(fallbackUrl, {
+          method: 'GET',
+          headers
+        });
+      }
+
+      if (response.status === 401) {
+        if (newTab && !newTab.closed) newTab.close();
+        showToast('Sesi autentikasi telah berakhir atau token tidak valid. Silakan login kembali.');
+        return;
+      }
+
+      if (!response.ok) {
+        if (newTab && !newTab.closed) newTab.close();
+        showToast(`Gagal memuat pratinjau dokumen dari server (Status: ${response.status}).`);
+        return;
+      }
+
+      const htmlText = await response.text();
+
+      // Check if response is a JSON error
+      const trimmed = htmlText.trim();
+      if (trimmed.startsWith('{')) {
+        try {
+          const json = JSON.parse(trimmed);
+          if (json.success === false) {
+            if (newTab && !newTab.closed) newTab.close();
+            showToast(json.message || 'Data pengajuan barang tidak ditemukan di database.');
+            return;
+          }
+        } catch (_) {}
+      }
+
+      // Convert HTML response to Blob URL
+      const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+
+      if (newTab && !newTab.closed) {
+        newTab.location.href = blobUrl;
+      } else {
+        const opened = window.open(blobUrl, '_blank');
+        if (!opened) {
+          showToast('Pop-up diblokir oleh browser. Harap izinkan pop-up untuk melihat dokumen.');
+        }
+      }
+    } catch (err: any) {
+      if (newTab && !newTab.closed) newTab.close();
+      showToast('Gagal terhubung ke server pratinjau. Periksa koneksi internet Anda.');
+    }
   };
 
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
 
-
   /* ── Auth Headers ── */
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
-    return {
+    const token = getStoredToken() || '';
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      'Accept': 'application/json'
     };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    return headers;
   };
 
   const fetchHistory = async () => {
@@ -565,48 +622,83 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
   };
 
-  /* ── Direct PHP Pratinjau Sync ── */
-  const handleOpenPreview = (id?: number) => {
-    // Simpan draf form aktif ke localStorage pb.v1
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meta, items, sign }));
-    } catch (e) {}
-    
-    const url = id 
-      ? `/pengajuan-barang/pratinjau-dokumen?id=${id}` 
-      : '/pengajuan-barang/pratinjau-dokumen';
-    window.open(url, '_blank');
-  };
-
   /* ── Save to Database API ── */
-  const handleSaveToDatabase = async () => {
-    if (!validateForm()) return;
+  const handleSaveToDatabase = async (): Promise<string | number | null> => {
+    if (!validateForm()) return null;
     setSaving(true);
+    const token = getStoredToken();
+    if (!token) {
+      showToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.');
+      setSaving(false);
+      return null;
+    }
+
     const payload = {
       id: meta.id || undefined,
       meta,
       items,
       sign,
     };
+
     try {
       const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(payload)
       });
-      const json = await res.json();
+      const text = await res.text();
+      let json: any = {};
+      try {
+        json = text ? JSON.parse(text) : {};
+      } catch (_) {
+        throw new Error(`Server mengembalikan respon tidak valid (${res.status})`);
+      }
+
       if (json.success) {
-        setMeta(prev => ({ ...prev, id: json.id }));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, meta: { ...meta, id: json.id } }));
+        const savedId =
+          json.data?.id ||
+          json.id ||
+          json.submission_id ||
+          json.data?.submission_id ||
+          json.insert_id ||
+          json.data?.insert_id ||
+          meta.id;
+
+        if (savedId) {
+          setMeta(prev => ({ ...prev, id: String(savedId) }));
+          try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, meta: { ...meta, id: String(savedId) } }));
+          } catch (_) {}
+        }
         showToast('✓ Pengajuan barang berhasil disimpan ke database!');
         fetchHistory();
+        return savedId || meta.id || null;
       } else {
-        showToast(json.message || 'Gagal menyimpan.');
+        showToast(json.message || 'Gagal menyimpan ke database.');
+        return null;
       }
-    } catch {
-      showToast('Terjadi kesalahan jaringan.');
+    } catch (err: any) {
+      showToast(err.message || 'Terjadi kesalahan jaringan saat menyimpan.');
+      return null;
     } finally {
       setSaving(false);
+    }
+  };
+
+  /* ── Handle Open Pratinjau Action ── */
+  const handleOpenPratinjau = async (explicitId?: string | number) => {
+    if (explicitId) {
+      await openPratinjauWithAuth(explicitId);
+      return;
+    }
+
+    if (!validateForm()) return;
+    // Simpan ke database terlebih dahulu untuk mendapatkan ID dan memastikan data tersinkron
+    const savedId = await handleSaveToDatabase();
+    if (savedId) {
+      await openPratinjauWithAuth(savedId);
+    } else if (meta.id) {
+      await openPratinjauWithAuth(meta.id);
     }
   };
 
@@ -621,6 +713,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
       const json = await res.json();
       if (json.success) {
         fetchHistory();
+        showToast('✓ Pengajuan berhasil dihapus dari riwayat.');
       } else {
         showToast(json.message || 'Gagal menghapus.');
       }
@@ -634,8 +727,12 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     if (!validateForm()) return;
     setPrinting(true);
     try {
-      await handleSaveToDatabase();
-      handleOpenPratinjau();
+      const savedId = await handleSaveToDatabase();
+      if (!savedId) {
+        showToast('Penyimpanan gagal, dokumen tidak dapat dicetak.');
+        return;
+      }
+      await openPratinjauWithAuth(savedId);
     } finally {
       setPrinting(false);
     }
@@ -927,7 +1024,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             {/* Tombol Pratinjau Dokumen ↗ */}
             <button
               type="button"
-              onClick={handleOpenPratinjau}
+              onClick={() => handleOpenPratinjau()}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#1c2340] text-white text-xs font-bold shadow-md hover:bg-[#2f3b6b] transition-all cursor-pointer"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1678,7 +1775,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                   <button
                     type="button"
                     className="pb-btn dark lg mt-2.5"
-                    onClick={() => handleOpenPreview(meta.id ? Number(meta.id) : undefined)}
+                    onClick={() => handleOpenPratinjau()}
                   >
                     <svg style={{ width: '20px', height: '20px', marginRight: '6px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -1744,7 +1841,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             <button
               className="pb-btn dark sm"
               type="button"
-              onClick={handleOpenPratinjau}
+              onClick={() => handleOpenPratinjau()}
             >
               Pratinjau ↗
             </button>
@@ -1785,7 +1882,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                       <p className="text-xs text-muted">{item.created_at}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button onClick={() => handleOpenPreview(Number(item.id))} className="text-xs font-bold text-accent">Pratinjau</button>
+                      <button type="button" onClick={() => handleOpenPratinjau(item.id)} className="text-xs font-bold text-accent hover:underline cursor-pointer px-2 py-1">Pratinjau</button>
                       <button onClick={() => handleSoftDelete(Number(item.id))} className="text-xs font-bold text-bad">Hapus</button>
                     </div>
                   </div>
