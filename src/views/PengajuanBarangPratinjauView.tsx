@@ -3,6 +3,87 @@ import { render, fit, downloadJPEG, downloadPDF } from '../utils/pbDoc';
 import { getStoredToken } from '../utils/api';
 import './pengajuan-pratinjau.css';
 
+/**
+ * Normalisasi data dokumen pengajuan dari berbagai format (payload draft, respons MySQL/PHP tunggal, dsb)
+ */
+const normalizeDocumentData = (raw: any) => {
+  if (!raw) return null;
+
+  // Jika payload sudah memiliki struktur meta, items, sign
+  if (raw.meta && Array.isArray(raw.items)) {
+    return {
+      meta: {
+        instansi: raw.meta.instansi || '',
+        alamat: raw.meta.alamat || '',
+        divisi: raw.meta.divisi || '',
+        keperluan: raw.meta.keperluan || '',
+        orient: raw.meta.orient || 'landscape',
+        ...raw.meta
+      },
+      items: raw.items.map((it: any) => ({
+        name: it.name || it.nama_barang || '',
+        spec: it.spec || it.spesifikasi || '',
+        price: Number(it.price || it.harga_satuan || 0),
+        qty: Number(it.qty || it.jumlah || 1),
+        online: Boolean(it.online || it.is_online),
+        link: it.link || it.url || '',
+        imgs: Array.isArray(it.imgs) ? it.imgs : (it.foto ? [it.foto] : [])
+      })),
+      sign: {
+        kota: raw.sign?.kota || '',
+        tanggal: raw.sign?.tanggal || '',
+        kepala: raw.sign?.kepala || { label: 'Kepala Sekolah', name: '', sig: '' },
+        waka: raw.sign?.waka || { label: 'Waka Sarana Prasarana', name: '', sig: '' },
+        pemohon: raw.sign?.pemohon || { label: 'PEMOHON', name: '', sig: '' },
+        ...raw.sign
+      }
+    };
+  }
+
+  // Jika format data flat dari baris database SQL
+  const items = Array.isArray(raw.items)
+    ? raw.items.map((it: any) => ({
+        name: it.name || it.nama_barang || '',
+        spec: it.spec || it.spesifikasi || '',
+        price: Number(it.price || it.harga_satuan || 0),
+        qty: Number(it.qty || it.jumlah || 1),
+        online: Boolean(it.online || it.is_online),
+        link: it.link || it.url || '',
+        imgs: Array.isArray(it.imgs) ? it.imgs : (it.foto ? [it.foto] : [])
+      }))
+    : [];
+
+  return {
+    meta: {
+      instansi: raw.instansi || '',
+      alamat: raw.alamat || '',
+      divisi: raw.divisi || '',
+      keperluan: raw.keperluan || '',
+      orient: raw.orient || 'landscape',
+    },
+    items,
+    sign: {
+      kota: raw.kota || '',
+      tanggal: raw.tanggal || '',
+      kepala: {
+        label: raw.kepala_label || raw.kepala?.label || 'Kepala Sekolah',
+        name: raw.kepala_name || raw.kepala?.name || '',
+        sig: raw.kepala_sig || raw.kepala?.sig || ''
+      },
+      waka: {
+        label: raw.waka_label || raw.waka?.label || 'Waka Sarana Prasarana',
+        name: raw.waka_name || raw.waka?.name || '',
+        sig: raw.waka_sig || raw.waka?.sig || ''
+      },
+      pemohon: {
+        label: raw.pemohon_label || raw.pemohon?.label || 'PEMOHON',
+        name: raw.pemohon_name || raw.pemohon?.name || '',
+        sig: raw.pemohon_sig || raw.pemohon?.sig || ''
+      }
+    }
+  };
+};
+
 export const PengajuanBarangPratinjauView: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -21,6 +102,14 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
     setTimeout(() => {
       if (toastRef.current) toastRef.current.classList.remove('on');
     }, 2800);
+  };
+
+  const handleGoBack = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = '/pengajuan-barang';
+    }
   };
 
   useEffect(() => {
@@ -63,7 +152,14 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
 
           const json = await res.json();
           if (json.success && json.data) {
-            dataRef.current = json.data;
+            const normalized = normalizeDocumentData(json.data);
+            if (normalized && normalized.items.length > 0) {
+              dataRef.current = normalized;
+            } else {
+              setLoading(false);
+              setErrorMessage(`Pengajuan barang ID #${id} tidak memiliki daftar barang.`);
+              return;
+            }
           } else {
             setLoading(false);
             setErrorMessage(json.message || `Data pengajuan barang ID #${id} tidak ditemukan di database.`);
@@ -75,18 +171,19 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
           return;
         }
       } else {
-        // 2. Jika tidak ada ID di URL, gunakan draf lokal aktif pengguna jika tersedia
+        // 2. Jika tidak ada ID di URL, gunakan draf formulir lokal aktif pengguna
         try {
           const draft = localStorage.getItem('pb.v1');
           if (draft) {
             const parsed = JSON.parse(draft);
-            if (Array.isArray(parsed.items) && parsed.items.length > 0) {
-              dataRef.current = parsed;
+            const normalized = normalizeDocumentData(parsed);
+            if (normalized && normalized.items.length > 0) {
+              dataRef.current = normalized;
             }
           }
         } catch (_) {}
 
-        if (!dataRef.current) {
+        if (!dataRef.current || !dataRef.current.items || dataRef.current.items.length === 0) {
           setLoading(false);
           setErrorMessage('Tidak ada data pengajuan yang dipilih atau tersimpan di formulir.');
           return;
@@ -104,13 +201,7 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
             const currentData = dataRef.current;
             currentData.meta = currentData.meta || {};
 
-            const draw = () => {
-              const r = render(currentData, host);
-              fit(wrap, host);
-              const infoEl = document.getElementById('info');
-              if (infoEl) {
-                infoEl.textContent = `${r.pages} halaman · ${r.land ? 'Landscape' : 'Portrait'} · Database Asli`;
-              }
+            const updateSegmentPosition = () => {
               const seg = segRef.current;
               if (seg) {
                 const b = seg.querySelector('button.on');
@@ -120,6 +211,25 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
                   (i as HTMLElement).style.transform = `translateX(${((b as HTMLElement).offsetLeft - 4)}px)`;
                 }
               }
+            };
+
+            const draw = () => {
+              const r = render(currentData, host);
+              fit(wrap, host);
+              const infoEl = document.getElementById('info');
+              if (infoEl) {
+                const sourceLabel = id ? `ID #${id}` : 'Draf Formulir';
+                infoEl.textContent = `${r.pages} halaman · ${r.land ? 'Landscape' : 'Portrait'} · ${sourceLabel}`;
+              }
+              const seg = segRef.current;
+              if (seg) {
+                seg.querySelectorAll('button').forEach((btn: any) => {
+                  const on = (currentData.meta.orient || 'landscape') === btn.dataset.o;
+                  btn.classList.toggle('on', on);
+                  btn.setAttribute('aria-checked', on ? 'true' : 'false');
+                });
+              }
+              updateSegmentPosition();
             };
 
             if (segRef.current) {
@@ -146,12 +256,15 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
                 r.onload = () => {
                   try {
                     const d = JSON.parse(r.result as string);
-                    if (!d || !Array.isArray(d.items)) throw new Error();
-                    dataRef.current = d;
+                    const normalized = normalizeDocumentData(d);
+                    if (!normalized || !Array.isArray(normalized.items) || normalized.items.length === 0) {
+                      throw new Error();
+                    }
+                    dataRef.current = normalized;
                     draw();
-                    showToast('Data dimuat');
+                    showToast('Data dokumen berhasil dimuat');
                   } catch (_) {
-                    showToast('File JSON tidak valid');
+                    showToast('File JSON tidak valid atau tidak memiliki daftar barang');
                   }
                 };
                 r.readAsText(f);
@@ -159,7 +272,12 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
             }
 
             const bPrn = document.getElementById('bPrn');
-            if (bPrn) bPrn.onclick = () => { draw(); setTimeout(() => window.print(), 60); };
+            if (bPrn) {
+              bPrn.onclick = () => {
+                draw();
+                setTimeout(() => window.print(), 60);
+              };
+            }
 
             window.addEventListener('resize', () => fit(wrap, host));
             draw();
@@ -170,7 +288,7 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
             console.error('Render error:', e);
           }
         }
-      }, 100);
+      }, 80);
     };
 
     loadData();
@@ -222,10 +340,10 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
           <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
             <button
               type="button"
-              onClick={() => { window.location.href = '/pengajuan-barang'; }}
+              onClick={handleGoBack}
               style={{ padding: '12px 24px', borderRadius: '999px', background: '#2f3b6b', color: '#fff', fontWeight: 600, fontSize: '14px', border: 0, cursor: 'pointer' }}
             >
-              Kembali ke Formulir
+              ← Kembali ke Formulir
             </button>
             <button
               type="button"
@@ -243,9 +361,21 @@ export const PengajuanBarangPratinjauView: React.FC = () => {
   return (
     <div className="pengajuan-barang-pratinjau-container">
       <header className="sa-bar">
+        <button
+          type="button"
+          className="sa-btn"
+          id="bBack"
+          onClick={handleGoBack}
+          title="Kembali ke Formulir Pengajuan Barang"
+          style={{ marginRight: '4px' }}
+        >
+          <svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          <span>Kembali</span>
+        </button>
+
         <div className="sa-ttl">
           <b>Dokumen Pengajuan Barang</b>
-          <small id="info">{loading ? 'Memuat dari Database...' : 'Siap'}</small>
+          <small id="info">{loading ? 'Memuat dokumen...' : 'Siap'}</small>
         </div>
 
         <div className="sa-seg" ref={segRef} id="seg" role="radiogroup" aria-label="Orientasi kertas">

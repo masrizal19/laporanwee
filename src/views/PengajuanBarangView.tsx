@@ -483,114 +483,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     return true;
   };
 
-  /* ── Open Preview via Authenticated Fetch and Blob URL ── */
-  const openPratinjauWithAuth = async (id?: string | number) => {
-    const token = getStoredToken();
-    if (!token) {
-      showToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.');
-      return;
-    }
 
-    // Pre-open a blank tab synchronously to prevent browser popup blockers during async fetch
-    let newTab: Window | null = null;
-    try {
-      newTab = window.open('about:blank', '_blank');
-      if (newTab) {
-        newTab.document.write(`
-          <!doctype html>
-          <html lang="id">
-          <head>
-            <meta charset="utf-8">
-            <title>Memuat Dokumen Pratinjau...</title>
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <style>
-              body { margin:0; display:flex; align-items:center; justify-content:center; height:100vh; font-family:'Poppins',system-ui,-apple-system,sans-serif; background:#eceef3; color:#1c2340; }
-              .box { text-align:center; padding:24px; max-width:420px; }
-              .spinner { width:42px; height:42px; border:4px solid #cfd4e1; border-top-color:#2f3b6b; border-radius:50%; animation:spin 0.9s linear infinite; margin:0 auto 16px; }
-              @keyframes spin { to { transform:rotate(360deg); } }
-              h2 { margin:0 0 8px; font-size:18px; font-weight:600; }
-              p { margin:0; font-size:13px; color:#7c84a0; line-height:1.5; }
-            </style>
-          </head>
-          <body>
-            <div class="box">
-              <div class="spinner"></div>
-              <h2>Menyiapkan Dokumen...</h2>
-              <p>Mengambil data pengajuan resmi dari database LaporanWee</p>
-            </div>
-          </body>
-          </html>
-        `);
-        newTab.document.close();
-      }
-    } catch (_) {}
-
-    const queryParam = id ? `?id=${encodeURIComponent(String(id))}` : '';
-    const primaryUrl = `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/pratinjau.php${queryParam}`;
-    const fallbackUrl = `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php${queryParam}`;
-
-    const headers: Record<string, string> = {
-      'Authorization': `Bearer ${token}`,
-      'Accept': 'text/html,application/json,*/*'
-    };
-
-    try {
-      let response = await fetch(primaryUrl, {
-        method: 'GET',
-        headers
-      });
-
-      if (response.status === 404 || response.status === 405) {
-        response = await fetch(fallbackUrl, {
-          method: 'GET',
-          headers
-        });
-      }
-
-      if (response.status === 401) {
-        if (newTab && !newTab.closed) newTab.close();
-        showToast('Sesi autentikasi telah berakhir atau token tidak valid. Silakan login kembali.');
-        return;
-      }
-
-      if (!response.ok) {
-        if (newTab && !newTab.closed) newTab.close();
-        showToast(`Gagal memuat pratinjau dokumen dari server (Status: ${response.status}).`);
-        return;
-      }
-
-      const htmlText = await response.text();
-
-      // Check if response is a JSON error
-      const trimmed = htmlText.trim();
-      if (trimmed.startsWith('{')) {
-        try {
-          const json = JSON.parse(trimmed);
-          if (json.success === false) {
-            if (newTab && !newTab.closed) newTab.close();
-            showToast(json.message || 'Data pengajuan barang tidak ditemukan di database.');
-            return;
-          }
-        } catch (_) {}
-      }
-
-      // Convert HTML response to Blob URL
-      const blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
-      const blobUrl = URL.createObjectURL(blob);
-
-      if (newTab && !newTab.closed) {
-        newTab.location.href = blobUrl;
-      } else {
-        const opened = window.open(blobUrl, '_blank');
-        if (!opened) {
-          showToast('Pop-up diblokir oleh browser. Harap izinkan pop-up untuk melihat dokumen.');
-        }
-      }
-    } catch (err: any) {
-      if (newTab && !newTab.closed) newTab.close();
-      showToast('Gagal terhubung ke server pratinjau. Periksa koneksi internet Anda.');
-    }
-  };
 
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
@@ -686,20 +579,22 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Handle Open Pratinjau Action ── */
-  const handleOpenPratinjau = async (explicitId?: string | number) => {
-    if (explicitId) {
-      await openPratinjauWithAuth(explicitId);
-      return;
+  const handleOpenPratinjau = (explicitId?: string | number) => {
+    // 1. Simpan draf formulir aktif saat ini ke localStorage 'pb.v1'
+    try {
+      const payload = { meta, items, sign };
+      localStorage.setItem('pb.v1', JSON.stringify(payload));
+    } catch (e) {
+      console.warn('Gagal menyimpan draf pratinjau:', e);
     }
 
-    if (!validateForm()) return;
-    // Simpan ke database terlebih dahulu untuk mendapatkan ID dan memastikan data tersinkron
-    const savedId = await handleSaveToDatabase();
-    if (savedId) {
-      await openPratinjauWithAuth(savedId);
-    } else if (meta.id) {
-      await openPratinjauWithAuth(meta.id);
-    }
+    // 2. Arahkan pengguna ke rute resmi /pengajuan-barang/pratinjau
+    const targetId = explicitId || meta.id;
+    const targetUrl = targetId
+      ? `/pengajuan-barang/pratinjau?id=${encodeURIComponent(String(targetId))}`
+      : '/pengajuan-barang/pratinjau';
+
+    window.location.href = targetUrl;
   };
 
   const handleSoftDelete = async (id: number) => {
@@ -723,19 +618,9 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Print Document Action ── */
-  const handlePrint = async () => {
+  const handlePrint = () => {
     if (!validateForm()) return;
-    setPrinting(true);
-    try {
-      const savedId = await handleSaveToDatabase();
-      if (!savedId) {
-        showToast('Penyimpanan gagal, dokumen tidak dapat dicetak.');
-        return;
-      }
-      await openPratinjauWithAuth(savedId);
-    } finally {
-      setPrinting(false);
-    }
+    handleOpenPratinjau();
   };
 
   /* ── Export & Import JSON ── */
