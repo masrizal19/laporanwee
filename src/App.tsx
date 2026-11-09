@@ -39,6 +39,7 @@ import { PengajuanBarangView } from './views/PengajuanBarangView';
 import { ChatView } from './views/ChatView';
 import { GaleriLampiranView } from './views/GaleriLampiranView';
 import { GaleriBerkasView } from './views/GaleriBerkasView';
+import { PengajuanBarangExportView } from './views/PengajuanBarangExportView';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -275,6 +276,7 @@ export function App() {
       '/lampiran',
       '/galeri-lampiran',
       '/galeri-berkas',
+      '/pengajuan-barang/export',
     ];
     if (hashPart && hashPart.startsWith('/chat')) {
       return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
@@ -476,6 +478,7 @@ export function App() {
     '/lampiran': 'galeri-berkas',
     '/galeri-lampiran': 'galeri-berkas',
     '/galeri-berkas': 'galeri-berkas',
+    '/pengajuan-barang/export': 'pengajuan-barang-export',
   };
 
   const viewToPathMap: Record<ViewType, string> = {
@@ -504,6 +507,7 @@ export function App() {
     'edit-laporan': '/analitik/editlaporan',
     'galeri-lampiran': '/galeri-berkas',
     'galeri-berkas': '/galeri-berkas',
+    'pengajuan-barang-export': '/pengajuan-barang/export',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
@@ -1869,6 +1873,16 @@ export function App() {
           onNavigate={handleNavigate}
           onAddToast={addToast}
         />
+        <ToastContainer toasts={toasts} />
+      </>
+    );
+  }
+
+  if (currentView === 'pengajuan-barang-export' || currentPath === '/pengajuan-barang/export') {
+    console.log('[APP RENDER: Mounting Standalone PengajuanBarangExportView]');
+    return (
+      <>
+        <PengajuanBarangExportView />
         <ToastContainer toasts={toasts} />
       </>
     );

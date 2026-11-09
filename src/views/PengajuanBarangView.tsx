@@ -205,6 +205,33 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
   }, []);
 
+  /* ── Restore draft from localStorage 'pb.v1' on mount ── */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('pb.v1');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+          setItems(parsed.items);
+        }
+        if (parsed.meta) {
+          setMeta((prev) => ({ ...prev, ...parsed.meta }));
+          if (parsed.meta.id) {
+            setCurrentId(parsed.meta.id);
+          }
+        }
+        if (parsed.sign) {
+          setSign((prev) => ({ ...prev, ...parsed.sign }));
+        }
+        if (parsed.id) {
+          setCurrentId(parsed.id);
+        }
+      }
+    } catch (e) {
+      console.warn('Gagal memulihkan draf pengajuan barang:', e);
+    }
+  }, []);
+
   /* ── Theme sync ── */
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -590,28 +617,43 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Handle Open Pratinjau Action ── */
-  const handleOpenPreview = (explicitId?: string | number) => {
+  const handleOpenPreview = async (explicitId?: string | number) => {
     const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
-    const params = new URLSearchParams();
-    
-    const activeId = explicitId || currentId || meta.id;
-    if (activeId) {
-      params.set('id', String(activeId));
-    }
-    if (token) {
-      params.set('token', token);
-    }
+    const payload = getPayload();
 
-    // Simpan draf lokal ke localStorage 'pb.v1' untuk sinkronisasi
+    // 1. Simpan draf ke localStorage
     try {
-      const payload = getPayload();
       localStorage.setItem('pb.v1', JSON.stringify(payload));
     } catch (e) {}
 
-    // Buka langsung ke backend index.php di tab baru
-    const qs = params.toString();
-    const targetUrl = `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php${qs ? '?' + qs : ''}`;
-    window.open(targetUrl, '_blank');
+    // 2. Autosave ke database MySQL
+    let activeId = explicitId || currentId;
+    if (!explicitId) {
+      try {
+        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
+          },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json();
+        if (json.success && (json.data?.id || json.id)) {
+          activeId = json.data?.id || json.id;
+          setCurrentId(activeId);
+          setMeta(prev => ({ ...prev, id: String(activeId) }));
+        }
+      } catch (e) {
+        console.warn('Autosave database tertunda:', e);
+      }
+    }
+
+    // 3. Buka rute export resmi di tab baru
+    const target = activeId 
+      ? `/pengajuan-barang/export?id=${activeId}` 
+      : '/pengajuan-barang/export';
+    window.open(target, '_blank');
   };
 
   const handleOpenPratinjau = handleOpenPreview;
