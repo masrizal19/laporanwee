@@ -2,9 +2,9 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 
 export interface FileItem {
   n: string;          // file name
-  s: string;          // size formatted
-  t: 'Gambar' | 'Video' | 'Dokumen'; // category type
-  src: string;        // full file url
+  s: string;          // formatted file size
+  t: 'Gambar' | 'Video' | 'Dokumen'; // category
+  src: string;        // full file URL
   c: [string, string]; // gradient colors fallback
 }
 
@@ -46,26 +46,29 @@ export const GaleriBerkasView: React.FC = () => {
       const json = await res.json();
       if (json && Array.isArray(json.data) && json.data.length > 0) {
         const formatted: FileItem[] = json.data.map((f: any, idx: number) => {
-          const ext = (f.name?.split('.').pop() || '').toLowerCase();
+          const fileName = f.n || f.name || 'Berkas';
+          const ext = (fileName.split('.').pop() || '').toLowerCase();
           let type: 'Gambar' | 'Video' | 'Dokumen' = 'Dokumen';
           if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(ext)) {
             type = 'Gambar';
           } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) {
             type = 'Video';
+          } else if (f.t === 'Gambar' || f.t === 'Video' || f.t === 'Dokumen') {
+            type = f.t;
           }
 
           return {
-            n: f.name || f.n || 'Berkas Proyek',
-            s: f.size_formatted || f.s || (f.size ? (f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`) : '1.0 MB'),
+            n: fileName,
+            s: f.s || f.size_formatted || (f.size ? (f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`) : '1.0 MB'),
             t: type,
-            src: f.url || f.src || '',
-            c: f.c || PALETTE[idx % PALETTE.length]
+            src: f.src || f.url || '',
+            c: f.c && Array.isArray(f.c) ? f.c : PALETTE[idx % PALETTE.length]
           };
         });
         setFiles(formatted);
       }
     } catch (err) {
-      console.warn('Menggunakan fallback data berkas:', err);
+      console.warn('Menggunakan data fallback:', err);
     }
   };
 
@@ -108,7 +111,7 @@ export const GaleriBerkasView: React.FC = () => {
         alert(data.message || 'Gagal mengunggah berkas.');
       }
     } catch {
-      alert('Terjadi kesalahan jaringan saat mengunggah berkas.');
+      alert('Terjadi kesalahan jaringan saat mengunggah.');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -119,22 +122,352 @@ export const GaleriBerkasView: React.FC = () => {
   const gridItems = filteredList.slice(1);
 
   return (
-    <div className="w-full overflow-x-hidden min-h-screen bg-transparent px-4 md:px-8 py-6">
-      <div className="max-w-[1100px] mx-auto pb-20">
-        
-        {/* HERO TITLE RESMI */}
-        <header className="text-center pt-8 pb-4">
-          <h1
-            className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-gray-900 dark:text-white uppercase select-none"
-            style={{ letterSpacing: '-0.04em' }}
-          >
-            GALERI BERKAS
-          </h1>
+    <div className="gb-container w-full min-w-0 min-h-screen overflow-x-hidden bg-transparent">
+      {/* SCOPED CSS FROM ORIGINAL TEMPLATE (Exact Layout & Override Protection) */}
+      <style>{`
+        .gb-container {
+          --bg: transparent;
+          --card: #ffffff;
+          --ink: #0d0d0d;
+          --mute: #7a7a7a;
+          --pill: #f1f1f1;
+          --ring: rgba(255,255,255,.9);
+          --sh: 0 6px 24px rgba(0,0,0,.07);
+          --btn: #0d0d0d;
+          --btnt: #ffffff;
+          font-family: "Plus Jakarta Sans", "Inter", -apple-system, sans-serif;
+          letter-spacing: -0.01em;
+          color: var(--ink);
+          box-sizing: border-box;
+        }
+
+        [data-theme="dark"] .gb-container,
+        .dark .gb-container {
+          --card: #1f1d2b;
+          --ink: #f2f0fa;
+          --mute: #9a97ad;
+          --pill: rgba(255,255,255,.12);
+          --ring: rgba(255,255,255,.05);
+          --btn: #f2f0fa;
+          --btnt: #0d0d0d;
+          --sh: 0 6px 24px rgba(0,0,0,.45);
+        }
+
+        .gb-wrap {
+          max-width: 1100px;
+          margin: 0 auto;
+          padding: 10px 20px 80px;
+          box-sizing: border-box;
+          width: 100%;
+        }
+
+        .gb-hero {
+          text-align: center;
+          padding: 32px 0 16px;
+        }
+
+        .gb-hero h1 {
+          font-size: clamp(34px, 6vw, 68px);
+          line-height: 1;
+          letter-spacing: -0.05em;
+          margin: 0;
+          font-weight: 800;
+          color: var(--ink);
+          text-transform: uppercase;
+        }
+
+        .gb-bar {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin: 28px 0 24px;
+        }
+
+        .gb-tabs {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+
+        .gb-tab {
+          border: 0;
+          background: transparent;
+          color: var(--mute);
+          font: inherit;
+          font-size: 15px;
+          font-weight: 500;
+          padding: 10px 18px;
+          border-radius: 999px;
+          cursor: pointer;
+          transition: all .2s ease;
+          display: inline-flex;
+          align-items: center;
+        }
+
+        .gb-tab span {
+          margin-left: 6px;
+          opacity: 0.7;
+          font-size: 13px;
+        }
+
+        .gb-tab.on {
+          background: var(--btn);
+          color: var(--btnt);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .gb-add {
+          border: 0;
+          background: var(--card);
+          color: var(--ink);
+          font: inherit;
+          font-weight: 500;
+          padding: 11px 22px;
+          border-radius: 999px;
+          cursor: pointer;
+          box-shadow: var(--sh);
+          border: 1px solid rgba(0,0,0,0.06);
+          transition: transform .15s ease, box-shadow .2s ease;
+        }
+
+        .gb-add:hover {
+          transform: translateY(-1px);
+        }
+
+        .gb-add:active {
+          transform: scale(0.97);
+        }
+
+        .gb-tile {
+          background: var(--card);
+          border-radius: 28px;
+          padding: 6px;
+          box-shadow: var(--sh), 0 0 0 4px var(--ring);
+          overflow: hidden;
+          box-sizing: border-box;
+          transition: transform .2s ease, box-shadow .2s ease;
+        }
+
+        .gb-thumb {
+          position: relative;
+          border-radius: 22px;
+          overflow: hidden;
+          display: grid;
+          place-items: center;
+          aspect-ratio: 4/3;
+        }
+
+        .gb-thumb img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          position: absolute;
+          inset: 0;
+        }
+
+        .gb-thumb video {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          position: absolute;
+          inset: 0;
+        }
+
+        .gb-thumb svg {
+          width: 44px;
+          height: 44px;
+          opacity: 0.9;
+        }
+
+        .gb-tag {
+          position: absolute;
+          top: 12px;
+          right: 12px;
+          background: var(--card);
+          color: var(--ink);
+          font-size: 13px;
+          font-weight: 500;
+          padding: 6px 14px;
+          border-radius: 999px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+          z-index: 2;
+        }
+
+        /* FEATURED CARD */
+        .gb-feat {
+          display: grid !important;
+          grid-template-columns: 1.05fr 1fr !important;
+          margin-bottom: 24px !important;
+          width: 100% !important;
+          cursor: pointer;
+        }
+
+        .gb-feat .gb-thumb {
+          aspect-ratio: auto !important;
+          min-height: 380px !important;
+          height: 100% !important;
+        }
+
+        .gb-feat .gb-body {
+          padding: 34px 34px 28px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          min-width: 0;
+        }
+
+        .gb-feat .gb-tag {
+          position: static;
+          align-self: flex-start;
+          background: var(--pill);
+          box-shadow: none;
+        }
+
+        .gb-feat h2 {
+          font-size: clamp(24px, 3.2vw, 36px);
+          line-height: 1.15;
+          letter-spacing: -0.035em;
+          margin: 20px 0 12px;
+          font-weight: 700;
+          word-break: break-word;
+          color: var(--ink);
+        }
+
+        .gb-feat p {
+          color: var(--mute);
+          font-size: 16px;
+          line-height: 1.5;
+          max-width: 42ch;
+          margin: 0;
+        }
+
+        .gb-foot {
+          margin-top: auto;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-top: 24px;
+          font-size: 13.5px;
+          font-weight: 500;
+          border-top: 1px solid rgba(0,0,0,0.05);
+          color: var(--mute);
+        }
+
+        .gb-foot em {
+          font-family: Georgia, "Times New Roman", serif;
+          font-size: 19px;
+          font-style: italic;
+          color: var(--ink);
+          font-weight: normal;
+        }
+
+        .gb-dot::before {
+          content: "";
+          display: inline-block;
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: var(--ink);
+          margin-right: 8px;
+        }
+
+        /* GRID CARDS (Strict override against global .grid repeat-12) */
+        .gb-grid {
+          display: grid !important;
+          grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          gap: 22px !important;
+          width: 100% !important;
+        }
+
+        @media (min-width: 1100px) {
+          .gb-grid {
+            grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+          }
+        }
+
+        .gb-card {
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          width: 100% !important;
+          min-width: 0 !important;
+        }
+
+        .gb-card:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 10px 30px rgba(0,0,0,0.11), 0 0 0 4px var(--ring);
+        }
+
+        .gb-card .gb-body {
+          padding: 18px 16px 14px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          flex: 1;
+        }
+
+        .gb-card h3 {
+          font-size: 15.5px;
+          line-height: 1.35;
+          font-weight: 600;
+          letter-spacing: -0.02em;
+          word-break: break-word;
+          margin: 0;
+          color: var(--ink);
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+
+        .gb-card p {
+          color: var(--mute);
+          font-size: 13.5px;
+          margin: 8px 0 0;
+          font-weight: 500;
+        }
+
+        .gb-empty {
+          grid-column: 1 / -1;
+          text-align: center;
+          color: var(--mute);
+          padding: 70px 0;
+          font-size: 15px;
+        }
+
+        @media (max-width: 900px) {
+          .gb-feat {
+            grid-template-columns: 1fr !important;
+          }
+          .gb-feat .gb-thumb {
+            min-height: 250px !important;
+          }
+          .gb-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+          }
+        }
+
+        @media (max-width: 560px) {
+          .gb-grid {
+            grid-template-columns: 1fr !important;
+          }
+          .gb-feat .gb-body {
+            padding: 24px 18px;
+          }
+        }
+      `}</style>
+
+      <div className="gb-wrap">
+        {/* HERO TITLE */}
+        <header className="gb-hero">
+          <h1>GALERI BERKAS</h1>
         </header>
 
-        {/* TOOLBAR: TABS FILTER & BUTTON + TAMBAH FILE */}
-        <div className="flex items-center justify-between gap-4 flex-wrap my-6">
-          <div className="flex items-center gap-2 flex-wrap">
+        {/* TOOLBAR */}
+        <div className="gb-bar">
+          <div className="gb-tabs">
             {tabs.map((tab) => {
               const active = activeTab === tab;
               return (
@@ -142,14 +475,10 @@ export const GaleriBerkasView: React.FC = () => {
                   key={tab}
                   type="button"
                   onClick={() => setActiveTab(tab)}
-                  className={`border-0 font-medium text-sm px-4 py-2 transition-all cursor-pointer flex items-center gap-1.5 ${
-                    active
-                      ? 'bg-black text-white dark:bg-white dark:text-black rounded-full shadow-sm'
-                      : 'text-gray-500 hover:text-gray-900 dark:hover:text-white rounded-full bg-transparent'
-                  }`}
+                  className={`gb-tab ${active ? 'on' : ''}`}
                 >
-                  <span>{tab}</span>
-                  <span className="opacity-70 text-xs">{counts[tab] ?? 0}</span>
+                  {tab}
+                  <span>{counts[tab] ?? 0}</span>
                 </button>
               );
             })}
@@ -164,235 +493,176 @@ export const GaleriBerkasView: React.FC = () => {
 
           <button
             type="button"
+            className="gb-add"
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
-            className="border-0 bg-white dark:bg-[#1a1824] text-gray-900 dark:text-white font-medium text-sm px-5 py-2.5 rounded-full cursor-pointer shadow-sm hover:shadow active:scale-95 transition-all border border-gray-200/80 dark:border-white/10"
           >
             {isUploading ? '⏳ Mengunggah...' : '+ Tambah File'}
           </button>
         </div>
 
-        {/* EMPTY STATE */}
-        {filteredList.length === 0 && (
-          <div className="text-center py-20 text-gray-400 text-sm">
-            Belum ada {activeTab.toLowerCase()}. Klik &ldquo;+ Tambah File&rdquo; untuk mengunggah.
-          </div>
-        )}
-
-        {/* FEATURED CARD (BERKAS TERBARU) */}
-        {featItem && (
-          <article
-            onClick={() => setSelectedFile(featItem)}
-            className="bg-white dark:bg-[#1a1824] rounded-[28px] p-4 md:p-5 shadow-sm hover:shadow-md transition-all cursor-pointer border border-black/5 dark:border-white/10 overflow-hidden mb-6 flex flex-col md:flex-row gap-6 items-stretch"
-          >
-            {/* Thumbnail Sisi Kiri */}
-            <div
-              className="w-full md:w-[420px] h-[260px] flex-shrink-0 bg-[#0f3d26] rounded-2xl relative overflow-hidden flex items-center justify-center"
-              style={{
-                background: featItem.c
-                  ? `linear-gradient(145deg, ${featItem.c[0]}, ${featItem.c[1]})`
-                  : '#0f3d26',
-              }}
-            >
-              {featItem.src && featItem.t === 'Gambar' && (
-                <img
-                  src={featItem.src}
-                  alt={featItem.n}
-                  loading="lazy"
-                  className="w-full h-full object-cover absolute inset-0"
-                />
-              )}
-              {featItem.src && featItem.t === 'Video' && (
-                <>
-                  <video
-                    src={`${featItem.src}#t=0.5`}
-                    className="w-full h-full object-cover absolute inset-0"
-                    muted
-                    playsInline
-                  />
-                  <div className="absolute inset-0 grid place-items-center bg-black/25">
-                    <span className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center font-bold">
-                      ▶
-                    </span>
+        {/* MAIN CONTENT AREA */}
+        <main>
+          {filteredList.length === 0 ? (
+            <div className="gb-empty">
+              Belum ada berkas {activeTab.toLowerCase()}. Klik &ldquo;+ Tambah File&rdquo; untuk mengunggah.
+            </div>
+          ) : (
+            <>
+              {/* FEATURED CARD (BERKAS TERBARU) */}
+              {featItem && (
+                <article
+                  className="gb-tile gb-feat"
+                  onClick={() => setSelectedFile(featItem)}
+                >
+                  <div
+                    className="gb-thumb"
+                    style={{
+                      background: featItem.c
+                        ? `linear-gradient(145deg, ${featItem.c[0]}, ${featItem.c[1]})`
+                        : '#0f3d26',
+                    }}
+                  >
+                    {featItem.src && featItem.t === 'Gambar' && (
+                      <img src={featItem.src} alt={featItem.n} loading="lazy" />
+                    )}
+                    {featItem.src && featItem.t === 'Video' && (
+                      <>
+                        <video src={`${featItem.src}#t=0.5`} muted playsInline />
+                        <div className="absolute inset-0 grid place-items-center bg-black/25">
+                          <span className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center font-bold">
+                            ▶
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    {!featItem.src && featItem.t === 'Video' && (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="5" width="18" height="14" rx="3" />
+                        <path d="M10 9l5 3-5 3z" />
+                      </svg>
+                    )}
+                    {!featItem.src && featItem.t === 'Gambar' && (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="4" width="18" height="16" rx="3" />
+                        <circle cx="9" cy="10" r="1.6" />
+                        <path d="M21 16l-5-5-8 8" />
+                      </svg>
+                    )}
+                    {featItem.t === 'Dokumen' && (
+                      <div className="text-white text-6xl font-extrabold select-none">📄</div>
+                    )}
                   </div>
-                </>
+
+                  <div className="gb-body">
+                    <div>
+                      <span className="gb-tag">{featItem.t}</span>
+                      <h2>{featItem.n}</h2>
+                      <p>File terbaru di galeri proyek. Klik untuk melihat, mengunduh, atau menambahkannya ke laporan.</p>
+                    </div>
+
+                    <div className="gb-foot">
+                      <span className="gb-dot">{featItem.s}</span>
+                      <em>Berkas terbaru</em>
+                    </div>
+                  </div>
+                </article>
               )}
-              {(!featItem.src || featItem.t === 'Dokumen') && (
-                <div className="text-white text-5xl font-extrabold uppercase">📄</div>
-              )}
-              {!featItem.src && featItem.t === 'Gambar' && (
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="#fff"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="w-12 h-12 opacity-90"
-                >
-                  <rect x="3" y="4" width="18" height="16" rx="3" />
-                  <circle cx="9" cy="10" r="1.6" />
-                  <path d="M21 16l-5-5-8 8" />
-                </svg>
-              )}
-            </div>
 
-            {/* Area Info Kanan */}
-            <div className="flex-1 flex flex-col justify-between py-1">
-              <div>
-                {/* Badge Abu-Abu */}
-                <span className="inline-block bg-[#f1f1f1] dark:bg-white/10 text-[#0d0d0d] dark:text-gray-200 text-xs font-medium px-3.5 py-1 rounded-full mb-3">
-                  {featItem.t}
-                </span>
+              {/* GRID CARDS (RESPONSIF 1-4 KOLOM) */}
+              {gridItems.length > 0 && (
+                <section className="gb-grid">
+                  {gridItems.map((item, idx) => (
+                    <article
+                      key={idx}
+                      className="gb-tile gb-card"
+                      onClick={() => setSelectedFile(item)}
+                    >
+                      <div
+                        className="gb-thumb"
+                        style={{
+                          background: item.c
+                            ? `linear-gradient(145deg, ${item.c[0]}, ${item.c[1]})`
+                            : '#14502e',
+                        }}
+                      >
+                        {item.src && item.t === 'Gambar' && (
+                          <img src={item.src} alt={item.n} loading="lazy" />
+                        )}
+                        {item.src && item.t === 'Video' && (
+                          <>
+                            <video src={`${item.src}#t=0.5`} muted playsInline />
+                            <div className="absolute inset-0 grid place-items-center bg-black/25">
+                              <span className="w-9 h-9 rounded-full bg-white/90 text-black flex items-center justify-center font-bold text-xs">
+                                ▶
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        {!item.src && item.t === 'Video' && (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="5" width="18" height="14" rx="3" />
+                            <path d="M10 9l5 3-5 3z" />
+                          </svg>
+                        )}
+                        {!item.src && item.t === 'Gambar' && (
+                          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="4" width="18" height="16" rx="3" />
+                            <circle cx="9" cy="10" r="1.6" />
+                            <path d="M21 16l-5-5-8 8" />
+                          </svg>
+                        )}
+                        {item.t === 'Dokumen' && (
+                          <div className="text-white text-4xl font-extrabold select-none">📄</div>
+                        )}
 
-                {/* Judul File Tebal */}
-                <h2 className="text-2xl md:text-3xl font-bold tracking-tight text-gray-900 dark:text-white break-words line-clamp-2 mb-2">
-                  {featItem.n}
-                </h2>
-
-                {/* Deskripsi */}
-                <p className="text-[#7a7a7a] dark:text-gray-400 text-sm md:text-base leading-relaxed max-w-[42ch]">
-                  File terbaru di galeri proyek. Klik untuk melihat, mengunduh, atau menambahkannya ke laporan.
-                </p>
-              </div>
-
-              {/* Bawah: Kiri ukuran file, Kanan serif miring 'Berkas terbaru' */}
-              <div className="flex justify-between items-center pt-4 border-t border-gray-100 dark:border-white/5 mt-4 text-xs font-medium text-gray-700 dark:text-gray-300">
-                <span className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full bg-black dark:bg-white inline-block"></span>
-                  {featItem.s}
-                </span>
-                <em className="font-serif italic text-base md:text-lg text-gray-800 dark:text-gray-200 font-normal">
-                  Berkas terbaru
-                </em>
-              </div>
-            </div>
-          </article>
-        )}
-
-        {/* RESPONSIVE CSS GRID 1-4 KOLOM */}
-        {gridItems.length > 0 && (
-          <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {gridItems.map((item, idx) => (
-              <article
-                key={idx}
-                onClick={() => setSelectedFile(item)}
-                className="bg-white dark:bg-[#1a1824] rounded-[24px] p-2 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer overflow-hidden border border-black/5 dark:border-white/10 flex flex-col"
-              >
-                {/* Thumbnail Rounded */}
-                <div
-                  className="relative rounded-[18px] overflow-hidden aspect-[4/3] flex items-center justify-center"
-                  style={{
-                    background: item.c
-                      ? `linear-gradient(145deg, ${item.c[0]}, ${item.c[1]})`
-                      : '#14502e',
-                  }}
-                >
-                  {item.src && item.t === 'Gambar' && (
-                    <img
-                      src={item.src}
-                      alt={item.n}
-                      loading="lazy"
-                      className="w-full h-full object-cover absolute inset-0"
-                    />
-                  )}
-                  {item.src && item.t === 'Video' && (
-                    <>
-                      <video
-                        src={`${item.src}#t=0.5`}
-                        className="w-full h-full object-cover absolute inset-0"
-                        muted
-                        playsInline
-                      />
-                      <div className="absolute inset-0 grid place-items-center bg-black/25">
-                        <span className="w-8 h-8 rounded-full bg-white/90 text-black flex items-center justify-center font-bold text-xs">
-                          ▶
-                        </span>
+                        <span className="gb-tag">{item.t}</span>
                       </div>
-                    </>
-                  )}
-                  {item.t === 'Dokumen' && (
-                    <div className="text-white text-3xl font-extrabold uppercase">📄</div>
-                  )}
-                  {!item.src && item.t === 'Gambar' && (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#fff"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="w-10 h-10 opacity-90"
-                    >
-                      <rect x="3" y="4" width="18" height="16" rx="3" />
-                      <circle cx="9" cy="10" r="1.6" />
-                      <path d="M21 16l-5-5-8 8" />
-                    </svg>
-                  )}
-                  {!item.src && item.t === 'Video' && (
-                    <svg
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="#fff"
-                      strokeWidth="1.6"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="w-10 h-10 opacity-90"
-                    >
-                      <rect x="3" y="5" width="18" height="14" rx="3" />
-                      <path d="M10 9l5 3-5 3z" />
-                    </svg>
-                  )}
 
-                  {/* Badge Kategori Putih di Pojok Kanan Atas */}
-                  <span className="absolute top-2.5 right-2.5 bg-white text-gray-900 text-xs font-medium px-2.5 py-1 rounded-full shadow-sm">
-                    {item.t}
-                  </span>
-                </div>
-
-                {/* Card Info */}
-                <div className="p-3.5 flex-1 flex flex-col justify-between">
-                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white break-words line-clamp-1 mb-1">
-                    {item.n}
-                  </h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {item.s} • {item.t}
-                  </p>
-                </div>
-              </article>
-            ))}
-          </section>
-        )}
-
+                      <div className="gb-body">
+                        <h3>{item.n}</h3>
+                        <p>{item.s} • {item.t}</p>
+                      </div>
+                    </article>
+                  ))}
+                </section>
+              )}
+            </>
+          )}
+        </main>
       </div>
 
-      {/* LIGHTBOX MODAL NATIVE */}
+      {/* LIGHTBOX / PREVIEW MODAL */}
       {selectedFile && (
         <div
           onClick={() => setSelectedFile(null)}
-          className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn"
+          style={{ zIndex: 9999 }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="max-w-[90vw] max-h-[90vh] flex flex-col items-center gap-3 relative"
+            className="max-w-[92vw] max-h-[92vh] flex flex-col items-center gap-3 relative bg-transparent"
           >
+            {/* Close Button */}
             <button
               type="button"
               onClick={() => setSelectedFile(null)}
-              className="absolute -top-12 right-0 w-9 h-9 rounded-full bg-white/20 text-white font-bold flex items-center justify-center hover:bg-white/30 cursor-pointer"
+              className="absolute -top-12 right-0 w-9 h-9 rounded-full bg-white/20 hover:bg-white/30 text-white font-bold flex items-center justify-center cursor-pointer transition-all border border-white/20"
             >
               ✕
             </button>
 
-            {selectedFile.src && selectedFile.t === 'Gambar' ? (
+            {/* Image Preview */}
+            {selectedFile.src && selectedFile.t === 'Gambar' && (
               <img
                 src={selectedFile.src}
                 alt={selectedFile.n}
-                className="max-w-full max-h-[78vh] rounded-2xl object-contain shadow-2xl"
+                className="max-w-full max-h-[75vh] rounded-2xl object-contain shadow-2xl"
               />
-            ) : selectedFile.t === 'Gambar' ? (
+            )}
+            {!selectedFile.src && selectedFile.t === 'Gambar' && (
               <div
-                className="w-[360px] h-[260px] rounded-2xl flex items-center justify-center text-white"
+                className="w-[380px] h-[280px] rounded-2xl flex items-center justify-center text-white"
                 style={{ background: `linear-gradient(145deg, ${selectedFile.c[0]}, ${selectedFile.c[1]})` }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" className="w-16 h-16 opacity-90">
@@ -401,18 +671,20 @@ export const GaleriBerkasView: React.FC = () => {
                   <path d="M21 16l-5-5-8 8" />
                 </svg>
               </div>
-            ) : null}
+            )}
 
-            {selectedFile.src && selectedFile.t === 'Video' ? (
+            {/* Video Player Preview */}
+            {selectedFile.src && selectedFile.t === 'Video' && (
               <video
                 src={selectedFile.src}
                 controls
                 autoPlay
-                className="max-w-full max-h-[78vh] rounded-2xl shadow-2xl"
+                className="max-w-full max-h-[75vh] rounded-2xl shadow-2xl"
               />
-            ) : selectedFile.t === 'Video' ? (
+            )}
+            {!selectedFile.src && selectedFile.t === 'Video' && (
               <div
-                className="w-[360px] h-[260px] rounded-2xl flex items-center justify-center text-white"
+                className="w-[380px] h-[280px] rounded-2xl flex items-center justify-center text-white"
                 style={{ background: `linear-gradient(145deg, ${selectedFile.c[0]}, ${selectedFile.c[1]})` }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" className="w-16 h-16 opacity-90">
@@ -420,28 +692,47 @@ export const GaleriBerkasView: React.FC = () => {
                   <path d="M10 9l5 3-5 3z" />
                 </svg>
               </div>
-            ) : null}
+            )}
 
+            {/* Document Preview Card */}
             {selectedFile.t === 'Dokumen' && (
-              <div className="p-8 bg-white dark:bg-[#1f1d2b] rounded-2xl text-center flex flex-col items-center gap-3">
-                <span className="text-5xl">📄</span>
-                <p className="text-sm font-bold text-gray-900 dark:text-white">{selectedFile.n}</p>
-                {selectedFile.src ? (
+              <div className="p-8 bg-white dark:bg-[#1f1d2b] rounded-3xl text-center flex flex-col items-center gap-3 shadow-2xl max-w-md border border-black/10 dark:border-white/10">
+                <span className="text-6xl">📄</span>
+                <p className="text-base font-bold text-gray-900 dark:text-white break-words max-w-xs">
+                  {selectedFile.n}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {selectedFile.s} • Dokumen
+                </p>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-3 mt-1">
+              {selectedFile.src ? (
+                <>
                   <a
                     href={selectedFile.src}
                     target="_blank"
                     rel="noreferrer"
-                    className="px-5 py-2 bg-black text-white dark:bg-white dark:text-black rounded-full text-xs font-bold"
+                    className="px-5 py-2.5 bg-white text-black font-semibold rounded-full text-xs shadow-lg hover:scale-105 active:scale-95 transition-all inline-flex items-center gap-1.5"
                   >
-                    Buka / Unduh Berkas ↗
+                    <span>Buka Penuh</span>
+                    <span>↗</span>
                   </a>
-                ) : (
-                  <span className="text-xs text-gray-400">Berkas lokal</span>
-                )}
-              </div>
-            )}
-
-            <p className="text-white text-xs font-semibold">{selectedFile.n} ({selectedFile.s})</p>
+                  <a
+                    href={selectedFile.src}
+                    download={selectedFile.n}
+                    className="px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-full text-xs backdrop-blur-md transition-all inline-flex items-center gap-1.5"
+                  >
+                    <span>Unduh</span>
+                    <span>↓</span>
+                  </a>
+                </>
+              ) : (
+                <span className="text-xs text-white/70">{selectedFile.n} ({selectedFile.s})</span>
+              )}
+            </div>
           </div>
         </div>
       )}
