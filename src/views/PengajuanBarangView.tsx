@@ -183,6 +183,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   const [saving, setSaving] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
+  const [currentId, setCurrentId] = useState<string | number | null>(() => meta.id || null);
 
   /* ── Toast notification helper ── */
   const toastTimeoutRef = useRef<any>(null);
@@ -515,28 +516,36 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     }
   };
 
+  const getPayload = () => ({
+    id: currentId || meta.id || undefined,
+    meta: {
+      ...meta,
+      id: currentId ? String(currentId) : meta.id || undefined,
+    },
+    items,
+    sign,
+  });
+
   /* ── Save to Database API ── */
   const handleSaveToDatabase = async (): Promise<string | number | null> => {
     if (!validateForm()) return null;
     setSaving(true);
-    const token = getStoredToken();
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || getStoredToken() || '';
     if (!token) {
       showToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.');
       setSaving(false);
       return null;
     }
 
-    const payload = {
-      id: meta.id || undefined,
-      meta,
-      items,
-      sign,
-    };
+    const payload = getPayload();
 
     try {
       const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(payload)
       });
       const text = await res.text();
@@ -555,9 +564,11 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           json.data?.submission_id ||
           json.insert_id ||
           json.data?.insert_id ||
+          currentId ||
           meta.id;
 
         if (savedId) {
+          setCurrentId(savedId);
           setMeta(prev => ({ ...prev, id: String(savedId) }));
           try {
             localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, meta: { ...meta, id: String(savedId) } }));
@@ -565,7 +576,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         }
         showToast('✓ Pengajuan barang berhasil disimpan ke database!');
         fetchHistory();
-        return savedId || meta.id || null;
+        return savedId || currentId || meta.id || null;
       } else {
         showToast(json.message || 'Gagal menyimpan ke database.');
         return null;
@@ -579,13 +590,31 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   /* ── Handle Open Pratinjau Action ── */
-  const handleOpenPratinjau = (explicitId?: string | number) => {
-    const targetUrl = explicitId
-      ? `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php?id=${encodeURIComponent(String(explicitId))}`
-      : 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php';
+  const handleOpenPreview = (explicitId?: string | number) => {
+    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
+    const params = new URLSearchParams();
+    
+    const activeId = explicitId || currentId || meta.id;
+    if (activeId) {
+      params.set('id', String(activeId));
+    }
+    if (token) {
+      params.set('token', token);
+    }
 
-    window.location.href = targetUrl;
+    // Simpan draf lokal ke localStorage 'pb.v1' untuk sinkronisasi
+    try {
+      const payload = getPayload();
+      localStorage.setItem('pb.v1', JSON.stringify(payload));
+    } catch (e) {}
+
+    // Buka langsung ke backend index.php di tab baru
+    const qs = params.toString();
+    const targetUrl = `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php${qs ? '?' + qs : ''}`;
+    window.open(targetUrl, '_blank');
   };
+
+  const handleOpenPratinjau = handleOpenPreview;
 
   const handleSoftDelete = async (id: number) => {
     if (!window.confirm('Yakin ingin menghapus pengajuan ini dari riwayat?')) return;
@@ -609,7 +638,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Print Document Action ── */
   const handlePrint = () => {
-    window.location.href = 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php';
+    handleOpenPreview();
   };
 
   /* ── Export & Import JSON ── */
@@ -708,7 +737,8 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         if (st.sign) setSign((prev) => ({ ...prev, ...st.sign }));
       },
       save: () => handleSaveToDatabase(),
-      pratinjau: handleOpenPratinjau,
+      pratinjau: handleOpenPreview,
+      preview: handleOpenPreview,
       print: () => handlePrint(),
       reset: handleReset,
     };
@@ -898,7 +928,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             {/* Tombol Pratinjau Dokumen ↗ */}
             <button
               type="button"
-              onClick={() => handleOpenPratinjau()}
+              onClick={() => handleOpenPreview()}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#1c2340] text-white text-xs font-bold shadow-md hover:bg-[#2f3b6b] transition-all cursor-pointer"
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1649,7 +1679,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                   <button
                     type="button"
                     className="pb-btn dark lg mt-2.5"
-                    onClick={() => handleOpenPratinjau()}
+                    onClick={() => handleOpenPreview()}
                   >
                     <svg style={{ width: '20px', height: '20px', marginRight: '6px' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
@@ -1715,7 +1745,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             <button
               className="pb-btn dark sm"
               type="button"
-              onClick={() => handleOpenPratinjau()}
+              onClick={() => handleOpenPreview()}
             >
               Pratinjau ↗
             </button>
@@ -1756,7 +1786,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                       <p className="text-xs text-muted">{item.created_at}</p>
                     </div>
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => handleOpenPratinjau(item.id)} className="text-xs font-bold text-accent hover:underline cursor-pointer px-2 py-1">Pratinjau</button>
+                      <button type="button" onClick={() => handleOpenPreview(item.id)} className="text-xs font-bold text-accent hover:underline cursor-pointer px-2 py-1">Pratinjau</button>
                       <button onClick={() => handleSoftDelete(Number(item.id))} className="text-xs font-bold text-bad">Hapus</button>
                     </div>
                   </div>

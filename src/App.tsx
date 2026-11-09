@@ -292,10 +292,6 @@ export function App() {
       return hashPart;
     }
     const path = window.location.pathname.split('?')[0];
-    if (path.startsWith('/pengajuan-barang/pratinjau')) {
-      window.location.replace('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php');
-      return '/pengajuan-barang';
-    }
     if (path.startsWith('/chat')) {
       return path.includes('preview-file') ? '/chat/preview-file' : '/chat';
     }
