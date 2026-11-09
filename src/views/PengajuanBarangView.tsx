@@ -580,19 +580,9 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Handle Open Pratinjau Action ── */
   const handleOpenPratinjau = (explicitId?: string | number) => {
-    // 1. Simpan draf formulir aktif saat ini ke localStorage 'pb.v1'
-    try {
-      const payload = { meta, items, sign };
-      localStorage.setItem('pb.v1', JSON.stringify(payload));
-    } catch (e) {
-      console.warn('Gagal menyimpan draf pratinjau:', e);
-    }
-
-    // 2. Arahkan pengguna ke rute resmi /pengajuan-barang/pratinjau
-    const targetId = explicitId || meta.id;
-    const targetUrl = targetId
-      ? `/pengajuan-barang/pratinjau?id=${encodeURIComponent(String(targetId))}`
-      : '/pengajuan-barang/pratinjau';
+    const targetUrl = explicitId
+      ? `https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php?id=${encodeURIComponent(String(explicitId))}`
+      : 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php';
 
     window.location.href = targetUrl;
   };
@@ -619,8 +609,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Print Document Action ── */
   const handlePrint = () => {
-    if (!validateForm()) return;
-    handleOpenPratinjau();
+    window.location.href = 'https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/index.php';
   };
 
   /* ── Export & Import JSON ── */
