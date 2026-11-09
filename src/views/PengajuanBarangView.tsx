@@ -179,23 +179,26 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   });
 
   const [badFields, setBadFields] = useState<Record<string, boolean>>({});
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [dragActiveId, setDragActiveId] = useState<string | null>(null);
   const [currentId, setCurrentId] = useState<string | number | null>(() => meta.id || null);
 
-  /* ── Toast notification helper ── */
+  /* ── Toast notification helper (Single Toast Management) ── */
   const toastTimeoutRef = useRef<any>(null);
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => {
-      setToastMessage(null);
-    }, 2800);
-    if (onAddToast) {
-      onAddToast(msg);
+  const triggerToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
     }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+    }, 3000);
+  };
+
+  const showToast = (msg: string, type: 'success' | 'error' | 'info' = 'info') => {
+    triggerToast(msg, type);
   };
 
   /* ── Browser URL sync ── */
@@ -555,23 +558,30 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Save to Database API ── */
   const handleSaveToDatabase = async (): Promise<string | number | null> => {
+    if (isSaving) return null;
     if (!validateForm()) return null;
-    setSaving(true);
+    setIsSaving(true);
     const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || getStoredToken() || '';
     if (!token) {
-      showToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.');
-      setSaving(false);
+      triggerToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.', 'error');
+      setIsSaving(false);
       return null;
     }
 
     const payload = getPayload();
 
     try {
+      // Simpan draf lokal
+      try {
+        localStorage.setItem('pb.v1', JSON.stringify(payload));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+      } catch (_) {}
+
       const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify(payload)
       });
@@ -598,21 +608,24 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           setCurrentId(savedId);
           setMeta(prev => ({ ...prev, id: String(savedId) }));
           try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...payload, meta: { ...meta, id: String(savedId) } }));
+            const updated = { ...payload, meta: { ...meta, id: String(savedId) } };
+            localStorage.setItem('pb.v1', JSON.stringify(updated));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
           } catch (_) {}
         }
-        showToast('✓ Pengajuan barang berhasil disimpan ke database!');
+        triggerToast('Pengajuan barang berhasil disimpan ke database!', 'success');
         fetchHistory();
         return savedId || currentId || meta.id || null;
       } else {
-        showToast(json.message || 'Gagal menyimpan ke database.');
+        triggerToast(json.message || 'Gagal menyimpan ke database.', 'error');
         return null;
       }
     } catch (err: any) {
-      showToast(err.message || 'Terjadi kesalahan jaringan saat menyimpan.');
+      console.error('Save error:', err);
+      triggerToast(err.message || 'Terjadi kesalahan jaringan saat menyimpan.', 'error');
       return null;
     } finally {
-      setSaving(false);
+      setIsSaving(false);
     }
   };
 
@@ -829,6 +842,13 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   return (
     <div className="pb-page-wrapper" ref={rootRef} style={{ width: '100%', minHeight: '100%' }}>
+      {/* Global Loading Bar */}
+      {isSaving && (
+        <div className="fixed top-0 left-0 right-0 z-50 h-1 bg-black/10 overflow-hidden">
+          <div className="h-full bg-[#2f3b6b] animate-[pulse_1s_infinite] w-full origin-left transition-all"></div>
+        </div>
+      )}
+
       {/* Scoped CSS from standard design */}
       <style>{`
         .pb-root {
@@ -1733,18 +1753,30 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
                   {/* Tombol Simpan ke Database */}
                   <button
-                    className={`pb-btn lime lg ${saving ? 'load' : ''}`}
                     type="button"
-                    style={{ marginBottom: '10px' }}
                     onClick={handleSaveToDatabase}
-                    disabled={saving}
+                    disabled={isSaving}
+                    className={`w-full py-2.5 px-4 rounded-xl font-medium text-xs flex items-center justify-center gap-2 transition-all ${
+                      isSaving 
+                        ? 'bg-[#2f3b6b]/70 cursor-not-allowed text-white/80' 
+                        : 'bg-[#2f3b6b] hover:bg-[#253059] text-white shadow-md active:scale-95'
+                    }`}
+                    style={{ marginBottom: '10px' }}
                   >
-                    <svg viewBox="0 0 24 24">
-                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-                      <polyline points="17 21 17 13 7 13 7 21" />
-                      <polyline points="7 3 7 8 15 8" />
-                    </svg>
-                    <span>{saving ? 'Menyimpan...' : 'Simpan ke Database'}</span>
+                    {isSaving ? (
+                      <>
+                        <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                        </svg>
+                        <span>Menyimpan ke database...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>💾</span>
+                        <span>Simpan ke Database</span>
+                      </>
+                    )}
                   </button>
 
                   <button
@@ -1815,12 +1847,22 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           </div>
           <div style={{ display: 'flex', gap: '8px' }}>
             <button
-              className="pb-btn lime sm"
+              className={`pb-btn lime sm flex items-center gap-1.5 ${isSaving ? 'opacity-70 cursor-not-allowed' : ''}`}
               type="button"
               onClick={handleSaveToDatabase}
-              disabled={saving}
+              disabled={isSaving}
             >
-              {saving ? 'Simpan...' : 'Simpan'}
+              {isSaving ? (
+                <>
+                  <svg className="animate-spin h-3.5 w-3.5 text-black" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                  <span>Menyimpan...</span>
+                </>
+              ) : (
+                <span>Simpan</span>
+              )}
             </button>
             <button
               className="pb-btn dark sm"
@@ -1840,14 +1882,23 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           </div>
         </div>
 
-        {/* Toast Floating Notification */}
-        <div
-          className={`pb-toast ${toastMessage ? 'on' : ''}`}
-          role="status"
-          aria-live="polite"
-        >
-          {toastMessage}
-        </div>
+        {/* Toast Floating Notification (Single & Clean) */}
+        {toast && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ease-out animate-bounce">
+            <div className={`px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2.5 text-xs font-semibold backdrop-blur-md ${
+              toast.type === 'error' 
+                ? 'bg-rose-900/90 text-rose-100 border border-rose-700/50' 
+                : 'bg-[#1c2340]/95 text-white border border-white/10'
+            }`}>
+              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                toast.type === 'error' ? 'bg-rose-500 text-white' : 'bg-[#ee5a73] text-white'
+              }`}>
+                {toast.type === 'error' ? '✕' : '✓'}
+              </span>
+              <span>{toast.message}</span>
+            </div>
+          </div>
+        )}
 
         {/* Modal Riwayat Pengajuan */}
         {showHistoryModal && (
