@@ -1882,7 +1882,7 @@ export function App() {
     console.log('[APP RENDER: Mounting Standalone PengajuanBarangExportView]');
     return (
       <>
-        <PengajuanBarangExportView />
+        <PengajuanBarangExportView onBack={() => handleNavigate('pengajuan-barang')} />
         <ToastContainer toasts={toasts} />
       </>
     );

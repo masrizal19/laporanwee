@@ -618,42 +618,80 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Handle Open Pratinjau Action ── */
   const handleOpenPreview = async (explicitId?: string | number) => {
-    const token = localStorage.getItem('token') || localStorage.getItem('auth_token') || '';
+    const token =
+      localStorage.getItem('token') ||
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('laporanwee_token') ||
+      getStoredToken() ||
+      '';
+
+    if (!token) {
+      showToast('Sesi login tidak ditemukan. Harap login terlebih dahulu.');
+      window.history.pushState({}, '', '/login');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return;
+    }
+
     const payload = getPayload();
 
     // 1. Simpan draf ke localStorage
     try {
       localStorage.setItem('pb.v1', JSON.stringify(payload));
-    } catch (e) {}
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch (e) {
+      console.warn('Gagal menyimpan draf lokal:', e);
+    }
 
     // 2. Autosave ke database MySQL
     let activeId = explicitId || currentId;
     if (!explicitId) {
       try {
+        showToast('Menyimpan perubahan ke database...');
         const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(token ? { Authorization: `Bearer ${token}` } : {})
+            'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify(payload)
         });
-        const json = await res.json();
-        if (json.success && (json.data?.id || json.id)) {
-          activeId = json.data?.id || json.id;
-          setCurrentId(activeId);
-          setMeta(prev => ({ ...prev, id: String(activeId) }));
+        const text = await res.text();
+        let json: any = {};
+        try {
+          json = text ? JSON.parse(text) : {};
+        } catch (_) {}
+
+        if (json.success) {
+          const savedId =
+            json.data?.id ||
+            json.id ||
+            json.submission_id ||
+            json.data?.submission_id ||
+            json.insert_id ||
+            json.data?.insert_id;
+
+          if (savedId) {
+            activeId = savedId;
+            setCurrentId(savedId);
+            setMeta((prev) => ({ ...prev, id: String(savedId) }));
+            try {
+              const updatedPayload = { ...payload, meta: { ...meta, id: String(savedId) } };
+              localStorage.setItem('pb.v1', JSON.stringify(updatedPayload));
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPayload));
+            } catch (_) {}
+          }
         }
       } catch (e) {
         console.warn('Autosave database tertunda:', e);
       }
     }
 
-    // 3. Buka rute export resmi di tab baru
+    // 3. Navigasi di tab yang SAMA (Single Tab) ke rute export resmi
     const target = activeId 
       ? `/pengajuan-barang/export?id=${activeId}` 
       : '/pengajuan-barang/export';
-    window.open(target, '_blank');
+    window.history.pushState({}, '', target);
+    window.dispatchEvent(new PopStateEvent('popstate'));
   };
 
   const handleOpenPratinjau = handleOpenPreview;
