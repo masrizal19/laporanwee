@@ -452,6 +452,11 @@ export function App() {
   useEffect(() => {
     if (!user) {
       if (currentPath !== '/register' && currentPath !== '/verify-email') {
+        if (/^\/aplikasi(\/[^/]+)?$/i.test(currentPath)) {
+          try {
+            sessionStorage.setItem('laporanwee_post_login_redirect', currentPath);
+          } catch (_) {}
+        }
         navigateToPath('/login');
       }
     } else {
@@ -2036,11 +2041,35 @@ export function App() {
               })
               .catch(() => {});
             addToast(`Selamat datang kembali, ${name}!`);
-            navigateToPath('/dashboard');
+            let postLoginTarget = '/dashboard';
+            try {
+              const savedRedirect = sessionStorage.getItem('laporanwee_post_login_redirect');
+              if (savedRedirect && /^\/aplikasi(\/[^/]+)?$/i.test(savedRedirect)) {
+                postLoginTarget = savedRedirect;
+              }
+              sessionStorage.removeItem('laporanwee_post_login_redirect');
+            } catch (_) {}
+            navigateToPath(postLoginTarget);
           }}
           onNavigateToRegister={() => navigateToPath('/register')}
         />
         <ToastContainer toasts={toasts} />
+      </Suspense>
+    );
+  }
+
+  // Standalone full-screen application view (zero LaporanWe sidebar, header, or dashboard chrome)
+  if (currentView === 'aplikasi-detail' || /^\/aplikasi\/[^/]+$/i.test(currentPath)) {
+    const slug = activeAppSlug || extractAppSlugFromPath(currentPath) || 'Fotowe';
+    return (
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <AplikasiHostView
+          appSlug={slug}
+          currentUser={user}
+          onBackToHub={() => handleNavigate('aplikasi')}
+          onSessionExpired={handleLogout}
+          onAddToast={addToast}
+        />
       </Suspense>
     );
   }
@@ -2069,7 +2098,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className={`app-shell-main ${currentView === 'chat' || currentView === 'aplikasi-detail' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
+      <main className={`app-shell-main ${currentView === 'chat' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
         <Suspense fallback={<ViewLoadingFallback />}>
         {currentView === 'dashboard' && (
           <DashboardView
@@ -2242,15 +2271,6 @@ export function App() {
           />
         )}
 
-        {currentView === 'aplikasi-detail' && (
-          <AplikasiHostView
-            appSlug={activeAppSlug || 'Fotowe'}
-            onBackToHub={() => handleNavigate('aplikasi')}
-            onSessionExpired={handleLogout}
-            onAddToast={addToast}
-          />
-        )}
-
         {currentView === 'social-media' && (
           <SocialMediaView
             onNavigate={handleNavigate}
@@ -2293,7 +2313,7 @@ export function App() {
           />
         )}
 
-        {currentView !== 'chat' && currentView !== 'aplikasi-detail' && (
+        {currentView !== 'chat' && (
           <div
             className="footer-tag"
             onClick={() => setShowWhatsNewModal(true)}

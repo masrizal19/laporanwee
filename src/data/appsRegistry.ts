@@ -20,7 +20,7 @@ export const REGISTERED_APPS: RegisteredApp[] = [
       'Aplikasi editor foto dan pas foto digital untuk membuat, mengatur, dan mencetak pas foto dengan berbagai ukuran.',
     status: 'available',
     statusLabel: 'Tersedia',
-    sourceUrl: '/fotowe/studio.html',
+    sourceUrl: '/Aplikasi/Fotowe',
     iconType: 'camera',
   },
 ];
