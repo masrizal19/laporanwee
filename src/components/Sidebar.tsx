@@ -59,6 +59,20 @@ export const NAV_MENU_ITEMS: NavMenuItem[] = [
     ),
   },
   {
+    id: 'aplikasi',
+    view: 'aplikasi',
+    label: 'APLIKASI',
+    path: '/Aplikasi',
+    icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1.5" />
+        <rect x="14" y="3" width="7" height="7" rx="1.5" />
+        <rect x="3" y="14" width="7" height="7" rx="1.5" />
+        <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
     id: 'laporan',
     view: 'reports',
     label: 'Laporan',
@@ -235,6 +249,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             (item.path && currentPath === item.path) ||
             (item.view && currentView === item.view) ||
             (item.id === 'galeri-berkas' && (currentPath === '/galeri-berkas' || currentPath === '/galeri-lampiran' || currentPath === '/lampiran' || currentPath === '/berkas' || currentView === 'galeri-berkas')) ||
+            (item.id === 'aplikasi' && (currentPath.toLowerCase().startsWith('/aplikasi') || currentView === 'aplikasi' || currentView === 'aplikasi-detail')) ||
             (item.id === 'chat' && (currentPath === '/chat' || currentPath === '/chat/preview-file' || currentView === 'chat'));
 
           return (

@@ -40,6 +40,9 @@ import { ChatView } from './views/ChatView';
 import { GaleriLampiranView } from './views/GaleriLampiranView';
 import { GaleriBerkasView } from './views/GaleriBerkasView';
 import { PengajuanBarangExportView } from './views/PengajuanBarangExportView';
+import { AplikasiView } from './views/AplikasiView';
+import { AplikasiHostView } from './views/AplikasiHostView';
+import { findAppBySlug, RegisteredApp } from './data/appsRegistry';
 
 // Auth views
 import { LoginView } from './views/LoginView';
@@ -276,8 +279,28 @@ export function App() {
       '/lampiran',
       '/galeri-lampiran',
       '/galeri-berkas',
+      '/aplikasi',
+      '/Aplikasi',
       '/pengajuan-barang/export',
     ];
+    const normalizeAplikasiPath = (rawPath: string): string | null => {
+      const trimmed = rawPath.split('?')[0].replace(/\/+$/, '');
+      if (!trimmed) return null;
+      if (/^\/aplikasi$/i.test(trimmed)) {
+        return '/Aplikasi';
+      }
+      const match = trimmed.match(/^\/aplikasi\/([^/]+)$/i);
+      if (match && match[1]) {
+        const rawSlug = decodeURIComponent(match[1]);
+        const registered = findAppBySlug(rawSlug);
+        return `/Aplikasi/${registered ? registered.slug : rawSlug}`;
+      }
+      return null;
+    };
+    if (hashPart) {
+      const appHash = normalizeAplikasiPath(hashPart);
+      if (appHash) return appHash;
+    }
     if (hashPart && hashPart.startsWith('/chat')) {
       return hashPart.includes('preview-file') ? '/chat/preview-file' : '/chat';
     }
@@ -294,6 +317,8 @@ export function App() {
       return hashPart;
     }
     const path = window.location.pathname.split('?')[0];
+    const appPath = normalizeAplikasiPath(path);
+    if (appPath) return appPath;
     if (path.startsWith('/chat')) {
       return path.includes('preview-file') ? '/chat/preview-file' : '/chat';
     }
@@ -319,6 +344,13 @@ export function App() {
       return '/dashboard';
     }
     return '/dashboard';
+  };
+
+  const extractAppSlugFromPath = (pathStr: string): string => {
+    const match = pathStr.match(/^\/aplikasi\/([^/]+)$/i);
+    if (!match || !match[1]) return '';
+    const rawSlug = decodeURIComponent(match[1]);
+    return findAppBySlug(rawSlug)?.slug || rawSlug;
   };
 
   const [currentPath, setCurrentPath] = useState<string>(() => {
@@ -478,8 +510,15 @@ export function App() {
     '/lampiran': 'galeri-berkas',
     '/galeri-lampiran': 'galeri-berkas',
     '/galeri-berkas': 'galeri-berkas',
+    '/aplikasi': 'aplikasi',
+    '/Aplikasi': 'aplikasi',
     '/pengajuan-barang/export': 'pengajuan-barang-export',
   };
+
+  const [activeAppSlug, setActiveAppSlug] = useState<string>(() => {
+    const initialPath = getPathFromLocation();
+    return extractAppSlugFromPath(initialPath);
+  });
 
   const viewToPathMap: Record<ViewType, string> = {
     'dashboard': '/dashboard',
@@ -507,21 +546,34 @@ export function App() {
     'edit-laporan': '/analitik/editlaporan',
     'galeri-lampiran': '/galeri-berkas',
     'galeri-berkas': '/galeri-berkas',
+    'aplikasi': '/Aplikasi',
+    'aplikasi-detail': activeAppSlug ? `/Aplikasi/${activeAppSlug}` : '/Aplikasi/Fotowe',
     'pengajuan-barang-export': '/pengajuan-barang/export',
   };
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     const initialPath = getPathFromLocation();
     if (initialPath === '/login' || initialPath === '/register') return 'dashboard';
+    if (/^\/aplikasi\/[^/]+$/i.test(initialPath)) return 'aplikasi-detail';
     return pathToViewMap[initialPath] || 'dashboard';
   });
 
   // Sync currentView with currentPath when browser path changes (like on forward/back navigation)
   useEffect(() => {
     if (user) {
-      const targetView = pathToViewMap[currentPath];
-      if (targetView && targetView !== currentView) {
-        setCurrentView(targetView);
+      if (/^\/aplikasi\/[^/]+$/i.test(currentPath)) {
+        const slug = extractAppSlugFromPath(currentPath);
+        if (slug && slug !== activeAppSlug) {
+          setActiveAppSlug(slug);
+        }
+        if (currentView !== 'aplikasi-detail') {
+          setCurrentView('aplikasi-detail');
+        }
+      } else {
+        const targetView = pathToViewMap[currentPath];
+        if (targetView && targetView !== currentView) {
+          setCurrentView(targetView);
+        }
       }
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
@@ -1084,6 +1136,12 @@ export function App() {
     const targetPath = viewToPathMap[view] || '/dashboard';
     navigateToPath(targetPath);
     setCurrentView(view);
+  };
+
+  const handleOpenApp = (app: RegisteredApp) => {
+    setActiveAppSlug(app.slug);
+    navigateToPath(`/Aplikasi/${app.slug}`);
+    setCurrentView('aplikasi-detail');
   };
 
   const handleSelectUserProfile = (userId: string | number) => {
@@ -2017,7 +2075,7 @@ export function App() {
       />
 
       {/* Main Content Viewport */}
-      <main className={`app-shell-main ${currentView === 'chat' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
+      <main className={`app-shell-main ${currentView === 'chat' || currentView === 'aplikasi-detail' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -2182,6 +2240,22 @@ export function App() {
           <GaleriBerkasView />
         )}
 
+        {currentView === 'aplikasi' && (
+          <AplikasiView
+            onOpenApp={handleOpenApp}
+            onAddToast={addToast}
+          />
+        )}
+
+        {currentView === 'aplikasi-detail' && (
+          <AplikasiHostView
+            appSlug={activeAppSlug || 'Fotowe'}
+            onBackToHub={() => handleNavigate('aplikasi')}
+            onSessionExpired={handleLogout}
+            onAddToast={addToast}
+          />
+        )}
+
         {currentView === 'social-media' && (
           <SocialMediaView
             onNavigate={handleNavigate}
@@ -2224,7 +2298,7 @@ export function App() {
           />
         )}
 
-        {currentView !== 'chat' && (
+        {currentView !== 'chat' && currentView !== 'aplikasi-detail' && (
           <div
             className="footer-tag"
             onClick={() => setShowWhatsNewModal(true)}

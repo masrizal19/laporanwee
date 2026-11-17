@@ -54,6 +54,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { view: 'dashboard', label: 'Dashboard', icon: 'home' },
     { view: 'projects', label: 'Proyek', icon: 'folder' },
     { view: 'galeri-berkas', label: 'Galeri Berkas', icon: 'image' },
+    { view: 'aplikasi', label: 'APLIKASI', icon: 'grid2x2' },
     { view: 'reports', label: 'Laporan', icon: 'doc' },
     { view: 'tasks', label: 'Tugas', icon: 'checksq' },
     { view: 'chat', label: 'Pesan Tim', icon: 'chat' },
@@ -71,6 +72,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     if (currentView === item.view) return true;
     if (item.view === 'projects' && currentView === 'project-detail') return true;
     if (item.view === 'galeri-berkas' && (currentView === 'galeri-berkas' || currentView === 'galeri-lampiran')) return true;
+    if (item.view === 'aplikasi' && (currentView === 'aplikasi' || currentView === 'aplikasi-detail')) return true;
     if (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report')) return true;
     if (item.view === 'profil' && (currentView === 'profile' || currentView === 'profil')) return true;
     if (item.view === 'ui_settings' && (currentView === 'ui-settings' || currentView === 'ui_settings')) return true;
@@ -138,6 +140,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             const isActive =
               currentView === item.view ||
               (item.view === 'projects' && currentView === 'project-detail') ||
+              (item.view === 'galeri-berkas' && currentView === 'galeri-lampiran') ||
+              (item.view === 'aplikasi' && currentView === 'aplikasi-detail') ||
               (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report'));
 
             return (
@@ -171,7 +175,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       </aside>
 
       {/* Top Bar Header with Theme Toggle, Quick Search, User Profile */}
-      <header className={`top-bar-shell ${currentView === 'chat' ? '!mb-1.5' : ''}`}>
+      <header className={`top-bar-shell ${currentView === 'chat' || currentView === 'aplikasi-detail' ? '!mb-1.5' : ''}`}>
         <div className="top-actions">
           {/* Theme Switcher Sliding Pill */}
           <div className="theme" role="group" aria-label="Tema Tampilan">
