@@ -7,7 +7,6 @@ export interface RegisteredApp {
   status: 'available' | 'maintenance';
   statusLabel: string;
   sourceUrl: string;
-  trustedOrigin: string;
   iconType: 'camera';
 }
 
@@ -21,8 +20,7 @@ export const REGISTERED_APPS: RegisteredApp[] = [
       'Aplikasi editor foto dan pas foto digital untuk membuat, mengatur, dan mencetak pas foto dengan berbagai ukuran.',
     status: 'available',
     statusLabel: 'Tersedia',
-    sourceUrl: 'https://api-laporanwe.mkverse.my.id/api/fotowe/',
-    trustedOrigin: 'https://api-laporanwe.mkverse.my.id',
+    sourceUrl: '/fotowe/studio.html',
     iconType: 'camera',
   },
 ];

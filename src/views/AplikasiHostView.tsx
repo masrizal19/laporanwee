@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, RefreshCw, AlertCircle, Loader2, Camera } from 'lucide-react';
 import { findAppBySlug } from '../data/appsRegistry';
-import { getStoredToken } from '../utils/api';
+import { getStoredToken, getStoredUser, profileService } from '../utils/api';
 
 export interface AplikasiHostViewProps {
   appSlug: string;
@@ -10,7 +10,15 @@ export interface AplikasiHostViewProps {
   onAddToast?: (text: string) => void;
 }
 
-type EmbedStatus = 'loading' | 'verifying' | 'ready' | 'error';
+type EmbedStatus = 'verifying' | 'loading' | 'ready' | 'error';
+
+interface VerifiedAccount {
+  id?: string | number;
+  email?: string;
+  full_name?: string;
+  name?: string;
+  role?: string;
+}
 
 export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
   appSlug,
@@ -21,76 +29,113 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
   const app = findAppBySlug(appSlug);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const handshakeDoneRef = useRef<boolean>(false);
-  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const readyDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const verifiedUserRef = useRef<VerifiedAccount | null>(null);
+  const frameReadyRef = useRef<boolean>(false);
 
-  const [embedStatus, setEmbedStatus] = useState<EmbedStatus>('loading');
+  const [embedStatus, setEmbedStatus] = useState<EmbedStatus>('verifying');
+  const [verifiedUser, setVerifiedUser] = useState<VerifiedAccount | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [reloadKey, setReloadKey] = useState<number>(0);
 
-  const clearTimers = useCallback(() => {
-    if (loadTimeoutRef.current) {
-      clearTimeout(loadTimeoutRef.current);
-      loadTimeoutRef.current = null;
-    }
-    if (readyDelayRef.current) {
-      clearTimeout(readyDelayRef.current);
-      readyDelayRef.current = null;
-    }
-  }, []);
+  const sameOrigin = typeof window !== 'undefined' ? window.location.origin : '';
 
-  const sendAuthTokenToFrame = useCallback(() => {
-    if (!app || !iframeRef.current?.contentWindow) return false;
+  const postAuthToFrame = useCallback(() => {
+    if (!iframeRef.current?.contentWindow || !sameOrigin) return false;
     const token = getStoredToken();
-    if (!token) {
-      onAddToast?.('Sesi Anda telah berakhir. Silakan masuk kembali.');
-      onSessionExpired();
-      return false;
-    }
+    const account = verifiedUserRef.current;
+    if (!token || !account) return false;
 
     try {
       iframeRef.current.contentWindow.postMessage(
-        { type: 'LAPORANWE_AUTH', token },
-        app.trustedOrigin
+        {
+          type: 'LAPORANWE_AUTH',
+          token,
+          user: account,
+          verified: true,
+        },
+        sameOrigin
       );
       return true;
     } catch (err) {
-      console.error('[AplikasiHost] Gagal mengirim sinyal autentikasi ke frame:', err);
+      console.error('[AplikasiHost] Gagal meneruskan sesi ke aplikasi:', err);
       return false;
     }
-  }, [app, onAddToast, onSessionExpired]);
+  }, [sameOrigin]);
 
-  // Verify existing LaporanWe session before mounting embedded app
-  useEffect(() => {
+  // Verify LaporanWe user session against backend API before exposing FOTOWE
+  const verifySession = useCallback(async () => {
     const token = getStoredToken();
     if (!token) {
       onAddToast?.('Silakan masuk ke akun LaporanWe untuk membuka aplikasi.');
       onSessionExpired();
+      return;
+    }
+
+    frameReadyRef.current = false;
+    verifiedUserRef.current = null;
+    setVerifiedUser(null);
+    setEmbedStatus('verifying');
+    setErrorMessage('');
+
+    try {
+      const res = await profileService.getProfile();
+      if (res && res.success && res.data) {
+        const account: VerifiedAccount = {
+          id: res.data.id,
+          email: res.data.email || getStoredUser()?.email,
+          full_name: res.data.full_name || getStoredUser()?.full_name,
+          name: res.data.full_name || getStoredUser()?.name,
+          role: res.data.role || getStoredUser()?.role,
+        };
+        verifiedUserRef.current = account;
+        setVerifiedUser(account);
+        setEmbedStatus('loading');
+        return;
+      }
+
+      throw Object.assign(new Error(res?.message || 'Sesi akun tidak valid.'), { status: 401 });
+    } catch (err: any) {
+      if (err?.status === 401) {
+        onAddToast?.('Sesi Anda telah berakhir. Silakan masuk kembali.');
+        onSessionExpired();
+        return;
+      }
+
+      // If network error occurs, fall back to cached session only if stored user & token exist,
+      // otherwise surface explicit retry state.
+      const cachedUser = getStoredUser();
+      if (cachedUser && (cachedUser.id || cachedUser.email)) {
+        const account: VerifiedAccount = {
+          id: cachedUser.id,
+          email: cachedUser.email,
+          full_name: cachedUser.full_name,
+          name: cachedUser.name,
+          role: cachedUser.role,
+        };
+        verifiedUserRef.current = account;
+        setVerifiedUser(account);
+        setEmbedStatus('loading');
+        return;
+      }
+
+      setEmbedStatus('error');
+      setErrorMessage(
+        err?.message || 'Gagal memverifikasi sesi LaporanWe. Periksa koneksi internet Anda lalu coba lagi.'
+      );
     }
   }, [onAddToast, onSessionExpired]);
 
-  // Listen to cross-origin postMessage handshake from FOTOWE
   useEffect(() => {
     if (!app) return;
+    verifySession();
+  }, [app, reloadKey, verifySession]);
 
-    handshakeDoneRef.current = false;
-    setEmbedStatus('loading');
-    setErrorMessage('');
-
-    // Overall safeguard if iframe cannot be reached or is blocked by frame headers
-    loadTimeoutRef.current = setTimeout(() => {
-      if (!handshakeDoneRef.current) {
-        setEmbedStatus('error');
-        setErrorMessage(
-          `Aplikasi ${app.name} tidak dapat dimuat di dalam frame. Periksa koneksi internet Anda atau pastikan server ${app.trustedOrigin} mengizinkan embed pada domain LaporanWe.`
-        );
-      }
-    }, 9000);
+  // Same-origin postMessage handshake with /fotowe/studio.html
+  useEffect(() => {
+    if (!app || !sameOrigin) return;
 
     const handleMessage = (event: MessageEvent) => {
-      // Strict origin check
-      if (event.origin !== app.trustedOrigin) return;
+      if (event.origin !== sameOrigin) return;
       if (
         iframeRef.current?.contentWindow &&
         event.source !== iframeRef.current.contentWindow
@@ -102,55 +147,44 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
       if (!data || typeof data !== 'object') return;
 
       if (data.type === 'FOTOWE_AUTH_REQUEST') {
-        handshakeDoneRef.current = true;
-        clearTimers();
-        setEmbedStatus('verifying');
-
-        const sent = sendAuthTokenToFrame();
-        if (sent) {
-          readyDelayRef.current = setTimeout(() => {
-            setEmbedStatus('ready');
-          }, 450);
-        }
+        postAuthToFrame();
       } else if (data.type === 'FOTOWE_AUTH_READY') {
-        handshakeDoneRef.current = true;
-        clearTimers();
+        frameReadyRef.current = true;
         setEmbedStatus('ready');
-      } else if (data.type === 'FOTOWE_AUTH_ERROR' || data.type === 'LAPORANWE_SESSION_EXPIRED') {
-        clearTimers();
+      } else if (data.type === 'FOTOWE_AUTH_ERROR') {
         setEmbedStatus('error');
-        setErrorMessage(data.message || 'Verifikasi akun gagal atau sesi telah berakhir.');
-        onAddToast?.('Sesi verifikasi gagal. Mengarahkan kembali ke login...');
-        onSessionExpired();
+        setErrorMessage(data.message || 'Verifikasi akun gagal. Silakan masuk kembali ke LaporanWe.');
       }
     };
 
     window.addEventListener('message', handleMessage);
-
     return () => {
-      clearTimers();
       window.removeEventListener('message', handleMessage);
     };
-  }, [app, reloadKey, clearTimers, sendAuthTokenToFrame, onAddToast, onSessionExpired]);
+  }, [app, sameOrigin, postAuthToFrame]);
+
+  // Safeguard if same-origin asset fails to send FOTOWE_AUTH_READY
+  useEffect(() => {
+    if (embedStatus !== 'loading') return;
+    const timer = window.setTimeout(() => {
+      if (!frameReadyRef.current) {
+        postAuthToFrame();
+      }
+    }, 600);
+    const failTimer = window.setTimeout(() => {
+      if (!frameReadyRef.current) {
+        setEmbedStatus('error');
+        setErrorMessage(`Aplikasi ${app?.name || 'FOTOWE'} membutuhkan waktu terlalu lama untuk dimuat.`);
+      }
+    }, 8000);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(failTimer);
+    };
+  }, [embedStatus, app?.name, postAuthToFrame]);
 
   const handleIframeLoad = () => {
-    if (!app) return;
-    // Proactive handshake in case FOTOWE initialized before listener bound
-    sendAuthTokenToFrame();
-
-    // If iframe loaded an error page (e.g. X-Frame-Options block) without FOTOWE_AUTH_REQUEST,
-    // wait briefly for postMessage and surface a clear fallback if none arrives.
-    if (!handshakeDoneRef.current) {
-      if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
-      loadTimeoutRef.current = setTimeout(() => {
-        if (!handshakeDoneRef.current) {
-          setEmbedStatus('error');
-          setErrorMessage(
-            `Aplikasi ${app.name} menolak koneksi frame atau gagal verifikasi token. Coba muat ulang halaman ini.`
-          );
-        }
-      }, 3500);
-    }
+    postAuthToFrame();
   };
 
   const handleReload = () => {
@@ -159,9 +193,6 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
       onSessionExpired();
       return;
     }
-    handshakeDoneRef.current = false;
-    setEmbedStatus('loading');
-    setErrorMessage('');
     setReloadKey((k) => k + 1);
   };
 
@@ -210,6 +241,12 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
             </span>
             <span aria-hidden="true">·</span>
             <span className="truncate">{app.category}</span>
+            {verifiedUser?.email && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span className="truncate opacity-80">{verifiedUser.email}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -227,21 +264,21 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
         </button>
       </div>
 
-      {/* Controlled Application Viewport */}
-      <div className="relative flex-1 min-h-0 w-full overflow-hidden rounded-[26px] border border-[var(--line)] bg-white dark:bg-[#181622] shadow-[var(--shadow-card)]">
-        {/* Loading / Verifying Overlay */}
-        {(embedStatus === 'loading' || embedStatus === 'verifying') && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/90 dark:bg-[#181622]/90 backdrop-blur-md transition-opacity duration-200 px-6 text-center">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--dark)] text-[var(--on-dark)] shadow-md">
+      {/* Same-Origin Application Viewport */}
+      <div className="relative flex-1 min-h-0 w-full overflow-hidden rounded-[26px] border border-[var(--line)] bg-[#f4f5f8] shadow-[var(--shadow-card)]">
+        {/* Verifying / Loading Overlay */}
+        {(embedStatus === 'verifying' || embedStatus === 'loading') && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#f4f5f8]/95 backdrop-blur-md transition-opacity duration-200 px-6 text-center">
+            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#1a1446] text-white shadow-md">
               <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
             </div>
-            <p className="text-sm font-semibold text-[var(--ink)]">
+            <p className="text-sm font-semibold text-[#1a1446]">
               {embedStatus === 'verifying'
                 ? `Memverifikasi sesi LaporanWe untuk ${app.name}...`
-                : `Memuat ${app.name}...`}
+                : `Menyiapkan Studio ${app.name}...`}
             </p>
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Koneksi akun terintegrasi sedang disiapkan secara aman.
+            <p className="mt-1 text-xs text-[#5d5f75]">
+              Menghubungkan akun Anda secara aman.
             </p>
           </div>
         )}
@@ -279,17 +316,19 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
           </div>
         )}
 
-        {/* Controlled Iframe (Zero Token in URL) */}
-        <iframe
-          key={reloadKey}
-          ref={iframeRef}
-          src={app.sourceUrl}
-          title={app.name}
-          onLoad={handleIframeLoad}
-          className="block h-full w-full border-0 flex-1"
-          allow="clipboard-read; clipboard-write; fullscreen"
-          loading="eager"
-        />
+        {/* Mount Same-Origin FOTOWE Studio once account session is verified */}
+        {verifiedUser && (
+          <iframe
+            key={reloadKey}
+            ref={iframeRef}
+            src={app.sourceUrl}
+            title={`${app.name} — Studio Pas Foto Digital`}
+            onLoad={handleIframeLoad}
+            className="block h-full w-full border-0 flex-1 bg-[#f4f5f8]"
+            allow="clipboard-read; clipboard-write; fullscreen"
+            loading="eager"
+          />
+        )}
       </div>
     </div>
   );
