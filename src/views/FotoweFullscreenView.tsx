@@ -1,4 +1,17 @@
 import React, { useEffect, useRef } from 'react';
+import {
+  fotoweApi,
+  fetchPhotoBlobCorsSafe,
+  rememberPhotoBlob,
+  migrateIndexedDbProjects,
+  FotoweArtboardPayload,
+  FotowePermissionEntry,
+  FotoweProjectDetail,
+  FotoweProjectSummary,
+  FotoweSlotPayload,
+  UploadedFotowePhoto,
+} from '../utils/fotoweApi';
+import { getStoredUser, teamService } from '../utils/api';
 import '../styles/fotowe.css';
 
 export interface FotoweFullscreenViewProps {
@@ -16,7 +29,18 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
   const onBackToHubRef = useRef(onBackToHub);
   onBackToHubRef.current = onBackToHub;
 
-  const userScopeIdentity = userId || userEmail || 'anon';
+  const stored = getStoredUser();
+  const initialIdentityRef = useRef<string | number>(
+    userId || userEmail || stored?.id || stored?.email || 'anon'
+  );
+  if (
+    initialIdentityRef.current === 'anon' &&
+    (userId || userEmail)
+  ) {
+    initialIdentityRef.current = userId || userEmail || 'anon';
+  }
+  const scopeIdentityRef = useRef<string | number>(initialIdentityRef.current);
+  scopeIdentityRef.current = userId || userEmail || scopeIdentityRef.current;
 
   useEffect(() => {
     const rootNode = rootRef.current;
@@ -28,6 +52,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     const activeObjectUrls = new Set<string>();
     const modalCleanupFns = new Set<() => void>();
     let activePrintCleanup: (() => void) | null = null;
+    let pollIntervalId = 0;
 
     function safeSetTimeout(fn: () => void, ms: number): number {
       const id = window.setTimeout(() => {
@@ -82,6 +107,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       oy: number;
       status: string;
       blob: Blob | null;
+      photoId?: number | null;
+      photoUrl?: string | null;
+      corsUrl?: string | null;
+      thumbUrl?: string | null;
+      fileSize?: number;
       shown?: number;
       t0?: number;
       zv?: number;
@@ -104,15 +134,20 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       active: number;
       artboards: Artboard[];
       saved?: number;
-    }
-    interface ProjectSummary {
-      id: string;
-      name: string;
-      n: number;
-      photos: number;
-      dpi: number;
-      color: string;
-      saved: number;
+      ownerUserId?: number;
+      ownerName?: string;
+      ownerEmail?: string;
+      isOwner: boolean;
+      isAdmin?: boolean;
+      canEdit: boolean;
+      canDelete: boolean;
+      canManagePermissions: boolean;
+      accessRole: 'admin' | 'owner' | 'editor' | 'viewer';
+      visibility: 'workspace' | 'private';
+      version?: number;
+      thumbnailUrl?: string | null;
+      permissions: FotowePermissionEntry[];
+      isRemotePersisted: boolean;
     }
 
     const P: Record<string, PaperSpec> = {
@@ -136,7 +171,20 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     let sel: number[] = [0];
 
     function blank(): SlotState {
-      return { img: null, name: '', z: 1, ox: 0, oy: 0, status: 'empty', blob: null };
+      return {
+        img: null,
+        name: '',
+        z: 1,
+        ox: 0,
+        oy: 0,
+        status: 'empty',
+        blob: null,
+        photoId: null,
+        photoUrl: null,
+        corsUrl: null,
+        thumbUrl: null,
+        fileSize: 0,
+      };
     }
     function sl(i: number): SlotState {
       return slots[i] || (slots[i] = blank());
@@ -208,19 +256,28 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     let animReady = false;
     let cardAnim = false;
 
-    /* ---- Project state variables ---- */
+    /* ---- Project & Cloud Sync state variables ---- */
     let proj: ProjectData | null = null;
     let ab: Artboard | null = null;
-    let plist: ProjectSummary[] = [];
+    let plist: FotoweProjectSummary[] = [];
+    let isLoadingList = true;
+    let listError = '';
     let savedSig: string | null = null;
     let savedAt = '';
     let busy = '';
     let autoT = 0;
     let thT = 0;
     let hsz = 1;
+    let isRefreshingList = false;
+
+    // Deduplicated photo upload promise map keyed by Blob reference
+    const blobUploadMap = new Map<Blob, Promise<UploadedFotowePhoto>>();
+    // Sequential save queue lock per editor session so createProject never runs twice concurrently
+    let activeSavePromise: Promise<void> | null = null;
+    let trailingSaveRequested = false;
 
     function uid(): string {
-      return Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
+      return 'ftw_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36);
     }
     function esc(t: string): string {
       return String(t).replace(/[&<>"']/g, (c) => {
@@ -234,7 +291,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       });
     }
     function newAb(name: string, t: string, s?: number): Artboard {
-      return { id: uid(), name, t, s: s == null ? 1 : s, a: 0, slots: [] };
+      return { id: 'ab_' + Math.random().toString(36).slice(2, 9), name, t, s: s == null ? 1 : s, a: 0, slots: [] };
     }
     function syncAb() {
       if (ab) {
@@ -242,6 +299,15 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         ab.s = st.s;
         ab.a = st.a;
       }
+    }
+    function canModify(): boolean {
+      return Boolean(proj && proj.canEdit);
+    }
+    function roleLabel(r: FotoweProjectSummary): string {
+      if (r.is_owner) return 'Milik Anda';
+      if (r.access_role === 'admin' || r.is_admin) return 'Admin';
+      if (r.can_edit) return 'Editor';
+      return 'Hanya Lihat';
     }
 
     /* ---- Toast & Feedback ---- */
@@ -271,23 +337,26 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       if (t === lastT && n - lastAt < 1500) return;
       lastT = t;
       lastAt = n;
-      toast(t, /tidak|gagal|belum|semua slot|pilih |penuh/i.test(t) ? 'err' : '');
+      toast(t, /tidak|gagal|belum|semua slot|pilih |penuh|baca saja|ditolak/i.test(t) ? 'err' : '');
     }
 
     /* ---- Home rendering ---- */
     function sizeBtns(el: HTMLElement, home?: boolean) {
       el.innerHTML = '';
       const c = home ? hsz : st.s;
+      const ro = !home && !canModify();
       S.forEach((s, i) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = 'b' + (i === c ? ' on' : '');
         b.textContent = s.l;
+        if (ro) b.disabled = true;
         b.onclick = () => {
           if (home) {
             hsz = i;
             renderHome();
           } else {
+            if (!canModify()) return;
             st.s = i;
             st.a = 0;
             sel = [0];
@@ -527,6 +596,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       const L = cur();
       const p = P[st.t];
       const f = filled(L);
+      const editable = canModify();
+
       sel = sel.filter((i) => i < L.n);
       if (sel.indexOf(st.a) < 0) sel = [st.a];
       markNew();
@@ -536,16 +607,28 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       }
       frame();
       afterUi();
+
       const has = L.n > 0 && !!sl(st.a).img;
       $('sel').textContent = L.n ? `Slot ${st.a + 1}${has ? '' : ' (kosong)'}` : '–';
       ['zi', 'zo', 'rs', 'del', 'dup'].forEach((k) => {
-        ($(k) as HTMLButtonElement).disabled = !has;
+        ($(k) as HTMLButtonElement).disabled = !has || !editable;
       });
       root.querySelectorAll<HTMLButtonElement>('[data-m]').forEach((b) => {
-        b.disabled = !has;
+        b.disabled = !has || !editable;
       });
-      ($('up') as HTMLButtonElement).disabled = !L.n;
-      ($('delsel') as HTMLButtonElement).disabled = !sel.some((i) => !!sl(i).img);
+      ($('up') as HTMLButtonElement).disabled = !L.n || !editable;
+      ($('delsel') as HTMLButtonElement).disabled = !editable || !sel.some((i) => !!sl(i).img);
+      ($('sv') as HTMLButtonElement).disabled = !editable;
+      const shrBtn = $('shr') as HTMLButtonElement | null;
+      if (shrBtn) {
+        shrBtn.hidden = !proj.canManagePermissions;
+      }
+
+      ['abAdd', 'abDup', 'abRen', 'abDel'].forEach((k) => {
+        ($(k) as HTMLButtonElement).disabled = !editable;
+      });
+      sizeBtns($('es'));
+
       status();
       const disOut = f === 0;
       ($('dl') as HTMLButtonElement).disabled = disOut;
@@ -564,9 +647,13 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           });
         }
       }
-      $('ft').textContent = `Template ${st.t}`;
+      $('ft').textContent = `Template ${st.t}${editable ? '' : ' · Mode Baca Saja'}`;
       $('inf').innerHTML =
         `<dt>Project</dt><dd>${esc(proj.name)}</dd>` +
+        `<dt>Pemilik</dt><dd>${esc(proj.ownerName || proj.ownerEmail || 'Anda')}</dd>` +
+        `<dt>Akses</dt><dd>${esc(
+          proj.isOwner ? 'Pemilik' : proj.accessRole === 'admin' ? 'Admin' : proj.canEdit ? 'Editor' : 'Hanya Lihat'
+        )}</dd>` +
         `<dt>Artboard</dt><dd>${proj.active + 1} / ${proj.artboards.length} · ${esc(ab.name)}</dd>` +
         `<dt>Output</dt><dd>${proj.dpi} DPI · ${proj.color === 'gray' ? 'Grayscale' : 'RGB'}</dd>` +
         `<dt>Template</dt><dd>${st.t}</dd>` +
@@ -577,31 +664,85 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       if (!L.n) say('Ukuran foto tidak muat di kertas ini. Pilih ukuran foto yang lebih kecil.');
     }
 
-    /* ---- Upload / Slot Operations ---- */
-    function load(f: Blob): Promise<{ img: HTMLImageElement; name: string; blob: Blob } | null> {
+    /* ---- Upload / Cloud Photo Operations ---- */
+    function load(f: Blob, fallbackName?: string): Promise<{ img: HTMLImageElement; name: string; blob: Blob } | null> {
       return new Promise((res) => {
         const im = new Image();
         const url = trackObjectUrl(URL.createObjectURL(f));
-        im.onload = () => res({ img: im, name: (f as File).name || 'foto.png', blob: f });
+        im.onload = () => res({ img: im, name: (f as File).name || fallbackName || 'foto.png', blob: f });
         im.onerror = () => res(null);
         im.src = url;
       });
     }
 
-    function put(i: number, o: { img: HTMLImageElement; name: string; blob: Blob }) {
-      slots[i] = { img: o.img, name: o.name, blob: o.blob, z: 1, ox: 0, oy: 0, status: 'filled' };
+    function ensureBlobUpload(blob: Blob, name: string): Promise<UploadedFotowePhoto> {
+      const existing = blobUploadMap.get(blob);
+      if (existing) return existing;
+      const promise = fotoweApi
+        .uploadPhoto(blob, name)
+        .then((res) => {
+          rememberPhotoBlob(res.cors_url, blob);
+          rememberPhotoBlob(res.file_url, blob);
+          return res;
+        })
+        .catch((err) => {
+          blobUploadMap.delete(blob);
+          throw err;
+        });
+      blobUploadMap.set(blob, promise);
+      return promise;
     }
 
-    $('up').onclick = () => ($('file') as HTMLInputElement).click();
+    function applyUploadMetadataToAllMatchingSlots(blob: Blob, uploaded: UploadedFotowePhoto) {
+      if (!proj) return;
+      proj.artboards.forEach((b) => {
+        b.slots.forEach((s) => {
+          if (s && s.blob === blob) {
+            s.photoId = uploaded.photo_id;
+            s.photoUrl = uploaded.file_url;
+            s.corsUrl = uploaded.cors_url;
+            s.thumbUrl = uploaded.thumb_url;
+            s.fileSize = uploaded.file_size;
+          }
+        });
+      });
+    }
+
+    function put(i: number, o: { img: HTMLImageElement; name: string; blob: Blob }) {
+      slots[i] = {
+        img: o.img,
+        name: o.name,
+        blob: o.blob,
+        z: 1,
+        ox: 0,
+        oy: 0,
+        status: 'filled',
+        photoId: null,
+        photoUrl: null,
+        corsUrl: null,
+        thumbUrl: null,
+        fileSize: o.blob.size,
+      };
+    }
+
+    $('up').onclick = () => {
+      if (!canModify()) {
+        say('Anda hanya memiliki izin melihat project ini.');
+        return;
+      }
+      ($('file') as HTMLInputElement).click();
+    };
+
     ($('file') as HTMLInputElement).onchange = async (e) => {
       const inp = e.target as HTMLInputElement;
       const fs = [].slice
         .call(inp.files || [])
         .filter((f: File) => /^image\//.test(f.type));
       inp.value = '';
-      if (!fs.length) return;
+      if (!fs.length || !canModify()) return;
+
       const L = cur();
-      const ims = (await Promise.all(fs.map(load))).filter(Boolean) as {
+      const ims = (await Promise.all(fs.map((f: File) => load(f, f.name)))).filter(Boolean) as {
         img: HTMLImageElement;
         name: string;
         blob: Blob;
@@ -611,31 +752,49 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         say('File gambar tidak dapat dibaca.');
         return;
       }
+
+      const placedBlobs: Array<{ blob: Blob; name: string }> = [];
       if (ims.length === 1 && sl(st.a).img) {
         put(st.a, ims[0]);
+        placedBlobs.push({ blob: ims[0].blob, name: ims[0].name });
         say(`Foto slot ${st.a + 1} diganti.`);
         ui();
-        return;
+      } else {
+        let emp: number[] = [];
+        for (let i = 0; i < L.n; i++) if (!sl(i).img) emp.push(i);
+        if (!emp.length) {
+          say('Semua slot terisi. Pilih satu slot lalu upload 1 foto untuk menggantinya.');
+          return;
+        }
+        if (emp.indexOf(st.a) > 0) emp = [st.a].concat(emp.filter((i) => i !== st.a));
+        const n = Math.min(ims.length, emp.length);
+        for (let j = 0; j < n; j++) {
+          put(emp[j], ims[j]);
+          placedBlobs.push({ blob: ims[j].blob, name: ims[j].name });
+        }
+        st.a = emp[0];
+        say(
+          ims.length > n
+            ? `${n} foto masuk. ${ims.length - n} foto tidak dimuat karena slot penuh.`
+            : `${n} foto dimasukkan ke slot berbeda.`
+        );
+        ui();
       }
-      let emp: number[] = [];
-      for (let i = 0; i < L.n; i++) if (!sl(i).img) emp.push(i);
-      if (!emp.length) {
-        say('Semua slot terisi. Pilih satu slot lalu upload 1 foto untuk menggantinya.');
-        return;
-      }
-      if (emp.indexOf(st.a) > 0) emp = [st.a].concat(emp.filter((i) => i !== st.a));
-      const n = Math.min(ims.length, emp.length);
-      for (let j = 0; j < n; j++) put(emp[j], ims[j]);
-      st.a = emp[0];
-      say(
-        ims.length > n
-          ? `${n} foto masuk. ${ims.length - n} foto tidak dimuat karena slot penuh.`
-          : `${n} foto dimasukkan ke slot berbeda.`
-      );
-      ui();
+
+      // Immediately start cloud upload in background so photo_id is ready cleanly
+      placedBlobs.forEach(({ blob, name }) => {
+        ensureBlobUpload(blob, name)
+          .then((uploaded) => {
+            if (!disposed) applyUploadMetadataToAllMatchingSlots(blob, uploaded);
+          })
+          .catch(() => {
+            // saveProject() will retry upload cleanly before committing
+          });
+      });
     };
 
     $('dup').onclick = () => {
+      if (!canModify()) return;
       const L = cur();
       const s = sl(st.a);
       if (!s.img) return;
@@ -662,6 +821,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         img: s.img,
         name: s.name,
         blob: s.blob,
+        photoId: s.photoId,
+        photoUrl: s.photoUrl,
+        corsUrl: s.corsUrl,
+        thumbUrl: s.thumbUrl,
+        fileSize: s.fileSize,
         z: s.z,
         ox: s.ox,
         oy: s.oy,
@@ -672,6 +836,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     };
 
     $('del').onclick = () => {
+      if (!canModify()) return;
       kill(st.a);
       say(`Slot ${st.a + 1} dikosongkan.`);
       ui();
@@ -680,6 +845,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     /* ---- Edit & Pointer Drag ---- */
     let drag: { x: number; y: number } | null = null;
     function mv(dx: number, dy: number) {
+      if (!canModify()) return;
       const s = sl(st.a);
       if (s.img) {
         s.ox += dx;
@@ -688,14 +854,17 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       }
     }
     $('zi').onclick = () => {
+      if (!canModify()) return;
       sl(st.a).z *= 1.1;
       ui();
     };
     $('zo').onclick = () => {
+      if (!canModify()) return;
       sl(st.a).z /= 1.1;
       ui();
     };
     $('rs').onclick = () => {
+      if (!canModify()) return;
       const s = sl(st.a);
       s.z = 1;
       s.ox = s.oy = 0;
@@ -739,17 +908,21 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       }
       st.a = i;
       sel = [i];
-      drag = { x: e.clientX, y: e.clientY };
-      cv.setPointerCapture(e.pointerId);
+      if (canModify()) {
+        drag = { x: e.clientX, y: e.clientY };
+        cv.setPointerCapture(e.pointerId);
+      } else {
+        drag = null;
+      }
       ui();
     };
 
     cv.onpointermove = (e) => {
-      if (!drag) {
+      if (!drag || !canModify()) {
         const hh = hit(e);
         if (hh !== hov) {
           hov = hh;
-          cv.style.cursor = hh < 0 ? 'default' : sl(hh).img ? 'grab' : 'pointer';
+          cv.style.cursor = hh < 0 ? 'default' : !canModify() ? 'pointer' : sl(hh).img ? 'grab' : 'pointer';
           kick();
         }
         return;
@@ -1163,12 +1336,18 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       img: HTMLImageElement;
       name: string;
       blob: Blob | null;
+      photoId?: number | null;
+      photoUrl?: string | null;
+      corsUrl?: string | null;
+      thumbUrl?: string | null;
+      fileSize?: number;
       z: number;
       ox: number;
       oy: number;
     }> | null = null;
 
     function delSel() {
+      if (!canModify()) return;
       let n = 0;
       sel.forEach((i) => {
         if (sl(i).img) {
@@ -1205,6 +1384,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           img: s.img!,
           name: s.name,
           blob: s.blob,
+          photoId: s.photoId,
+          photoUrl: s.photoUrl,
+          corsUrl: s.corsUrl,
+          thumbUrl: s.thumbUrl,
+          fileSize: s.fileSize,
           z: s.z,
           ox: s.ox,
           oy: s.oy,
@@ -1218,6 +1402,10 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function pasteClip() {
+      if (!canModify()) {
+        say('Mode baca saja. Anda tidak dapat menempel foto di project ini.');
+        return;
+      }
       if (!clip) {
         say('Belum ada foto yang disalin (Ctrl + C).');
         return;
@@ -1259,6 +1447,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           img: c.img,
           name: c.name,
           blob: c.blob,
+          photoId: c.photoId,
+          photoUrl: c.photoUrl,
+          corsUrl: c.corsUrl,
+          thumbUrl: c.thumbUrl,
+          fileSize: c.fileSize,
           z: c.z,
           ox: c.ox,
           oy: c.oy,
@@ -1275,39 +1468,6 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           : `${clip.length} foto ditempel.`
       );
       ui();
-    }
-
-    /* ---- IndexedDB User-Scoped Project Storage ---- */
-    function userScopeKey(): string {
-      return (
-        'fotowe_u_' +
-        String(userScopeIdentity)
-          .toLowerCase()
-          .replace(/[^a-z0-9_-]/g, '_')
-      );
-    }
-
-    function db(): Promise<IDBDatabase> {
-      return new Promise((res, rej) => {
-        const r = indexedDB.open(userScopeKey(), 1);
-        r.onupgradeneeded = () => {
-          r.result.createObjectStore('p');
-        };
-        r.onsuccess = () => res(r.result);
-        r.onerror = () => rej(r.error);
-      });
-    }
-
-    function idb(mode: IDBTransactionMode, fn: (o: IDBObjectStore) => IDBRequest | void): Promise<any> {
-      return db().then(
-        (d) =>
-          new Promise((res, rej) => {
-            const t = d.transaction('p', mode);
-            const q = fn(t.objectStore('p'));
-            t.oncomplete = () => res(q && q.result);
-            t.onerror = t.onabort = () => rej(t.error);
-          })
-      );
     }
 
     function useAb(i: number) {
@@ -1335,7 +1495,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       proj!.artboards.forEach((b) => {
         a.push(`#${b.id}${b.name}${b.t}${b.s}${b.a}`);
         b.slots.forEach((x) => {
-          a.push(x && x.img ? [x.name, x.blob ? x.blob.size : 0, x.z, x.ox, x.oy].join('|') : '-');
+          const sz = x && x.blob ? x.blob.size : x?.fileSize || 0;
+          a.push(x && x.img ? [x.name, sz, Number(x.z.toFixed(5)), Number(x.ox.toFixed(5)), Number(x.oy.toFixed(5))].join('|') : '-');
         });
       });
       return a.join(';');
@@ -1345,19 +1506,23 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       if (disposed) return;
       const el = $('svs');
       if (!el || !proj) return;
+      if (!proj.canEdit) {
+        el.textContent = 'Mode Baca Saja';
+        return;
+      }
       el.textContent =
         busy ||
         (autoT
-          ? 'Menyimpan otomatis…'
+          ? 'Menyimpan ke server…'
           : savedSig === null
-          ? 'Belum disimpan'
+          ? 'Belum tersinkron'
           : savedSig === sig()
-          ? `Tersimpan ${savedAt}`
+          ? `Tersinkron ${savedAt}`
           : 'Ada perubahan belum disimpan');
     }
 
     function autoSched() {
-      if (!proj || disposed) return;
+      if (!proj || !proj.canEdit || disposed) return;
       if (sig() !== savedSig) {
         safeClearTimeout(autoT);
         autoT = safeSetTimeout(() => {
@@ -1380,254 +1545,490 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     function afterUi() {
       if (!proj || disposed) return;
       updThumb();
-      autoSched();
+      if (proj.canEdit) autoSched();
     }
 
-    function snapshot() {
-      syncAb();
-      const imgs: Blob[] = [];
-      const names: string[] = [];
-      const rec: any = {
-        id: proj!.id,
-        name: proj!.name,
-        dpi: proj!.dpi,
-        color: proj!.color,
-        active: proj!.active,
-        saved: Date.now(),
-        artboards: [],
-      };
-      proj!.artboards.forEach((b) => {
-        const ss: any[] = [];
+    function generateCoverThumbnail(targetProj: ProjectData): string | null {
+      try {
+        const activeAb = targetProj.artboards[targetProj.active] || targetProj.artboards[0];
+        if (!activeAb) return null;
+        const p = P[activeAb.t] || P['4R'];
+        const k = 280 / Math.max(p.w, p.h);
+        const w = Math.max(80, Math.round(p.w * k));
+        const h = Math.max(80, Math.round(p.h * k));
+        const c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        const g = c.getContext('2d');
+        if (!g) return null;
+        draw(g, k, false, w, h, 0, activeAb);
+        if (targetProj.color === 'gray') {
+          gray(g, w, h);
+        }
+        return c.toDataURL('image/jpeg', 0.78);
+      } catch {
+        return null;
+      }
+    }
+
+    function buildSummaryFromProj(targetProj: ProjectData, savedTs: number, serverSummary?: FotoweProjectSummary): FotoweProjectSummary {
+      let photoCount = 0;
+      targetProj.artboards.forEach((b) => {
         b.slots.forEach((x) => {
-          if (x && x.img && x.blob) {
-            let k = imgs.indexOf(x.blob);
-            if (k < 0) {
-              k = imgs.push(x.blob) - 1;
-              names[k] = x.name;
-            }
-            ss.push({ im: k, z: x.z, ox: x.ox, oy: x.oy });
-          } else {
-            ss.push({ im: -1 });
-          }
-        });
-        rec.artboards.push({ id: b.id, name: b.name, t: b.t, s: b.s, a: b.a, slots: ss });
-      });
-      rec.images = imgs.map((x, k) => ({ blob: x, name: names[k] }));
-      return rec;
-    }
-
-    function summary(r: any): ProjectSummary {
-      let n = 0;
-      r.artboards.forEach((b: any) => {
-        b.slots.forEach((q: any) => {
-          if (q.im >= 0) n++;
+          if (x && (x.img || x.status === 'filled')) photoCount++;
         });
       });
       return {
-        id: r.id,
-        name: r.name,
-        n: r.artboards.length,
-        photos: n,
-        dpi: r.dpi,
-        color: r.color,
-        saved: r.saved,
+        id: targetProj.id,
+        name: targetProj.name,
+        dpi: targetProj.dpi,
+        color: targetProj.color,
+        active: targetProj.active,
+        n: targetProj.artboards.length,
+        photos: photoCount,
+        thumbnail_url: serverSummary?.thumbnail_url ?? targetProj.thumbnailUrl ?? null,
+        visibility: targetProj.visibility,
+        version: serverSummary?.version ?? targetProj.version ?? 1,
+        owner_user_id: serverSummary?.owner_user_id ?? targetProj.ownerUserId ?? 0,
+        owner_name: serverSummary?.owner_name ?? targetProj.ownerName ?? 'Anda',
+        owner_email: serverSummary?.owner_email ?? targetProj.ownerEmail ?? '',
+        is_owner: serverSummary?.is_owner ?? targetProj.isOwner,
+        is_admin: serverSummary?.is_admin ?? targetProj.isAdmin,
+        can_edit: serverSummary?.can_edit ?? targetProj.canEdit,
+        can_delete: serverSummary?.can_delete ?? targetProj.canDelete,
+        can_manage_permissions: serverSummary?.can_manage_permissions ?? targetProj.canManagePermissions,
+        access_role: serverSummary?.access_role ?? targetProj.accessRole,
+        saved: savedTs,
       };
     }
 
-    function upsert(r: any) {
-      const m = summary(r);
-      let i = -1;
-      plist.forEach((x, j) => {
-        if (x.id === m.id) i = j;
-      });
-      if (i < 0) plist.push(m);
-      else plist[i] = m;
+    function upsertSummary(m: FotoweProjectSummary) {
+      const idx = plist.findIndex((x) => x.id === m.id);
+      if (idx < 0) plist.unshift(m);
+      else plist[idx] = { ...plist[idx], ...m };
       plist.sort((a, b) => b.saved - a.saved);
     }
 
-    function saveProject(manual: boolean) {
-      if (!proj) return;
-      safeClearTimeout(autoT);
-      autoT = 0;
-      busy = 'Menyimpan…';
-      status();
-      const rec = snapshot();
-      const sg = sig();
-      const id = proj.id;
-      idb('readwrite', (o) => o.put(rec, 'proj:' + id))
-        .then(() => {
-          if (disposed) return;
-          busy = '';
-          upsert(rec);
-          if (proj && proj.id === id) {
-            savedSig = sg;
-            savedAt = nowT(rec.saved);
-            status();
-            if (manual) say('Project disimpan di browser ini.');
-            if (sig() !== savedSig) autoSched();
+    async function ensureAllSlotsUploaded(targetProj: ProjectData): Promise<void> {
+      const uploadsToWait: Array<Promise<void>> = [];
+      for (const b of targetProj.artboards) {
+        for (const s of b.slots) {
+          if (s && s.img && !s.photoId && !s.photoUrl && s.blob) {
+            const p = ensureBlobUpload(s.blob, s.name || 'foto.jpg').then((uploaded) => {
+              s.photoId = uploaded.photo_id;
+              s.photoUrl = uploaded.file_url;
+              s.corsUrl = uploaded.cors_url;
+              s.thumbUrl = uploaded.thumb_url;
+              s.fileSize = uploaded.file_size;
+              applyUploadMetadataToAllMatchingSlots(s.blob!, uploaded);
+            });
+            uploadsToWait.push(p);
           }
-        })
-        .catch(() => {
-          if (disposed) return;
-          busy = 'Gagal menyimpan';
-          status();
-          toast('Gagal menyimpan project.', 'err');
-          safeSetTimeout(() => {
-            busy = '';
-            status();
-          }, 2500);
-        });
+        }
+      }
+      if (uploadsToWait.length > 0) {
+        await Promise.all(uploadsToWait);
+      }
     }
 
-    function hydrate(r: any): Promise<ProjectData> {
-      return Promise.all(
-        (r.images || []).map((o: any) =>
-          load(o.blob).then((x) => {
-            if (x) x.name = o.name;
-            return x;
-          })
-        )
-      ).then((ims) => ({
-        id: r.id,
-        name: r.name,
-        dpi: r.dpi || 300,
-        color: r.color === 'gray' ? 'gray' : 'rgb',
-        active: r.active || 0,
-        saved: r.saved,
-        artboards: r.artboards.map((b: any) => ({
-          id: b.id,
-          name: b.name,
-          t: P[b.t] ? b.t : '4R',
-          s: S[b.s] ? b.s : 1,
-          a: b.a || 0,
-          slots: b.slots.map((q: any) => {
-            const x = q.im >= 0 ? ims[q.im] : null;
-            return x
-              ? {
-                  img: x.img,
-                  name: x.name,
-                  blob: x.blob,
-                  z: q.z,
-                  ox: q.ox,
-                  oy: q.oy,
-                  status: 'filled',
-                }
-              : blank();
-          }),
-        })),
-      }));
-    }
-
-    function openProject(id: string): Promise<void> {
-      if (proj && sig() !== savedSig) saveProject(false);
-      return idb('readonly', (o) => o.get('proj:' + id))
-        .then((r) => {
-          if (!r) throw new Error('missing');
-          return hydrate(r);
-        })
-        .then((p) => {
-          if (disposed) return;
-          if (!p.artboards.length) p.artboards.push(newAb('Artboard 1', '4R', 1));
-          ab = null;
-          proj = p;
-          useAb(Math.min(p.active, p.artboards.length - 1));
-          savedSig = sig();
-          savedAt = nowT(p.saved);
-          safeClearTimeout(autoT);
-          autoT = 0;
-          if (window.location.hash.slice(1) === 'editor') route();
-          else window.location.hash = 'editor';
-        })
-        .catch(() => {
-          if (!disposed) toast('Project tidak dapat dibuka.', 'err');
-        });
-    }
-
-    function refreshList() {
-      return idb('readonly', (o) => o.getAll())
-        .then((rs: any[]) => {
-          let leg: any = null;
-          plist = [];
-          rs.forEach((r) => {
-            if (r && r.artboards) plist.push(summary(r));
-            else if (r && r.slots && r.images) leg = r;
-          });
-          plist.sort((a, b) => b.saved - a.saved);
-          if (leg) {
-            const id = uid();
-            const rec = {
-              id,
-              name: 'Project lama',
-              dpi: 300,
-              color: 'rgb',
-              active: 0,
-              saved: leg.saved || Date.now(),
-              images: leg.images,
-              artboards: [
-                { id: uid(), name: 'Artboard 1', t: leg.t, s: leg.s, a: leg.a || 0, slots: leg.slots },
-              ],
-            };
-            return idb('readwrite', (o) => {
-              o.put(rec, 'proj:' + id);
-              o.delete('current');
-            }).then(() => {
-              upsert(rec);
+    function serializeArtboards(targetProj: ProjectData): FotoweArtboardPayload[] {
+      return targetProj.artboards.map((b) => {
+        const L = layout(P[b.t] || P['4R'], S[b.s] || S[1]);
+        const maxSlots = Math.max(L.n, b.slots.length);
+        const mappedSlots: FotoweSlotPayload[] = [];
+        for (let idx = 0; idx < maxSlots; idx++) {
+          const s = b.slots[idx];
+          if (s && s.img && (s.photoId || s.photoUrl)) {
+            mappedSlots.push({
+              slot_index: idx,
+              photo_id: s.photoId ?? null,
+              photo_url: s.photoUrl ?? null,
+              thumb_url: s.thumbUrl ?? s.photoUrl ?? null,
+              name: s.name || 'foto.jpg',
+              file_size: s.fileSize || (s.blob ? s.blob.size : 0),
+              z: s.z,
+              ox: s.ox,
+              oy: s.oy,
+              status: 'filled',
+            });
+          } else {
+            mappedSlots.push({
+              slot_index: idx,
+              photo_id: null,
+              photo_url: null,
+              thumb_url: null,
+              name: '',
+              file_size: 0,
+              z: 1,
+              ox: 0,
+              oy: 0,
+              status: 'empty',
             });
           }
+        }
+        return {
+          id: b.id,
+          name: b.name,
+          t: b.t,
+          s: b.s,
+          a: b.a,
+          slots: mappedSlots,
+        };
+      });
+    }
+
+    function saveProject(manual: boolean): Promise<void> {
+      if (!proj || !proj.canEdit) return Promise.resolve();
+      safeClearTimeout(autoT);
+      autoT = 0;
+
+      if (activeSavePromise) {
+        trailingSaveRequested = true;
+        return activeSavePromise;
+      }
+
+      const targetProj = proj;
+      const runSave = async () => {
+        do {
+          trailingSaveRequested = false;
+          syncAb();
+          const sg = sig();
+          const targetId = targetProj.id;
+
+          busy = 'Menyimpan ke server…';
+          status();
+
+          try {
+            await ensureAllSlotsUploaded(targetProj);
+            const coverData = generateCoverThumbnail(targetProj);
+            const artboardsPayload = serializeArtboards(targetProj);
+
+            let resSummary: FotoweProjectSummary;
+            if (!targetProj.isRemotePersisted) {
+              resSummary = await fotoweApi.createProject({
+                id: targetProj.id,
+                name: targetProj.name,
+                dpi: targetProj.dpi,
+                color: targetProj.color,
+                active: targetProj.active,
+                thumbnail_data: coverData,
+                visibility: targetProj.visibility,
+                artboards: artboardsPayload,
+              });
+              targetProj.isRemotePersisted = true;
+            } else {
+              resSummary = await fotoweApi.updateProject({
+                id: targetProj.id,
+                name: targetProj.name,
+                dpi: targetProj.dpi,
+                color: targetProj.color,
+                active: targetProj.active,
+                thumbnail_data: coverData,
+                visibility: targetProj.visibility,
+                artboards: artboardsPayload,
+              });
+            }
+
+            if (resSummary.thumbnail_url) {
+              targetProj.thumbnailUrl = resSummary.thumbnail_url;
+            }
+            if (typeof resSummary.version === 'number') {
+              targetProj.version = resSummary.version;
+            }
+            const savedTs = resSummary.saved || Date.now();
+            targetProj.saved = savedTs;
+
+            const mergedSummary = buildSummaryFromProj(targetProj, savedTs, resSummary);
+            upsertSummary(mergedSummary);
+
+            if (!disposed && proj && proj.id === targetId) {
+              busy = '';
+              savedSig = sg;
+              savedAt = nowT(savedTs);
+              status();
+              if (manual && !trailingSaveRequested) {
+                toast('Project tersinkron ke server workspace.');
+              }
+            }
+          } catch (err: any) {
+            const errMsg = err?.message || 'Gagal menyinkronkan project ke server.';
+            if (!disposed) {
+              busy = 'Gagal sinkron server';
+              status();
+              toast(errMsg, 'err');
+              safeSetTimeout(() => {
+                if (busy === 'Gagal sinkron server') {
+                  busy = '';
+                  status();
+                }
+              }, 3000);
+            }
+          }
+        } while (trailingSaveRequested && !disposed && proj && proj.id === targetProj.id && proj.canEdit);
+      };
+
+      activeSavePromise = runSave().finally(() => {
+        activeSavePromise = null;
+      });
+      return activeSavePromise;
+    }
+
+    async function hydrateServerDetail(detail: FotoweProjectDetail): Promise<{ project: ProjectData; missingCount: number }> {
+      // Deduplicate fetching remote photos across all artboards/slots in this project
+      const fetchPromises = new Map<string, Promise<{ img: HTMLImageElement; name: string; blob: Blob } | null>>();
+      let missingCount = 0;
+
+      const fetchSlotMedia = (s: FotoweSlotPayload): Promise<{ img: HTMLImageElement; name: string; blob: Blob } | null> => {
+        const cacheKey = s.photo_id ? `id:${s.photo_id}` : `url:${s.photo_url || ''}`;
+        let p = fetchPromises.get(cacheKey);
+        if (!p) {
+          p = (async () => {
+            const blob = await fetchPhotoBlobCorsSafe({
+              corsUrl: s.cors_url,
+              photoUrl: s.photo_url,
+              photoId: s.photo_id,
+            });
+            if (!blob) return null;
+            return await load(blob, s.name || 'foto.jpg');
+          })();
+          fetchPromises.set(cacheKey, p);
+        }
+        return p;
+      };
+
+      const hydratedArtboards: Artboard[] = await Promise.all(
+        (detail.artboards || []).map(async (b, abIdx) => {
+          const tpl = P[b.t] ? b.t : '4R';
+          const szIdx = S[b.s] ? b.s : 1;
+          const hydratedSlots = await Promise.all(
+            (b.slots || []).map(async (q) => {
+              if (q && q.status === 'filled' && (q.photo_id || q.photo_url)) {
+                const media = await fetchSlotMedia(q);
+                if (media) {
+                  return {
+                    img: media.img,
+                    name: q.name || media.name || 'foto.jpg',
+                    blob: media.blob,
+                    photoId: q.photo_id ?? null,
+                    photoUrl: q.photo_url ?? null,
+                    corsUrl: q.cors_url ?? null,
+                    thumbUrl: q.thumb_url ?? q.photo_url ?? null,
+                    fileSize: q.file_size || media.blob.size,
+                    z: typeof q.z === 'number' ? q.z : 1,
+                    ox: typeof q.ox === 'number' ? q.ox : 0,
+                    oy: typeof q.oy === 'number' ? q.oy : 0,
+                    status: 'filled',
+                  } as SlotState;
+                }
+                missingCount++;
+              }
+              return blank();
+            })
+          );
+
+          return {
+            id: b.id || `ab_${abIdx + 1}`,
+            name: b.name || `Artboard ${abIdx + 1}`,
+            t: tpl,
+            s: szIdx,
+            a: typeof b.a === 'number' ? b.a : 0,
+            slots: hydratedSlots,
+          };
         })
-        .catch(() => {
-          plist = [];
-        })
-        .then(() => {
-          if (!disposed) renderProjects();
-        });
+      );
+
+      if (!hydratedArtboards.length) {
+        hydratedArtboards.push(newAb('Artboard 1', '4R', 1));
+      }
+
+      return {
+        missingCount,
+        project: {
+          id: detail.id,
+          name: detail.name,
+          dpi: detail.dpi || 300,
+          color: detail.color === 'gray' ? 'gray' : 'rgb',
+          active: detail.active || 0,
+          saved: detail.saved,
+          ownerUserId: detail.owner_user_id,
+          ownerName: detail.owner_name,
+          ownerEmail: detail.owner_email,
+          isOwner: Boolean(detail.is_owner),
+          isAdmin: Boolean(detail.is_admin),
+          canEdit: Boolean(detail.can_edit),
+          canDelete: Boolean(detail.can_delete),
+          canManagePermissions: Boolean(detail.can_manage_permissions),
+          accessRole: detail.access_role || (detail.can_edit ? 'editor' : 'viewer'),
+          visibility: detail.visibility === 'private' ? 'private' : 'workspace',
+          version: detail.version || 1,
+          thumbnailUrl: detail.thumbnail_url || null,
+          permissions: Array.isArray(detail.permissions) ? detail.permissions : [],
+          artboards: hydratedArtboards,
+          isRemotePersisted: true,
+        },
+      };
+    }
+
+    async function openProject(id: string): Promise<void> {
+      if (proj && proj.canEdit && sig() !== savedSig) {
+        saveProject(false);
+      }
+      if (activeSavePromise) {
+        await activeSavePromise.catch(() => {});
+      }
+
+      toast('Membuka project dari server…');
+      try {
+        const detail = await fotoweApi.getProjectDetail(id);
+        if (disposed) return;
+        const { project: hydrated, missingCount } = await hydrateServerDetail(detail);
+        if (disposed) return;
+
+        ab = null;
+        proj = hydrated;
+        useAb(Math.min(hydrated.active, hydrated.artboards.length - 1));
+        savedSig = sig();
+        savedAt = nowT(hydrated.saved);
+        safeClearTimeout(autoT);
+        autoT = 0;
+
+        if (window.location.hash.slice(1) === 'editor') route();
+        else window.location.hash = 'editor';
+
+        if (missingCount > 0) {
+          toast(`${missingCount} foto pada project ini tidak dapat dimuat dari server.`, 'err');
+        } else if (!hydrated.canEdit) {
+          toast('Mode baca saja: Anda dapat melihat, export PNG/ZIP, dan mencetak project ini.');
+        }
+      } catch (err: any) {
+        if (!disposed) {
+          toast(err?.message || 'Project tidak dapat dibuka dari server.', 'err');
+        }
+      }
+    }
+
+    async function refreshList(opts?: { silent?: boolean }): Promise<void> {
+      if (disposed || isRefreshingList) return;
+      isRefreshingList = true;
+      const silent = Boolean(opts?.silent);
+      if (!silent) {
+        isLoadingList = true;
+        listError = '';
+        renderProjects();
+      }
+      try {
+        const list = await fotoweApi.listProjects();
+        if (disposed) return;
+        plist = list;
+        isLoadingList = false;
+        listError = '';
+      } catch (err: any) {
+        if (disposed) return;
+        isLoadingList = false;
+        listError = err?.message || 'Gagal memuat project FOTOWE dari server.';
+      } finally {
+        isRefreshingList = false;
+        if (!disposed) renderProjects();
+      }
     }
 
     function renderProjects() {
       if (disposed) return;
+      const sec = $('pj');
       const g = $('pl');
+      const stateEl = $('pjState');
       g.innerHTML = '';
-      $('pj').hidden = !plist.length;
+
+      if (isLoadingList && !plist.length) {
+        sec.hidden = false;
+        stateEl.hidden = false;
+        stateEl.textContent = 'Memuat project shared workspace dari server…';
+        return;
+      }
+
+      if (listError && !plist.length) {
+        sec.hidden = false;
+        stateEl.hidden = false;
+        stateEl.textContent = listError;
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'b';
+        retryBtn.textContent = 'Coba Lagi';
+        retryBtn.onclick = () => refreshList({ silent: false });
+        g.appendChild(retryBtn);
+        return;
+      }
+
+      if (!plist.length) {
+        sec.hidden = true;
+        stateEl.hidden = true;
+        return;
+      }
+
+      sec.hidden = false;
+      if (listError) {
+        stateEl.hidden = false;
+        stateEl.textContent = `Gagal menyegarkan: ${listError}`;
+      } else {
+        stateEl.hidden = true;
+      }
+
       plist.forEach((r) => {
         const d = document.createElement('div');
         d.className = 'tc pjc';
         d.tabIndex = 0;
+
+        const thumbHtml = r.thumbnail_url
+          ? `<div class="ill"><img src="${esc(r.thumbnail_url)}" alt="${esc(r.name)}" loading="lazy" /></div>`
+          : `<div class="ill"><svg viewBox="0 0 101.6 152.4"><rect width="101.6" height="152.4" fill="#fff"/><rect x="18" y="22" width="30" height="40" fill="#c9d3e6"/><rect x="54" y="22" width="30" height="40" fill="#c9d3e6"/><rect x="18" y="68" width="30" height="40" fill="#c9d3e6"/><rect x="54" y="68" width="30" height="40" fill="#c9d3e6"/></svg></div>`;
+
         d.innerHTML =
-          '<button type="button" class="b pd" title="Hapus project" aria-label="Hapus project">✕</button>' +
+          (r.can_delete
+            ? '<button type="button" class="b pd" title="Hapus project" aria-label="Hapus project">✕</button>'
+            : '') +
+          thumbHtml +
           '<div class="tn"></div><div class="td"></div><div class="tf"><span></span><span class="go">Buka →</span></div>';
+
         d.querySelector('.tn')!.textContent = r.name;
-        d.querySelector('.td')!.textContent = `${r.n} artboard · ${r.photos} foto`;
+        d.querySelector('.td')!.textContent =
+          `${r.n} artboard · ${r.photos} foto · Oleh ${r.owner_name || r.owner_email || 'Tim'}`;
         d.querySelector('.tf span')!.textContent =
-          `${r.dpi} DPI · ${r.color === 'gray' ? 'Grayscale' : 'RGB'}`;
+          `${r.dpi} DPI · ${r.color === 'gray' ? 'Grayscale' : 'RGB'} · ${roleLabel(r)}`;
+
         d.onclick = () => openProject(r.id);
         d.onkeydown = (e) => {
           if (e.key === 'Enter' && e.target === d) openProject(r.id);
         };
-        (d.querySelector('.pd') as HTMLButtonElement).onclick = (e) => {
-          e.stopPropagation();
-          modal({
-            title: 'Hapus project?',
-            sub: `“${r.name}” beserta semua artboard di dalamnya akan dihapus permanen dari browser ini.`,
-            okLabel: 'Hapus',
-            ok: () => {
-              idb('readwrite', (o) => o.delete('proj:' + r.id))
-                .then(() => {
-                  if (disposed) return;
-                  plist = plist.filter((x) => x.id !== r.id);
-                  if (proj && proj.id === r.id) {
-                    proj = null;
-                    ab = null;
-                    savedSig = null;
-                  }
-                  renderProjects();
-                  toast('Project dihapus.');
-                })
-                .catch(() => {
-                  if (!disposed) toast('Gagal menghapus project.', 'err');
-                });
-            },
-          });
-        };
+
+        const delBtn = d.querySelector('.pd') as HTMLButtonElement | null;
+        if (delBtn) {
+          delBtn.onclick = (e) => {
+            e.stopPropagation();
+            modal({
+              title: 'Hapus project?',
+              sub: `“${r.name}” beserta semua artboard dan fotonya akan dihapus permanen dari server workspace.`,
+              okLabel: 'Hapus',
+              ok: () => {
+                fotoweApi
+                  .deleteProject(r.id)
+                  .then(() => {
+                    if (disposed) return;
+                    plist = plist.filter((x) => x.id !== r.id);
+                    if (proj && proj.id === r.id) {
+                      proj = null;
+                      ab = null;
+                      savedSig = null;
+                    }
+                    renderProjects();
+                    toast('Project berhasil dihapus dari semua perangkat.');
+                  })
+                  .catch((err: any) => {
+                    if (!disposed) toast(err?.message || 'Gagal menghapus project.', 'err');
+                  });
+              },
+            });
+          };
+        }
         g.appendChild(d);
       });
     }
@@ -1739,7 +2140,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function newProject(def: string) {
-      if (proj && sig() !== savedSig) saveProject(false);
+      if (proj && proj.canEdit && sig() !== savedSig) saveProject(false);
       modal({
         title: 'Project baru',
         sub: 'Atur nama, ukuran kertas, resolusi, dan mode warna.',
@@ -1787,6 +2188,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           if (!(dpi >= 72 && dpi <= 1200)) return 'DPI custom harus antara 72 dan 1200.';
           if (tooBig(size, dpi))
             return 'Resolusi terlalu tinggi untuk ukuran ini (maks. 120 megapiksel).';
+          const me = getStoredUser();
           ab = null;
           proj = {
             id: uid(),
@@ -1795,6 +2197,17 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             color: sv(ov, 'color') === 'gray' ? 'gray' : 'rgb',
             active: 0,
             artboards: [newAb('Artboard 1', size, hsz)],
+            ownerUserId: me?.id ? Number(me.id) : undefined,
+            ownerName: me?.name || me?.email || 'Anda',
+            ownerEmail: me?.email || '',
+            isOwner: true,
+            canEdit: true,
+            canDelete: true,
+            canManagePermissions: true,
+            accessRole: 'owner',
+            visibility: 'workspace',
+            permissions: [],
+            isRemotePersisted: false,
           };
           useAb(0);
           savedSig = null;
@@ -1803,6 +2216,123 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           saveProject(false);
         },
       });
+    }
+
+    /* ---- Collaborator Permissions Modal ---- */
+    async function openShareModal() {
+      if (!proj || !proj.canManagePermissions) {
+        say('Hanya pemilik project atau Admin yang dapat mengelola izin.');
+        return;
+      }
+      const targetProj = proj;
+      let selectedVisibility: 'workspace' | 'private' = targetProj.visibility;
+      const editorEmails = new Set<string>(
+        (targetProj.permissions || [])
+          .filter((p) => p.permission === 'editor')
+          .map((p) => p.user_email.toLowerCase())
+      );
+
+      const ov = modal({
+        title: 'Izin Akses Workspace',
+        sub: `Atur anggota tim LaporanWe yang dapat mengedit “${targetProj.name}”.`,
+        okLabel: 'Simpan Izin',
+        body:
+          '<div class="lbl" style="margin-top:14px">Visibilitas Project</div>' +
+          seg(
+            'vis',
+            [
+              ['workspace', 'Workspace Tim'],
+              ['private', 'Hanya Yang Diizinkan'],
+            ],
+            selectedVisibility
+          ) +
+          '<div class="lbl">Anggota Tim LaporanWe</div>' +
+          '<div id="permBox" class="perm-list"><div class="td">Memuat daftar anggota tim…</div></div>',
+        onseg: (_ov, k, v) => {
+          if (k === 'vis') {
+            selectedVisibility = v === 'private' ? 'private' : 'workspace';
+          }
+        },
+        ok: () => {
+          const nextPermissions: FotowePermissionEntry[] = [];
+          const listEl = ov.querySelector('#permBox');
+          if (listEl) {
+            listEl.querySelectorAll<HTMLButtonElement>('[data-email]').forEach((btn) => {
+              const email = (btn.dataset.email || '').toLowerCase();
+              const uidAttr = btn.dataset.uid ? Number(btn.dataset.uid) : null;
+              if (email && editorEmails.has(email)) {
+                nextPermissions.push({
+                  user_id: uidAttr,
+                  user_email: email,
+                  permission: 'editor',
+                });
+              }
+            });
+          }
+
+          fotoweApi
+            .updateProject({
+              id: targetProj.id,
+              visibility: selectedVisibility,
+              permissions: nextPermissions,
+            })
+            .then(() => {
+              if (disposed) return;
+              targetProj.visibility = selectedVisibility;
+              targetProj.permissions = nextPermissions;
+              toast('Izin akses project diperbarui.');
+            })
+            .catch((err: any) => {
+              if (!disposed) toast(err?.message || 'Gagal memperbarui izin akses.', 'err');
+            });
+        },
+      });
+
+      try {
+        const { members } = await teamService.fetchTeamMembers();
+        if (disposed || !ov.isConnected) return;
+        const box = ov.querySelector('#permBox');
+        if (!box) return;
+        const ownerEmailLower = (targetProj.ownerEmail || '').toLowerCase();
+        const others = members.filter(
+          (m) => Boolean(m.email && m.email.toLowerCase() !== ownerEmailLower)
+        );
+        if (!others.length) {
+          box.innerHTML = '<div class="td">Tidak ada anggota tim lain yang terdaftar.</div>';
+          return;
+        }
+        box.innerHTML = '';
+        others.forEach((m) => {
+          const emailVal = String(m.email || '').trim();
+          const emailLower = emailVal.toLowerCase();
+          const row = document.createElement('div');
+          row.className = 'perm-item';
+          row.innerHTML =
+            '<div class="perm-meta"><div class="perm-name"></div><div class="perm-email"></div></div>' +
+            '<button type="button" class="b"></button>';
+          row.querySelector('.perm-name')!.textContent = m.name || emailVal;
+          row.querySelector('.perm-email')!.textContent = emailVal;
+          const btn = row.querySelector('button')!;
+          btn.dataset.email = emailLower;
+          if (m.id) btn.dataset.uid = String(m.id);
+
+          const renderToggle = () => {
+            const active = editorEmails.has(emailLower);
+            btn.className = 'b' + (active ? ' on' : '');
+            btn.textContent = active ? 'Editor ✓' : 'Hanya Lihat';
+          };
+          renderToggle();
+          btn.onclick = () => {
+            if (editorEmails.has(emailLower)) editorEmails.delete(emailLower);
+            else editorEmails.add(emailLower);
+            renderToggle();
+          };
+          box.appendChild(row);
+        });
+      } catch {
+        const box = ov.querySelector('#permBox');
+        if (box) box.innerHTML = '<div class="td">Gagal memuat daftar anggota tim.</div>';
+      }
     }
 
     /* ---- Artboards Strip & Actions ---- */
@@ -1831,7 +2361,9 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         d.onclick = () => {
           if (i !== proj!.active) switchAb(i);
         };
-        d.ondblclick = renAb;
+        d.ondblclick = () => {
+          if (canModify()) renAb();
+        };
         b.appendChild(d);
       });
       $('hd').textContent = `${proj!.name} · ${proj!.artboards.length} artboard`;
@@ -1848,6 +2380,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function addAb() {
+      if (!canModify()) return;
       modal({
         title: 'Artboard baru',
         okLabel: 'Tambah',
@@ -1873,9 +2406,10 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function dupAb() {
+      if (!canModify()) return;
       syncAb();
       const c: Artboard = {
-        id: uid(),
+        id: 'ab_' + Math.random().toString(36).slice(2, 9),
         name: `${ab!.name} (salinan)`,
         t: ab!.t,
         s: ab!.s,
@@ -1886,6 +2420,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
                 img: x.img,
                 name: x.name,
                 blob: x.blob,
+                photoId: x.photoId,
+                photoUrl: x.photoUrl,
+                corsUrl: x.corsUrl,
+                thumbUrl: x.thumbUrl,
+                fileSize: x.fileSize,
                 z: x.z,
                 ox: x.ox,
                 oy: x.oy,
@@ -1900,6 +2439,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function renAb() {
+      if (!canModify()) return;
       const m = modal({
         title: 'Ganti nama artboard',
         okLabel: 'Simpan',
@@ -1917,6 +2457,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function delAb() {
+      if (!canModify()) return;
       if (proj!.artboards.length < 2) {
         toast('Project harus memiliki minimal 1 artboard.', 'err');
         return;
@@ -1943,6 +2484,10 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     $('abRen').onclick = renAb;
     $('abDel').onclick = delAb;
     $('sv').onclick = () => saveProject(true);
+    const shrButton = $('shr');
+    if (shrButton) shrButton.onclick = openShareModal;
+    const pjRefreshBtn = $('pjRef');
+    if (pjRefreshBtn) pjRefreshBtn.onclick = () => refreshList({ silent: false });
 
     /* ---- Internal FOTOWE Sub-Routing (Home <-> Editor) ---- */
     function route() {
@@ -1958,11 +2503,17 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         renderStrip();
         say('');
       } else {
-        if (proj && sig() !== savedSig) saveProject(false);
+        if (proj && proj.canEdit && sig() !== savedSig) {
+          saveProject(false).then(() => {
+            if (!disposed) refreshList({ silent: true });
+          });
+        } else if (proj) {
+          refreshList({ silent: true });
+        }
         cardAnim = Boolean($('home').hidden);
         swap('home', 'editor');
         $('hd').textContent = 'Studio Pas Foto Digital';
-        $('hr').textContent = 'Multi-Artboard';
+        $('hr').textContent = 'Shared Workspace';
         renderHome();
         renderProjects();
       }
@@ -1977,15 +2528,25 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     if (backBtn) {
       backBtn.onclick = (e) => {
         e.preventDefault();
-        if (proj && sig() !== savedSig) saveProject(false);
+        if (proj && proj.canEdit && sig() !== savedSig) saveProject(false);
         onBackToHubRef.current();
       };
     }
 
     const onVisibilityChange = () => {
-      if (document.hidden && proj && sig() !== savedSig) saveProject(false);
+      if (document.hidden) {
+        if (proj && proj.canEdit && sig() !== savedSig) saveProject(false);
+      } else if (!$('home').hidden && !root.querySelector('.mo')) {
+        refreshList({ silent: true });
+      }
+    };
+    const onWindowFocus = () => {
+      if (!disposed && !$('home').hidden && !root.querySelector('.mo')) {
+        refreshList({ silent: true });
+      }
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('focus', onWindowFocus);
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (disposed || $('editor').hidden || root.querySelector('.mo')) return;
@@ -1998,7 +2559,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       const m = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
       if (m && k === 's') {
         e.preventDefault();
-        if (!e.repeat) saveProject(true);
+        if (!e.repeat && canModify()) saveProject(true);
         return;
       }
       if (m && k === 'e') {
@@ -2018,6 +2579,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         return;
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && (k === 'delete' || k === 'backspace')) {
+        if (!canModify()) return;
         e.preventDefault();
         delSel();
       }
@@ -2044,15 +2606,36 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       }, Math.max(0, 450 - (performance.now() - bt)));
     }
 
-    function init() {
-      return refreshList().then(() => {
-        if (disposed) return;
-        if (window.location.hash.slice(1) === 'editor') {
-          if (plist.length) return openProject(plist[0].id);
-          window.location.hash = 'home';
-        }
-      });
+    async function init() {
+      await refreshList({ silent: false });
+      if (disposed) return;
+
+      // Safe IndexedDB -> MySQL migration (never deletes local data unless server confirms 100%)
+      migrateIndexedDbProjects(scopeIdentityRef.current)
+        .then(async ({ migratedCount, failedCount }) => {
+          if (disposed) return;
+          if (migratedCount > 0) {
+            toast(`${migratedCount} project lama berhasil dimigrasikan ke cloud workspace.`);
+            await refreshList({ silent: true });
+          }
+          if (failedCount > 0) {
+            toast(`${failedCount} project lokal belum dapat dimigrasikan dan tetap aman di browser.`, 'err');
+          }
+        })
+        .catch(() => {});
+
+      if (window.location.hash.slice(1) === 'editor') {
+        if (plist.length) return openProject(plist[0].id);
+        window.location.hash = 'home';
+      }
     }
+
+    // Periodic cross-device workspace refresh every 15s while on Home view
+    pollIntervalId = window.setInterval(() => {
+      if (!disposed && !document.hidden && !$('home').hidden && !root.querySelector('.mo')) {
+        refreshList({ silent: true });
+      }
+    }, 15000);
 
     route();
     const fr =
@@ -2065,10 +2648,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     Promise.all([init(), fr]).then(hideBoot, hideBoot);
 
     return () => {
-      if (proj && sig() !== savedSig) {
+      if (proj && proj.canEdit && sig() !== savedSig) {
         saveProject(false);
       }
       disposed = true;
+      if (pollIntervalId) window.clearInterval(pollIntervalId);
       if (raf) cancelAnimationFrame(raf);
       activeTimers.forEach((id) => window.clearTimeout(id));
       activeTimers.clear();
@@ -2076,13 +2660,14 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       modalCleanupFns.clear();
       if (activePrintCleanup) activePrintCleanup();
       window.removeEventListener('hashchange', route);
+      window.removeEventListener('focus', onWindowFocus);
       document.removeEventListener('visibilitychange', onVisibilityChange);
       document.removeEventListener('keydown', onKeyDown);
       root.removeEventListener('pointerdown', onPointerDownRipple);
       activeObjectUrls.forEach((u) => URL.revokeObjectURL(u));
       activeObjectUrls.clear();
     };
-  }, [userScopeIdentity]);
+  }, []);
 
   return (
     <div ref={rootRef} className="fotowe-fullscreen-shell">
@@ -2112,7 +2697,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             fotowe<b>.</b>
           </button>
           <span id="hd">Studio Pas Foto Digital</span>
-          <span id="hr">Multi-Artboard</span>
+          <span id="hr">Shared Workspace</span>
         </header>
 
         <section id="home">
@@ -2132,9 +2717,28 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             <div className="row" id="hs" />
           </div>
           <div id="pj" hidden style={{ marginBottom: 28 }}>
-            <div className="lbl" style={{ marginTop: 0 }}>
-              Project tersimpan
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                marginBottom: 8,
+              }}
+            >
+              <div className="lbl" style={{ margin: 0 }}>
+                Workspace Project Tersimpan
+              </div>
+              <button
+                type="button"
+                className="b"
+                id="pjRef"
+                style={{ height: 30, fontSize: 11, padding: '0 12px' }}
+              >
+                Segarkan
+              </button>
             </div>
+            <div id="pjState" className="td" style={{ marginBottom: 10 }} hidden />
             <div className="grid" id="pl" />
           </div>
           <div className="lbl" style={{ marginTop: 0 }}>
@@ -2222,6 +2826,9 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               <div className="row" style={{ alignItems: 'center' }}>
                 <button type="button" className="b" id="sv" title="Ctrl + S">
                   Save Project
+                </button>
+                <button type="button" className="b" id="shr" title="Kelola izin editor" hidden>
+                  Izin Akses
                 </button>
                 <span
                   id="svs"
