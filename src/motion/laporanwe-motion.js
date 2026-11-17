@@ -356,14 +356,19 @@ export const initMotion = () => {
   let ticking = false;
   addEventListener('scroll', () => {
     if (ticking || isModalActive()) return;
+    const parallaxEls = document.querySelectorAll('[data-parallax]:not([role="dialog"] *)');
+    if (parallaxEls.length === 0) return;
     ticking = true;
     requestAnimationFrame(() => {
       ticking = false;
-      document.querySelectorAll('[data-parallax]:not([role="dialog"] *)').forEach((el) => {
-        const k = parseFloat(el.dataset.parallax) || 0.08;
+      const vhHalf = innerHeight / 2;
+      const updates = [];
+      parallaxEls.forEach((el) => {
+        const k = parseFloat(el.dataset.parallax || '0.08') || 0.08;
         const r = el.getBoundingClientRect();
-        el.style.setProperty('--lw-py', ((innerHeight / 2 - (r.top + r.height / 2)) * k).toFixed(1) + 'px');
+        updates.push([el, ((vhHalf - (r.top + r.height / 2)) * k).toFixed(1) + 'px']);
       });
+      updates.forEach(([el, val]) => el.style.setProperty('--lw-py', val));
     });
   }, { passive: true });
 
@@ -372,7 +377,7 @@ export const initMotion = () => {
   seed(document.body);
   mo.observe(root, {
     childList: true, subtree: true, attributes: true,
-    attributeFilter: ['class', 'hidden', 'style', 'aria-hidden', 'open']
+    attributeFilter: ['class', 'hidden', 'aria-hidden', 'open']
   });
 
   window.LWMotion = {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Camera, CheckCircle2, ArrowRight, Grid2X2, Loader2 } from 'lucide-react';
 import { REGISTERED_APPS, RegisteredApp } from '../data/appsRegistry';
 
@@ -12,6 +12,15 @@ export const AplikasiView: React.FC<AplikasiViewProps> = ({
   onAddToast,
 }) => {
   const [launchingId, setLaunchingId] = useState<string | null>(null);
+  const launchTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (launchTimerRef.current !== null) {
+        window.clearTimeout(launchTimerRef.current);
+      }
+    };
+  }, []);
 
   const availableApps = REGISTERED_APPS.filter((app) => app.status === 'available');
 
@@ -20,7 +29,11 @@ export const AplikasiView: React.FC<AplikasiViewProps> = ({
     setLaunchingId(app.id);
     onAddToast?.(`Membuka ${app.name}...`);
 
-    window.setTimeout(() => {
+    if (launchTimerRef.current !== null) {
+      window.clearTimeout(launchTimerRef.current);
+    }
+    launchTimerRef.current = window.setTimeout(() => {
+      launchTimerRef.current = null;
       onOpenApp(app);
       setLaunchingId(null);
     }, 180);

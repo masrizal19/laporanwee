@@ -15,8 +15,16 @@ import {
   SocialMediaAccount,
   SocialMediaSummary,
 } from '../types';
-import { fetchWithCache, invalidateCache, getCachedData, setCachedData } from './apiCache';
-export { fetchWithCache, invalidateCache, getCachedData, setCachedData };
+import {
+  fetchWithCache,
+  fetchWithTimeout,
+  invalidateCache,
+  getCachedData,
+  setCachedData,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  UPLOAD_REQUEST_TIMEOUT_MS,
+} from './apiCache';
+export { fetchWithCache, fetchWithTimeout, invalidateCache, getCachedData, setCachedData };
 
 const rawEnvUrl = (import.meta.env.VITE_API_URL as string) || '';
 let baseApi = rawEnvUrl.trim().replace(/\/+$/, '');
@@ -369,10 +377,24 @@ export const formatApiErrorMessage = (err: any): string => {
   return err.message || 'Terjadi kesalahan pada sistem.';
 };
 
+const resolveCacheInvalidationPattern = (endpoint: string): string | null => {
+  const clean = (endpoint || '').toLowerCase();
+  // Presence/heartbeat writes must NOT wipe unrelated list caches
+  if (clean.includes('/presence/') || clean.includes('/team/presence')) return null;
+  if (clean.includes('daily-reports') || clean.includes('reports')) return 'reports';
+  if (clean.includes('project-documents')) return 'project-documents';
+  if (clean.includes('projects')) return 'projects';
+  if (clean.includes('tasks')) return 'tasks';
+  if (clean.includes('activities')) return 'activities';
+  if (clean.includes('calendar')) return 'calendar';
+  if (clean.includes('social-media')) return 'social-media';
+  if (clean.includes('profile')) return 'profile';
+  return clean.split('/').filter(Boolean)[0] || null;
+};
+
 export const api = {
-  get: async (endpoint: string, options?: { signal?: AbortSignal; skipCache?: boolean }) => {
+  get: async (endpoint: string, options?: { signal?: AbortSignal; skipCache?: boolean; timeoutMs?: number }) => {
     const url = buildApiUrl(endpoint);
-    console.log('[API REQUEST]', { method: 'GET', url });
     if (!options?.skipCache) {
       try {
         const json = await fetchWithCache(url, {
@@ -382,81 +404,97 @@ export const api = {
         });
         return json;
       } catch (err) {
+        if ((err as any)?.name === 'AbortError') throw err;
         console.warn('[apiCache] fallback to direct fetch', err);
       }
     }
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: getHeaders(),
-      cache: 'no-store',
-      signal: options?.signal,
-    });
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'GET',
+        headers: getHeaders(),
+        cache: 'no-store',
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    );
     return handleResponse(response, url, 'GET');
   },
 
-  post: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
-    invalidateCache();
+  post: async (endpoint: string, body: any, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
+    const pattern = resolveCacheInvalidationPattern(endpoint);
+    if (pattern) invalidateCache(pattern);
     const url = buildApiUrl(endpoint);
-    console.log('[API REQUEST]', { method: 'POST', url });
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(body),
-      signal: options?.signal,
-    });
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers: getHeaders(),
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    );
     return handleResponse(response, url, 'POST');
   },
 
-  put: async (endpoint: string, body: any, options?: { signal?: AbortSignal }) => {
-    invalidateCache();
+  put: async (endpoint: string, body: any, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
+    const pattern = resolveCacheInvalidationPattern(endpoint);
+    if (pattern) invalidateCache(pattern);
     const url = buildApiUrl(endpoint);
-    console.log('[API REQUEST]', { method: 'PUT', url });
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: getHeaders(),
-      body: JSON.stringify(body),
-      signal: options?.signal,
-    });
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'PUT',
+        headers: getHeaders(),
+        body: JSON.stringify(body),
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    );
     return handleResponse(response, url, 'PUT');
   },
 
-  delete: async (endpoint: string, options?: { signal?: AbortSignal }) => {
-    invalidateCache();
+  delete: async (endpoint: string, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
+    const pattern = resolveCacheInvalidationPattern(endpoint);
+    if (pattern) invalidateCache(pattern);
     const url = buildApiUrl(endpoint);
-    console.log('[API REQUEST]', { method: 'DELETE', url });
-    const response = await fetch(url, {
-      method: 'DELETE',
-      headers: getHeaders(),
-      signal: options?.signal,
-    });
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'DELETE',
+        headers: getHeaders(),
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+    );
     return handleResponse(response, url, 'DELETE');
   },
 
-  upload: async (endpoint: string, formData: FormData) => {
+  upload: async (endpoint: string, formData: FormData, options?: { signal?: AbortSignal; timeoutMs?: number }) => {
     const url = buildApiUrl(endpoint);
-    console.log('[API REQUEST]', { method: 'POST (UPLOAD)', url });
-    const token = localStorage.getItem('laporanwee_token');
+    const token = getStoredToken();
     const headers: Record<string, string> = {
       Accept: 'application/json',
     };
-    if (token && token !== 'undefined' && token !== 'null') {
+    if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
-    try {
-      const storedUser = localStorage.getItem('laporanwee_user');
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        if (parsed?.email) {
-          headers['X-Admin-Email'] = parsed.email.trim();
-        }
-      }
-    } catch (_) {}
+    const storedUser = getStoredUser();
+    if (storedUser?.email) {
+      headers['X-Admin-Email'] = String(storedUser.email).trim();
+    }
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: 'POST',
+        headers,
+        body: formData,
+        signal: options?.signal,
+      },
+      options?.timeoutMs ?? UPLOAD_REQUEST_TIMEOUT_MS
+    );
     return handleResponse(response, url, 'POST (UPLOAD)');
   },
 };
@@ -578,18 +616,22 @@ export const documentService = {
       getStoredToken() ||
       '';
     const user = getStoredUser();
-    const response = await fetch('https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token,
-        ...(user?.email ? { 'X-Admin-Email': user.email } : {}),
-      },
-      body: JSON.stringify({
-        id: Number(id) || id,
-        filename: filename || '',
-      }),
-    });
+    const response = await fetchWithTimeout(
+      'https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + token,
+          ...(user?.email ? { 'X-Admin-Email': user.email } : {}),
+        },
+        body: JSON.stringify({
+          id: Number(id) || id,
+          filename: filename || '',
+        }),
+      }
+    );
+    invalidateCache('project-documents');
     const data = await response.json().catch(() => ({ success: response.ok }));
     return data;
   },
@@ -838,10 +880,29 @@ export const mapFrontendStatusToBackend = (
 };
 
 export const reportProofCoverCache = new Map<string, string>();
+export const reportProofCheckedSet = new Set<string>();
+
+const REPORTS_CACHE_KEY = 'laporanwee_daily_reports_cache';
+const REPORT_OVERRIDES_KEY = 'laporanwee_report_overrides_v1';
+let memoryReportOverrides: Record<string, any> | null = null;
+
+const getReportOverridesMap = (): Record<string, any> => {
+  if (memoryReportOverrides !== null) return memoryReportOverrides;
+  try {
+    const rawOverrides = localStorage.getItem(REPORT_OVERRIDES_KEY);
+    memoryReportOverrides = rawOverrides ? JSON.parse(rawOverrides) : {};
+  } catch (_) {
+    memoryReportOverrides = {};
+  }
+  return memoryReportOverrides || {};
+};
 
 export const mapRawDailyReportToReport = (item: any): Report => {
   const reportIdStr = String(item.id || '').trim();
   const cachedCover = reportProofCoverCache.get(reportIdStr);
+  if (reportIdStr && ('proof_cover_url' in item || 'cover_url' in item)) {
+    reportProofCheckedSet.add(reportIdStr);
+  }
 
   let evidenceList: string[] = [];
   if (item.proof_cover_url) {
@@ -943,56 +1004,50 @@ export const mapRawDailyReportToReport = (item: any): Report => {
     created_by: item.created_by || item.user_email || '',
   };
 
-  // Merge local update override if present so saved changes persist across reloads
+  // Merge cached local update override if present so saved changes persist across reloads
   try {
-    const rawOverrides = localStorage.getItem('laporanwee_report_overrides_v1');
-    if (rawOverrides) {
-      const overrides = JSON.parse(rawOverrides);
-      const ov = overrides[String(item.id).trim()];
-      if (ov && typeof ov === 'object') {
-        let ovDateDisplay = baseReport.date;
-        if (ov.report_date && ov.report_date.includes('-')) {
-          const parts = ov.report_date.split('-');
-          if (parts.length === 3) {
-            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-            const mIdx = parseInt(parts[1], 10) - 1;
-            ovDateDisplay = `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
-          }
+    const overrides = getReportOverridesMap();
+    const ov = overrides[String(item.id).trim()];
+    if (ov && typeof ov === 'object') {
+      let ovDateDisplay = baseReport.date;
+      if (ov.report_date && ov.report_date.includes('-')) {
+        const parts = ov.report_date.split('-');
+        if (parts.length === 3) {
+          const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+          const mIdx = parseInt(parts[1], 10) - 1;
+          ovDateDisplay = `${parseInt(parts[2], 10)} ${months[mIdx] || parts[1]} ${parts[0]}`;
         }
-        return {
-          ...baseReport,
-          ...(ov.title !== undefined && { task: ov.title }),
-          ...(ov.description !== undefined && { desc: ov.description }),
-          ...(ov.work_category !== undefined && { category: ov.work_category, work_category: ov.work_category }),
-          ...(ov.project_name !== undefined && { project: ov.project_name, project_name: ov.project_name }),
-          ...(ov.status !== undefined && { status: mapBackendStatusToFrontend(ov.status) }),
-          ...(ov.progress !== undefined && { progress: Number(ov.progress) }),
-          ...(ov.duration !== undefined && { time: ov.duration, duration: ov.duration }),
-          ...(ov.obstacles !== undefined && { challenges: ov.obstacles, obstacles: ov.obstacles }),
-          ...(ov.next_plan !== undefined && { next: ov.next_plan, next_plan: ov.next_plan }),
-          ...(ov.report_date !== undefined && { report_date: ov.report_date, date: ovDateDisplay }),
-        };
       }
+      return {
+        ...baseReport,
+        ...(ov.title !== undefined && { task: ov.title }),
+        ...(ov.description !== undefined && { desc: ov.description }),
+        ...(ov.work_category !== undefined && { category: ov.work_category, work_category: ov.work_category }),
+        ...(ov.project_name !== undefined && { project: ov.project_name, project_name: ov.project_name }),
+        ...(ov.status !== undefined && { status: mapBackendStatusToFrontend(ov.status) }),
+        ...(ov.progress !== undefined && { progress: Number(ov.progress) }),
+        ...(ov.duration !== undefined && { time: ov.duration, duration: ov.duration }),
+        ...(ov.obstacles !== undefined && { challenges: ov.obstacles, obstacles: ov.obstacles }),
+        ...(ov.next_plan !== undefined && { next: ov.next_plan, next_plan: ov.next_plan }),
+        ...(ov.report_date !== undefined && { report_date: ov.report_date, date: ovDateDisplay }),
+      };
     }
   } catch (_) {}
 
   return baseReport;
 };
 
-const REPORTS_CACHE_KEY = 'laporanwee_daily_reports_cache';
-const REPORT_OVERRIDES_KEY = 'laporanwee_report_overrides_v1';
-
 export const saveReportOverride = (id: string | number, payload: Record<string, any>) => {
   try {
     const key = String(id).trim();
     if (!key) return;
-    const raw = localStorage.getItem(REPORT_OVERRIDES_KEY);
-    const existing = raw ? JSON.parse(raw) : {};
+    const existing = { ...getReportOverridesMap() };
     existing[key] = {
       ...(existing[key] || {}),
       ...payload,
       updatedAt: Date.now(),
     };
+    memoryReportOverrides = existing;
     localStorage.setItem(REPORT_OVERRIDES_KEY, JSON.stringify(existing));
   } catch (_) {}
 };
@@ -1180,38 +1235,8 @@ export const dailyReportService = {
       throw fetchError;
     }
 
-    // Enrich each report with its authentic first proof image from daily_report_files table (MySQL API)
-    if (apiReports.length > 0) {
-      await Promise.allSettled(
-        apiReports.map(async (r) => {
-          try {
-            const files = await dailyReportService.fetchReportFiles(r.id, 'proof');
-            if (files && files.length > 0) {
-              const imageFiles = files.filter((f) => {
-                const mime = (f.mime_type || '').toLowerCase();
-                const name = (f.original_name || f.file_name || f.file_url || '').toLowerCase();
-                return (
-                  mime.startsWith('image/') ||
-                  f.file_type === 'image' ||
-                  /\.(jpg|jpeg|png|webp|gif|svg|avif)$/i.test(name)
-                );
-              });
-              if (imageFiles.length > 0) {
-                // Rule 8: Jika ada beberapa file proof, gunakan file proof pertama sebagai cover.
-                const firstProofImage = imageFiles[0];
-                const coverUrl = normalizeFileUrl(firstProofImage.file_url);
-                r.evidence_url = coverUrl;
-                r.evidence_urls = imageFiles.map((f) => normalizeFileUrl(f.file_url));
-                r.proof_files = files;
-                reportProofCoverCache.set(String(r.id), coverUrl);
-              }
-            }
-          } catch (fileErr) {
-            console.warn(`Fetch proof files for report ${r.id} notice:`, fileErr);
-          }
-        })
-      );
-    }
+    // Proof cover images are already resolved server-side via proof_cover_url / cover_url in list responses,
+    // eliminating the 90+ N+1 HTTP calls previously fired on every report list sync. Full files are loaded on detail view.
 
     // Update local cache for offline/instant-transition optimisations
     if (apiReports.length > 0) {
@@ -1454,15 +1479,19 @@ export const dailyReportService = {
     const resolvedEmail = adminEmail || storedUser?.email || '';
 
     try {
-      const response = await fetch('https://api-laporanwe.mkverse.my.id/api/daily-reports/update.php', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token,
-          'X-Admin-Email': resolvedEmail,
-        },
-        body: JSON.stringify(body),
-      });
+      const response = await fetchWithTimeout(
+        'https://api-laporanwe.mkverse.my.id/api/daily-reports/update.php',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token,
+            'X-Admin-Email': resolvedEmail,
+          },
+          body: JSON.stringify(body),
+        }
+      );
+      invalidateCache('reports');
 
       const resData = await response.json().catch(() => null);
 
@@ -2282,12 +2311,16 @@ export const realtimeService = {
         : '';
       const endpoint = `/realtime/poll.php${query}`;
       const url = buildApiUrl(endpoint);
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: getHeaders(),
-        signal,
-        cache: 'no-store',
-      });
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: 'GET',
+          headers: getHeaders(),
+          signal,
+          cache: 'no-store',
+        },
+        10000
+      );
       if (!response.ok) return null;
       const text = await response.text();
       return text ? JSON.parse(text) : null;

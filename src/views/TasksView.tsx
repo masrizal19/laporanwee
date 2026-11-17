@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Task, TaskStatus, PriorityLevel, Project, TaskDocument, TeamMember, Report } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
@@ -37,6 +37,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
 }) => {
   const [filter, setFilter] = useState<'All' | 'High' | 'Done'>('All');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [activeDropZone, setActiveDropZone] = useState<TaskStatus | null>(null);
   const isSubmittingDropRef = useRef(false);
@@ -69,21 +70,51 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [docToDelete, setDocToDelete] = useState<TaskDocument | null>(null);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const reportLookupByTitle = useMemo(() => {
+    const map = new Map<string, Report[]>();
+    if (!reports || reports.length === 0) return map;
+    for (const r of reports) {
+      const key = (r.task || '').trim().toLowerCase();
+      if (!key) continue;
+      const list = map.get(key);
+      if (list) list.push(r);
+      else map.set(key, [r]);
+    }
+    return map;
+  }, [reports]);
+
+  const membersByIdentifier = useMemo(() => {
+    const map = new Map<string, TeamMember>();
+    for (const m of members) {
+      if (m.name) map.set(m.name.toLowerCase(), m);
+      if (m.full_name) map.set(m.full_name.toLowerCase(), m);
+      if (m.email) map.set(m.email.toLowerCase(), m);
+    }
+    return map;
+  }, [members]);
+
   const findReportIdForTask = (task: Task): string | undefined => {
     if (task.report_id) return String(task.report_id).trim();
     if ((task as any).daily_report_id) return String((task as any).daily_report_id).trim();
     if (task.id.startsWith('report-')) return task.id.replace('report-', '');
-    if (reports && reports.length > 0) {
-      const matched = reports.find(
+    const candidates = reportLookupByTitle.get((task.title || '').trim().toLowerCase());
+    if (candidates && candidates.length > 0) {
+      const assigneeEmail = task.assignee_email?.toLowerCase();
+      const assigneeName = task.assignee?.toLowerCase();
+      const matched = candidates.find(
         (r) =>
-          r.task.trim().toLowerCase() === task.title.trim().toLowerCase() &&
-          ((r.user_email && task.assignee_email && r.user_email.toLowerCase() === task.assignee_email.toLowerCase()) ||
-           (r.person && task.assignee && r.person.toLowerCase() === task.assignee.toLowerCase()))
+          (r.user_email && assigneeEmail && r.user_email.toLowerCase() === assigneeEmail) ||
+          (r.person && assigneeName && r.person.toLowerCase() === assigneeName)
       );
       if (matched) return String(matched.id).trim();
-
-      const matchedTitle = reports.find((r) => r.task.trim().toLowerCase() === task.title.trim().toLowerCase());
-      if (matchedTitle) return String(matchedTitle.id).trim();
+      return String(candidates[0].id).trim();
     }
     return undefined;
   };
@@ -219,18 +250,42 @@ export const TasksView: React.FC<TasksViewProps> = ({
     { col: 'done', label: 'Selesai', dotColor: '#1e6e56' },
   ];
 
-  const filteredTasks = tasks.filter((t) => {
-    if (filter === 'High' && t.priority !== 'High') return false;
-    if (filter === 'Done' && t.col !== 'done') return false;
-    if (
-      search.trim() &&
-      !t.title.toLowerCase().includes(search.toLowerCase()) &&
-      !t.proj.toLowerCase().includes(search.toLowerCase())
-    ) {
-      return false;
+  const taskCounts = useMemo(() => {
+    let todo = 0;
+    let inprogress = 0;
+    let done = 0;
+    for (const t of tasks) {
+      if (t.col === 'todo') todo++;
+      else if (t.col === 'inprogress') inprogress++;
+      else if (t.col === 'done') done++;
     }
-    return true;
-  });
+    return { total: tasks.length, todo, inprogress, done };
+  }, [tasks]);
+
+  const tasksByCol = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    const grouped: Record<TaskStatus, Task[]> = {
+      todo: [],
+      inprogress: [],
+      review: [],
+      done: [],
+    };
+    for (const t of tasks) {
+      if (filter === 'High' && t.priority !== 'High') continue;
+      if (filter === 'Done' && t.col !== 'done') continue;
+      if (
+        q &&
+        !t.title.toLowerCase().includes(q) &&
+        !t.proj.toLowerCase().includes(q)
+      ) {
+        continue;
+      }
+      if (grouped[t.col]) {
+        grouped[t.col].push(t);
+      }
+    }
+    return grouped;
+  }, [tasks, filter, debouncedSearch]);
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     e.dataTransfer.setData('text/plain', id);
@@ -450,6 +505,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
         <img
           src={assignee}
           alt="Assignee"
+          loading="lazy"
+          decoding="async"
           style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }}
           onError={(e) => {
             (e.currentTarget as HTMLElement).style.display = 'none';
@@ -458,13 +515,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
       );
     }
 
-    // Check if assignee matches any team member in members list
-    const foundMember = members.find(
-      (m) =>
-        m.name?.toLowerCase() === assignee.toLowerCase() ||
-        m.full_name?.toLowerCase() === assignee.toLowerCase() ||
-        m.email?.toLowerCase() === assignee.toLowerCase()
-    );
+    // Check if assignee matches any team member in O(1) lookup map
+    const foundMember = membersByIdentifier.get(assignee.toLowerCase());
 
     const memberAvatar = foundMember
       ? (foundMember.img || (foundMember.avatar_url ? getAbsoluteAvatarUrl(foundMember.avatar_url, foundMember.name) : undefined))
@@ -506,6 +558,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
           <img
             src={avatarUrl}
             alt={assignee}
+            loading="lazy"
+            decoding="async"
             style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
             onError={(e) => {
               (e.currentTarget as HTMLElement).style.display = 'none';
@@ -594,7 +648,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <Icon name="checksq" />
           </div>
           <div>
-            <div className="num">{tasks.length}</div>
+            <div className="num">{taskCounts.total}</div>
             <div className="lbl">Semua Tugas</div>
           </div>
         </div>
@@ -603,7 +657,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <Icon name="clock" />
           </div>
           <div>
-            <div className="num">{tasks.filter((t) => t.col === 'todo').length}</div>
+            <div className="num">{taskCounts.todo}</div>
             <div className="lbl">To Do</div>
           </div>
         </div>
@@ -612,7 +666,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <Icon name="target" />
           </div>
           <div>
-            <div className="num">{tasks.filter((t) => t.col === 'inprogress').length}</div>
+            <div className="num">{taskCounts.inprogress}</div>
             <div className="lbl">Berjalan</div>
           </div>
         </div>
@@ -621,7 +675,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             <Icon name="check" />
           </div>
           <div>
-            <div className="num">{tasks.filter((t) => t.col === 'done').length}</div>
+            <div className="num">{taskCounts.done}</div>
             <div className="lbl">Selesai</div>
           </div>
         </div>
@@ -664,7 +718,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       {/* 4-Column Kanban Board */}
       <div className="kanban-wrap" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
         {columns.map((colDef) => {
-          const colTasks = filteredTasks.filter((t) => t.col === colDef.col);
+          const colTasks = tasksByCol[colDef.col] || [];
           const isDropActive = activeDropZone === colDef.col;
 
           return (
@@ -1083,6 +1137,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         alt={doc.file_name}
                         className="task-doc-thumb-img"
                         loading="lazy"
+                        decoding="async"
                         onError={(e) => {
                           // Fallback for broken video thumbnail
                           if (doc.file_type === 'video') {

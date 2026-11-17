@@ -18,7 +18,7 @@ export interface NavbarProps {
   onOpenWhatsNew?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
+export const Navbar: React.FC<NavbarProps> = React.memo(({
   currentView,
   onNavigate,
   onAddToast,
@@ -115,6 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <img
                 src={logoUrl}
                 alt="Logo"
+                decoding="async"
                 style={{ width: '22px', height: '22px', objectFit: 'contain' }}
               />
             ) : (
@@ -242,6 +243,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <img
                 src={avatarUrl}
                 alt={userName || 'Avatar'}
+                decoding="async"
                 className="avatar-img"
                 style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
                 onError={(e) => {
@@ -275,4 +277,4 @@ export const Navbar: React.FC<NavbarProps> = ({
       </header>
     </>
   );
-};
+});

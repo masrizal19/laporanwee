@@ -13,7 +13,7 @@ interface WorkEvidenceThumbnailProps {
   showGalleryStrip?: boolean;
 }
 
-export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
+export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = React.memo(({
   evidenceUrls,
   thumbnailUrl,
   projectTitle,
@@ -106,6 +106,7 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
             alt={`Bukti pekerjaan ${projectTitle}`}
             className="evidence-img-cover"
             loading="lazy"
+            decoding="async"
             onError={() => {
               if (primaryImage) {
                 setFailedUrls((prev) => [...prev, primaryImage]);
@@ -138,6 +139,8 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
                 <img
                   src={img}
                   alt={`Bukti ${idx + 2}`}
+                  loading="lazy"
+                  decoding="async"
                   onError={() => {
                     setFailedUrls((prev) => [...prev, img]);
                   }}
@@ -171,4 +174,4 @@ export const WorkEvidenceThumbnail: React.FC<WorkEvidenceThumbnailProps> = ({
       />
     </>
   );
-};
+});

@@ -9,6 +9,7 @@ import {
   extractAvatarFromResponse,
   withAvatarCacheBust,
 } from '../utils/api';
+import { fetchWithTimeout } from '../utils/apiCache';
 import { validateStatusOption } from './ProfileView';
 
 interface ProfileSettingsViewProps {
@@ -79,6 +80,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
 
   // Real-time GET sync directly from MySQL backend on mount/load
   useEffect(() => {
+    const controller = new AbortController();
     const fetchLatestProfile = async () => {
       const token =
         localStorage.getItem('auth_token') ||
@@ -86,14 +88,17 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
         localStorage.getItem('laporanwee_token') ||
         getStoredToken() ||
         '';
+      if (!token) return;
       try {
-        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php', {
+        const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/profile/setting-profil-picture/index.php', {
           headers: {
-            'Authorization': token ? `Bearer ${token}` : '',
+            'Authorization': `Bearer ${token}`,
             'Accept': 'application/json',
           },
-        });
+          signal: controller.signal,
+        }, 12000);
         const json = await res.json();
+        if (controller.signal.aborted) return;
         if (json.success && json.data?.avatar_url) {
           setAvatarUrl(`${json.data.avatar_url}?t=${Date.now()}`);
         }
@@ -144,7 +149,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
 
           setInitialProfile({ name: freshName, email: freshEmail, job: freshJob, status: freshStatus });
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
         console.warn('Gagal memuat profil real-time:', err);
         const stored = getStoredUser();
         if (stored) {
@@ -158,6 +164,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
     };
 
     fetchLatestProfile();
+    return () => controller.abort();
   }, []);
 
   // Track dirty status
@@ -300,8 +307,9 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({
                   {avatarUrl ? (
                     <img
                       id="mainAvatarImg"
-                      src={avatarUrl.includes('?') ? avatarUrl : `${avatarUrl}?t=${Date.now()}`}
+                      src={avatarUrl}
                       alt={name || 'Avatar'}
+                      decoding="async"
                       style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                     />
                   ) : (

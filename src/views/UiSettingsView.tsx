@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { fetchWithTimeout } from '../utils/apiCache';
 
 interface UiSettingsViewProps {
   onAddToast: (text: string) => void;
@@ -19,21 +20,23 @@ export const UiSettingsView: React.FC<UiSettingsViewProps> = ({ onAddToast }) =>
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
     setIsSaving(true);
     try {
       const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-      await fetch('https://api-laporanwe.mkverse.my.id/api/ui-settings.php', {
+      const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/ui-settings.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token,
+          ...(token ? { Authorization: 'Bearer ' + token } : {}),
         },
         body: JSON.stringify({ primary_color: primaryColor, theme_mode: currentTheme }),
-      });
+      }, 12000);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       onAddToast('Pengaturan UI berhasil disimpan!');
     } catch (err) {
       console.warn('UI settings save api error:', err);
-      onAddToast('Pengaturan UI berhasil disimpan!');
+      onAddToast('Pengaturan tema lokal diterapkan (gagal sinkronisasi server).');
     } finally {
       setIsSaving(false);
     }

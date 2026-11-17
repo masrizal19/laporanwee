@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ViewType, AuthUser, SocialMediaDataResponse, SocialMediaAccount } from '../types';
 import { Icon } from '../components/icons';
 import { socialMediaService, formatApiErrorMessage } from '../utils/api';
@@ -48,6 +48,15 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedPlatformFilter, setSelectedPlatformFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+  const fetchSeqRef = useRef<number>(0);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   // Scanning State
   const [isScanningAll, setIsScanningAll] = useState<boolean>(false);
@@ -72,17 +81,20 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
   const [metricPostsCount, setMetricPostsCount] = useState<number | string>(0);
   const [metricNotes, setMetricNotes] = useState('');
 
-  // Fetch Data
+  // Fetch Data with stale-request guard
   const fetchData = async (showLoading = true) => {
+    const seq = ++fetchSeqRef.current;
     if (showLoading) setIsLoading(true);
     try {
       const res = await socialMediaService.getData(selectedMonth, selectedYear);
+      if (seq !== fetchSeqRef.current) return;
       setData(res);
     } catch (err: any) {
+      if (seq !== fetchSeqRef.current) return;
       console.error('[SocialMedia] Fetch error:', err);
       onAddToast(formatApiErrorMessage(err));
     } finally {
-      if (showLoading) setIsLoading(false);
+      if (showLoading && seq === fetchSeqRef.current) setIsLoading(false);
     }
   };
 
@@ -221,17 +233,19 @@ export const SocialMediaView: React.FC<SocialMediaViewProps> = ({
   // Filter accounts
   const filteredAccounts = useMemo(() => {
     if (!data?.accounts) return [];
+    const q = debouncedSearch.trim().toLowerCase();
     return data.accounts.filter((acc) => {
       const matchesPlatform =
         selectedPlatformFilter === 'all' ||
         acc.platform.toLowerCase() === selectedPlatformFilter.toLowerCase();
       const matchesSearch =
-        acc.account_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        acc.account_handle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        acc.platform.toLowerCase().includes(searchQuery.toLowerCase());
+        !q ||
+        acc.account_name.toLowerCase().includes(q) ||
+        acc.account_handle.toLowerCase().includes(q) ||
+        acc.platform.toLowerCase().includes(q);
       return matchesPlatform && matchesSearch;
     });
-  }, [data?.accounts, selectedPlatformFilter, searchQuery]);
+  }, [data?.accounts, selectedPlatformFilter, debouncedSearch]);
 
   // Calculated Realtime Growth for modal
   const liveDiff = useMemo(() => {

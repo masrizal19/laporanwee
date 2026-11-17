@@ -1,6 +1,7 @@
 /**
- * In-Memory & Local Persistent Fast-Page-Load Caching (0ms Transition)
- * Mendukung Stale-While-Revalidate yang tahan browser reload (F5) dengan backup localStorage.
+ * In-Memory & Local Persistent Fast-Page-Load Caching + Request Deduplication & Timeout
+ * Mendukung Stale-While-Revalidate yang tahan browser reload (F5), in-flight promise
+ * deduplication agar request URL yang sama tidak terkirim ganda, dan timeout AbortController.
  */
 
 interface CacheEntry<T = any> {
@@ -9,17 +10,75 @@ interface CacheEntry<T = any> {
 }
 
 const memoryCache = new Map<string, CacheEntry>();
+const inFlightRequests = new Map<string, Promise<any>>();
 const TTL = 120000; // 2 menit cache aktif
+export const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
+export const UPLOAD_REQUEST_TIMEOUT_MS = 60000;
 
 /**
- * Fetch data dengan in-memory cache + persistent storage backup
+ * Fetch wrapper with AbortController timeout support + external signal forwarding
+ */
+export const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS
+): Promise<Response> => {
+  const controller = new AbortController();
+  let timedOut = false;
+
+  const timerId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const externalSignal = options.signal;
+  const onExternalAbort = () => {
+    controller.abort();
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timerId);
+      const abortErr = new Error('Permintaan dibatalkan.');
+      abortErr.name = 'AbortError';
+      throw abortErr;
+    }
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } catch (err: any) {
+    if (timedOut) {
+      const timeoutErr: any = new Error(
+        'Permintaan ke server melebihi batas waktu. Periksa koneksi internet Anda lalu coba lagi.'
+      );
+      timeoutErr.name = 'TimeoutError';
+      timeoutErr.status = 408;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timerId);
+    if (externalSignal) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  }
+};
+
+/**
+ * Fetch data dengan in-memory cache, in-flight request deduplication,
+ * timeout protection, dan backup persistent storage.
  */
 export const fetchWithCache = async <T = any>(
   url: string,
   optionsOrHeaders: RequestInit | HeadersInit = {},
-  storageKey?: string
+  storageKey?: string,
+  ttlMs: number = TTL
 ): Promise<T> => {
-  // Dukung opsi RequestInit maupun pure HeadersInit
   let reqOptions: RequestInit = {};
   if (
     typeof optionsOrHeaders === 'object' &&
@@ -34,7 +93,7 @@ export const fetchWithCache = async <T = any>(
   // 1. Cek memory cache
   const mem = memoryCache.get(url);
   const now = Date.now();
-  if (mem && now - mem.timestamp < TTL) {
+  if (mem && now - mem.timestamp < ttlMs) {
     return mem.data;
   }
 
@@ -51,26 +110,42 @@ export const fetchWithCache = async <T = any>(
     }
   }
 
-  // 3. Fetch data terbaru di background / network
-  try {
-    const res = await fetch(url, reqOptions);
-    const json = await res.json();
-    if (json && json.success !== false) {
-      memoryCache.set(url, { data: json, timestamp: Date.now() });
-      if (storageKey) {
-        try {
-          localStorage.setItem(`cache_${storageKey}`, JSON.stringify(json));
-        } catch (e) {
-          console.warn(`[apiCache] Gagal menyimpan backup cache_${storageKey}:`, e);
-        }
-      }
-      return json;
-    }
-  } catch (err) {
-    console.warn(`[apiCache] Network fetch fallback to cached/backup for ${url}:`, err);
+  // 3. Deduplikasi request identik yang sedang berjalan (in-flight)
+  const existingFlight = inFlightRequests.get(url);
+  if (existingFlight) {
+    return existingFlight;
   }
 
-  return (memoryCache.get(url)?.data as T) || (mem?.data as T) || (null as any);
+  // 4. Fetch data terbaru dengan timeout
+  const flightPromise = (async () => {
+    try {
+      const res = await fetchWithTimeout(url, reqOptions, DEFAULT_REQUEST_TIMEOUT_MS);
+      const json = await res.json();
+      if (json && json.success !== false) {
+        memoryCache.set(url, { data: json, timestamp: Date.now() });
+        if (storageKey) {
+          try {
+            localStorage.setItem(`cache_${storageKey}`, JSON.stringify(json));
+          } catch (e) {
+            console.warn(`[apiCache] Gagal menyimpan backup cache_${storageKey}:`, e);
+          }
+        }
+        return json;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw err;
+      }
+      console.warn(`[apiCache] Network fetch fallback to cached/backup for ${url}:`, err);
+    } finally {
+      inFlightRequests.delete(url);
+    }
+
+    return (memoryCache.get(url)?.data as T) || (mem?.data as T) || (null as any);
+  })();
+
+  inFlightRequests.set(url, flightPromise);
+  return flightPromise;
 };
 
 /**
@@ -111,26 +186,30 @@ export const setCachedData = <T = any>(url: string, data: T, storageKey?: string
 };
 
 /**
- * Invalidate cache di memori dan storage
+ * Invalidate cache di memori dan storage secara aman (mendukung pola/prefix)
  */
 export const invalidateCache = (pattern?: string): void => {
   if (!pattern) {
     memoryCache.clear();
-  } else {
-    for (const key of memoryCache.keys()) {
-      if (key.includes(pattern)) {
-        memoryCache.delete(key);
+    return;
+  }
+
+  for (const key of Array.from(memoryCache.keys())) {
+    if (key.includes(pattern)) {
+      memoryCache.delete(key);
+    }
+  }
+
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('cache_') && key.includes(pattern)) {
+        keysToRemove.push(key);
       }
     }
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (key && key.startsWith('cache_') && key.includes(pattern)) {
-          localStorage.removeItem(key);
-        }
-      }
-    } catch (_) {}
-  }
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+  } catch (_) {}
 };
 
 export const fetchWithFastCache = fetchWithCache;
@@ -138,6 +217,7 @@ export const fetchWithFastCache = fetchWithCache;
 export default {
   fetchWithCache,
   fetchWithFastCache,
+  fetchWithTimeout,
   getCachedData,
   setCachedData,
   invalidateCache,

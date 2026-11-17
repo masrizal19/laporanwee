@@ -1,5 +1,6 @@
 import { Project, ProjectDocument, ProjectTeamMember } from '../types';
 import { api, API_BASE_URL } from './api';
+import { fetchWithTimeout } from './apiCache';
 import { formatFileSize } from './taskDocuments';
 
 /**
@@ -249,17 +250,20 @@ export const projectService = {
       localStorage.getItem('laporanwee_token') ||
       '';
     try {
-      const response = await fetch('https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + token,
-        },
-        body: JSON.stringify({
-          id: documentId,
-          filename: filename || '',
-        }),
-      });
+      const response = await fetchWithTimeout(
+        'https://api-laporanwe.mkverse.my.id/api/project-documents/delete.php',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token,
+          },
+          body: JSON.stringify({
+            id: documentId,
+            filename: filename || '',
+          }),
+        }
+      );
       const res = await response.json().catch(() => ({ success: response.ok }));
       return Boolean(res && res.success !== false);
     } catch (err) {

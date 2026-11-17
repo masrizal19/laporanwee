@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Report } from '../types';
 import { Icon } from './icons';
-import { dailyReportService, normalizeFileUrl, reportProofCoverCache } from '../utils/api';
+import { dailyReportService, normalizeFileUrl, reportProofCoverCache, reportProofCheckedSet } from '../utils/api';
 
 interface ReportCoverThumbnailProps {
   report: Report;
@@ -10,7 +10,7 @@ interface ReportCoverThumbnailProps {
   style?: React.CSSProperties;
 }
 
-export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
+export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = React.memo(({
   report,
   size,
   className = '',
@@ -64,9 +64,10 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
     }
   }, [report.evidence_url, report.evidence_urls, report.proof_files, reportId]);
 
-  // If coverUrl is not yet loaded, query existing backend endpoint /api/daily-reports/list.php
+  // Only fetch individual report proof if backend list did NOT already inspect proof_cover_url
   useEffect(() => {
-    if (coverUrl || !reportId) return;
+    if (coverUrl || !reportId || reportProofCheckedSet.has(reportId)) return;
+    reportProofCheckedSet.add(reportId);
 
     let isMounted = true;
     dailyReportService
@@ -133,6 +134,7 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
             padding: 0,
           }}
           loading="lazy"
+          decoding="async"
           onError={() => setHasError(true)}
         />
       ) : (
@@ -146,4 +148,4 @@ export const ReportCoverThumbnail: React.FC<ReportCoverThumbnailProps> = ({
       )}
     </div>
   );
-};
+});

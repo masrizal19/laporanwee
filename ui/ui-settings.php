@@ -32,27 +32,40 @@ try {
             ];
         }
 
+        $payloadData = [
+            'id' => (int)($settings['id'] ?? 1),
+            'primary_color' => $settings['primary_color'] ?? '#4A55FF',
+            'secondary_color' => $settings['secondary_color'] ?? '#19194D',
+            'text_color' => $settings['text_color'] ?? '#19194D',
+            'background_color' => $settings['background_color'] ?? '#F5F6FF',
+            'font_family' => $settings['font_family'] ?? 'Poppins',
+            'heading_font' => $settings['heading_font'] ?? 'Poppins',
+            'menu_icon_size' => (int)($settings['menu_icon_size'] ?? 42),
+            'menu_icon_stroke' => (float)($settings['menu_icon_stroke'] ?? 2),
+            'signout_icon_size' => (int)($settings['signout_icon_size'] ?? 64),
+            'logo_url' => $settings['logo_url'] ?? null,
+            'menu_icon_url' => $settings['menu_icon_url'] ?? null,
+            'signout_icon_url' => $settings['signout_icon_url'] ?? null,
+            'updated_at' => $settings['updated_at'] ?? null,
+        ];
+
+        $etag = '"' . md5(json_encode($payloadData)) . '"';
+        header("Cache-Control: public, max-age=60, stale-while-revalidate=300");
+        header("ETag: " . $etag);
+
+        $ifNoneMatch = isset($_SERVER['HTTP_IF_NONE_MATCH']) ? trim($_SERVER['HTTP_IF_NONE_MATCH']) : '';
+        if ($ifNoneMatch === $etag || $ifNoneMatch === 'W/' . $etag) {
+            http_response_code(304);
+            exit();
+        }
+
         response(true, 'Berhasil mengambil pengaturan UI', [
-            'data' => [
-                'id' => (int)($settings['id'] ?? 1),
-                'primary_color' => $settings['primary_color'] ?? '#4A55FF',
-                'secondary_color' => $settings['secondary_color'] ?? '#19194D',
-                'text_color' => $settings['text_color'] ?? '#19194D',
-                'background_color' => $settings['background_color'] ?? '#F5F6FF',
-                'font_family' => $settings['font_family'] ?? 'Poppins',
-                'heading_font' => $settings['heading_font'] ?? 'Poppins',
-                'menu_icon_size' => (int)($settings['menu_icon_size'] ?? 42),
-                'menu_icon_stroke' => (float)($settings['menu_icon_stroke'] ?? 2),
-                'signout_icon_size' => (int)($settings['signout_icon_size'] ?? 64),
-                'logo_url' => $settings['logo_url'] ?? null,
-                'menu_icon_url' => $settings['menu_icon_url'] ?? null,
-                'signout_icon_url' => $settings['signout_icon_url'] ?? null,
-                'updated_at' => $settings['updated_at'] ?? null,
-            ]
+            'data' => $payloadData
         ], 200);
     }
 
     if ($method === 'POST') {
+        header("Cache-Control: no-store, no-cache, must-revalidate");
         // Parse JSON input
         $input = json_decode(file_get_contents('php://input'), true);
 

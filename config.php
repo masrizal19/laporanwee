@@ -1,9 +1,25 @@
 <?php
 // config.php
+@ini_set('display_errors', '0');
+
+// Safe gzip compression for JSON API payloads when client supports it
+if (
+    !headers_sent() &&
+    extension_loaded('zlib') &&
+    !ini_get('zlib.output_compression') &&
+    isset($_SERVER['HTTP_ACCEPT_ENCODING']) &&
+    strpos($_SERVER['HTTP_ACCEPT_ENCODING'], 'gzip') !== false &&
+    ob_get_level() === 0 &&
+    function_exists('ob_gzhandler')
+) {
+    ob_start('ob_gzhandler');
+}
 
 // Dynamic CORS handling supporting production and preview origins
 $allowed_origins = [
     'https://laporan.mkverse.my.id',
+    'https://laporanwe.mkverse.my.id',
+    'https://www.laporanwe.mkverse.my.id',
     'https://ais-dev-nhz6tpwkh2bcolye7wptsm-889127144996.asia-east1.run.app',
     'https://ais-pre-nhz6tpwkh2bcolye7wptsm-889127144996.asia-east1.run.app'
 ];
@@ -12,13 +28,13 @@ $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
 if (in_array($origin, $allowed_origins) || preg_match('/\.run\.app$/', $origin) || preg_match('/\.ai\.studio$/', $origin)) {
     header("Access-Control-Allow-Origin: " . $origin);
 } else {
-    header("Access-Control-Allow-Origin: https://laporan.mkverse.my.id");
+    header("Access-Control-Allow-Origin: https://laporanwe.mkverse.my.id");
 }
 
 header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Admin-Email");
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
-header("Vary: Origin");
+header("Vary: Origin, Accept-Encoding");
 header("Access-Control-Max-Age: 86400");
 
 // Security Headers

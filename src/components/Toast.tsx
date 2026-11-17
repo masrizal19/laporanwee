@@ -6,7 +6,7 @@ interface ToastProps {
   toasts: ToastMessage[];
 }
 
-export const ToastContainer: React.FC<ToastProps> = ({ toasts }) => {
+export const ToastContainer: React.FC<ToastProps> = React.memo(({ toasts }) => {
   return (
     <div id="toast-wrap">
       {toasts.map((t) => (
@@ -19,4 +19,4 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts }) => {
       ))}
     </div>
   );
-};
+});

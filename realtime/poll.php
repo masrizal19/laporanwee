@@ -45,28 +45,23 @@ try {
     $serverTime = gmdate('Y-m-d\TH:i:s\Z');
 
     if (!empty($since)) {
-        // Query global changes across ALL users since last sync timestamp
+        // Index-friendly UNION query across updated_at and created_at
         $stmt = $pdo->prepare("
-            SELECT
-                id,
-                title,
-                description,
-                work_category,
-                user_email,
-                user_name,
-                project_name,
-                report_date,
-                duration,
-                obstacles,
-                next_plan,
-                progress,
-                status,
-                cover_url,
-                created_by,
-                created_at,
-                updated_at
-            FROM daily_reports
-            WHERE updated_at > :since1 OR created_at > :since2
+            SELECT * FROM (
+                SELECT
+                    id, title, description, work_category, user_email, user_name,
+                    project_name, report_date, duration, obstacles, next_plan,
+                    progress, status, cover_url, created_by, created_at, updated_at
+                FROM daily_reports
+                WHERE updated_at > :since1
+                UNION
+                SELECT
+                    id, title, description, work_category, user_email, user_name,
+                    project_name, report_date, duration, obstacles, next_plan,
+                    progress, status, cover_url, created_by, created_at, updated_at
+                FROM daily_reports
+                WHERE created_at > :since2
+            ) AS changed_reports
             ORDER BY updated_at DESC, created_at DESC
         ");
         $stmt->execute(['since1' => $since, 'since2' => $since]);

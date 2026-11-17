@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Project, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { WorkEvidenceThumbnail } from '../components/WorkEvidenceThumbnail';
-import { projectService } from '../utils/projectService';
 import { getAbsoluteAvatarUrl } from '../utils/api';
 
 interface ProjectsViewProps {
@@ -25,20 +24,16 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'All' | 'Active' | 'In Review' | 'Completed'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortBy, setSortBy] = useState<'newest' | 'due' | 'progDesc' | 'progAsc'>('newest');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // Paksa trigger initial dispatch saat data proyek siap
-  React.useEffect(() => {
-    if (projects && projects.length > 0) {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new Event('scroll'));
-        window.dispatchEvent(new Event('resize'));
-      });
-    }
-  }, [projects]);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchQuery), 250);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // New Project Form State
   const [name, setName] = useState('');
@@ -63,27 +58,42 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
     }
   };
 
-  const filteredProjects = projects
-    .filter((p) => {
-      if (activeTab === 'Active' && p.status !== 'Active') return false;
-      if (activeTab === 'In Review' && p.status !== 'In Review') return false;
-      if (activeTab === 'Completed' && p.status !== 'Completed') return false;
-      if (
-        searchQuery.trim() &&
-        !p.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !p.desc.toLowerCase().includes(searchQuery.toLowerCase()) &&
-        !p.catLabel.toLowerCase().includes(searchQuery.toLowerCase())
-      ) {
-        return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sortBy === 'progDesc') return b.progress - a.progress;
-      if (sortBy === 'progAsc') return a.progress - b.progress;
-      if (sortBy === 'due') return a.due.localeCompare(b.due);
-      return 0; // default order
-    });
+  const projectStats = useMemo(() => {
+    let active = 0;
+    let inReview = 0;
+    let completed = 0;
+    for (const p of projects) {
+      if (p.status === 'Active') active++;
+      else if (p.status === 'In Review') inReview++;
+      else if (p.status === 'Completed') completed++;
+    }
+    return { active, inReview, completed };
+  }, [projects]);
+
+  const filteredProjects = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    return projects
+      .filter((p) => {
+        if (activeTab === 'Active' && p.status !== 'Active') return false;
+        if (activeTab === 'In Review' && p.status !== 'In Review') return false;
+        if (activeTab === 'Completed' && p.status !== 'Completed') return false;
+        if (
+          q &&
+          !p.name.toLowerCase().includes(q) &&
+          !p.desc.toLowerCase().includes(q) &&
+          !p.catLabel.toLowerCase().includes(q)
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'progDesc') return b.progress - a.progress;
+        if (sortBy === 'progAsc') return a.progress - b.progress;
+        if (sortBy === 'due') return a.due.localeCompare(b.due);
+        return 0;
+      });
+  }, [projects, activeTab, debouncedSearch, sortBy]);
 
   const handleCreateProject = (e: React.FormEvent) => {
     e.preventDefault();
@@ -162,7 +172,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             <Icon name="target" />
           </div>
           <div>
-            <div className="num">{projects.filter((p) => p.status === 'Active').length}</div>
+            <div className="num">{projectStats.active}</div>
             <div className="lbl">Sedang Berjalan</div>
           </div>
         </div>
@@ -171,7 +181,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             <Icon name="clock" />
           </div>
           <div>
-            <div className="num">{projects.filter((p) => p.status === 'In Review').length}</div>
+            <div className="num">{projectStats.inReview}</div>
             <div className="lbl">Dalam Review</div>
           </div>
         </div>
@@ -180,7 +190,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
             <Icon name="check" />
           </div>
           <div>
-            <div className="num">{projects.filter((p) => p.status === 'Completed').length}</div>
+            <div className="num">{projectStats.completed}</div>
             <div className="lbl">Selesai</div>
           </div>
         </div>
@@ -342,6 +352,8 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({
                             <img
                               src={avatarUrl}
                               alt="Team"
+                              loading="lazy"
+                              decoding="async"
                               style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
                               onError={(e) => {
                                 (e.currentTarget as HTMLElement).style.display = 'none';

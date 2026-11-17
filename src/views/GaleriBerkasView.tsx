@@ -1,4 +1,6 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { fetchWithTimeout, DEFAULT_REQUEST_TIMEOUT_MS, UPLOAD_REQUEST_TIMEOUT_MS } from '../utils/apiCache';
+import { getStoredToken } from '../utils/api';
 
 export interface FileItem {
   n: string;          // file name
@@ -20,31 +22,45 @@ const PALETTE: [string, string][] = [
   ["#5a6b2a", "#262e0e"]
 ];
 
-const DEFAULT_FILES: FileItem[] = [
-  { n: "FEED POST OLIMPIADE copy.jpg", s: "1.0 MB", t: "Gambar", src: "", c: ["#14502e", "#0a2a1a"] },
-  { n: "Screenshot 2026-10-17 080003.png", s: "1.2 MB", t: "Gambar", src: "", c: ["#1f6b3f", "#103a24"] },
-  { n: "Poster Pakai Masker.png", s: "0.9 MB", t: "Gambar", src: "", c: ["#2b6fa8", "#143a5e"] },
-  { n: "Dokumentasi Lomba Perkantoran 01.jpg", s: "2.1 MB", t: "Gambar", src: "", c: ["#6b5b3a", "#2e2616"] },
-  { n: "Dokumentasi Lomba Perkantoran 02.jpg", s: "1.8 MB", t: "Gambar", src: "", c: ["#4a5a6a", "#1d2630"] },
-  { n: "Kegiatan Porsenik.mp4", s: "84 MB", t: "Video", src: "", c: ["#5a3a6b", "#241630"] },
-  { n: "Foto Tim Panitia.jpg", s: "1.4 MB", t: "Gambar", src: "", c: ["#7a4a2a", "#331c0e"] },
-  { n: "Banner Olimpiade.png", s: "1.1 MB", t: "Gambar", src: "", c: ["#1d5a5a", "#0c2a2a"] },
-  { n: "Suasana Pembukaan.jpg", s: "2.4 MB", t: "Gambar", src: "", c: ["#5a6b2a", "#262e0e"] }
-];
+const INITIAL_GRID_PAGE_SIZE = 24;
 
 export const GaleriBerkasView: React.FC = () => {
-  const [files, setFiles] = useState<FileItem[]>(DEFAULT_FILES);
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Semua');
+  const [visibleGridCount, setVisibleGridCount] = useState<number>(INITIAL_GRID_PAGE_SIZE);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  // 1. Fetch data berkas asli dari endpoint JSON LaporanWe
-  const loadFiles = async () => {
+  // 1. Fetch data berkas asli dari endpoint JSON LaporanWe dengan timeout & auth
+  const loadFiles = useCallback(async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    setIsLoading(true);
+    setLoadError(null);
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?format=json');
+      const token = getStoredToken();
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetchWithTimeout(
+        'https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?format=json',
+        { headers, signal: controller.signal },
+        DEFAULT_REQUEST_TIMEOUT_MS
+      );
+      if (!res.ok) {
+        throw new Error(`Gagal memuat galeri berkas (HTTP ${res.status})`);
+      }
       const json = await res.json();
-      if (json && Array.isArray(json.data) && json.data.length > 0) {
+      if (json && Array.isArray(json.data)) {
         const formatted: FileItem[] = json.data.map((f: any, idx: number) => {
           const fileName = f.n || f.name || 'Berkas';
           const ext = (fileName.split('.').pop() || '').toLowerCase();
@@ -66,23 +82,36 @@ export const GaleriBerkasView: React.FC = () => {
           };
         });
         setFiles(formatted);
+      } else {
+        setFiles([]);
       }
-    } catch (err) {
-      console.warn('Menggunakan data fallback:', err);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') return;
+      setLoadError(err?.message || 'Tidak dapat memuat data galeri berkas dari server.');
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadFiles();
-  }, []);
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [loadFiles]);
+
+  // Reset pagination when filter tab changes
+  useEffect(() => {
+    setVisibleGridCount(INITIAL_GRID_PAGE_SIZE);
+  }, [activeTab]);
 
   // 2. Tab Filter & Hitung Counter Dinamis
   const tabs = ['Semua', 'Gambar', 'Video', 'Dokumen'];
   const counts = useMemo(() => {
     const c: Record<string, number> = { Semua: files.length, Gambar: 0, Video: 0, Dokumen: 0 };
-    files.forEach(f => {
+    for (const f of files) {
       if (c[f.t] !== undefined) c[f.t]++;
-    });
+    }
     return c;
   }, [files]);
 
@@ -99,19 +128,29 @@ export const GaleriBerkasView: React.FC = () => {
     fd.append('file', file);
 
     setIsUploading(true);
+    setActionNotice(null);
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?action=upload', {
-        method: 'POST',
-        body: fd
-      });
+      const token = getStoredToken();
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetchWithTimeout(
+        'https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?action=upload',
+        {
+          method: 'POST',
+          headers,
+          body: fd
+        },
+        UPLOAD_REQUEST_TIMEOUT_MS
+      );
       const data = await res.json();
       if (data.success) {
         await loadFiles();
       } else {
-        alert(data.message || 'Gagal mengunggah berkas.');
+        setActionNotice(data.message || 'Gagal mengunggah berkas.');
       }
-    } catch {
-      alert('Terjadi kesalahan jaringan saat mengunggah.');
+    } catch (err: any) {
+      setActionNotice(err?.message || 'Terjadi kesalahan jaringan saat mengunggah berkas.');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -120,6 +159,11 @@ export const GaleriBerkasView: React.FC = () => {
 
   const featItem = filteredList[0];
   const gridItems = filteredList.slice(1);
+  const visibleGridItems = useMemo(
+    () => gridItems.slice(0, visibleGridCount),
+    [gridItems, visibleGridCount]
+  );
+  const remainingCount = Math.max(0, gridItems.length - visibleGridItems.length);
 
   return (
     <div className="gb-container w-full min-w-0 min-h-screen overflow-x-hidden bg-transparent">
@@ -501,9 +545,60 @@ export const GaleriBerkasView: React.FC = () => {
           </button>
         </div>
 
+        {actionNotice && (
+          <div className="mb-4 px-4 py-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-xs font-medium flex items-center justify-between gap-3">
+            <span>{actionNotice}</span>
+            <button
+              type="button"
+              onClick={() => setActionNotice(null)}
+              className="px-2 py-1 rounded-lg bg-red-500/15 hover:bg-red-500/25 font-semibold cursor-pointer"
+            >
+              Tutup
+            </button>
+          </div>
+        )}
+
         {/* MAIN CONTENT AREA */}
         <main>
-          {filteredList.length === 0 ? (
+          {isLoading && files.length === 0 ? (
+            <>
+              <div className="gb-tile gb-feat animate-pulse">
+                <div className="gb-thumb bg-black/10 dark:bg-white/10" />
+                <div className="gb-body">
+                  <div>
+                    <div className="h-6 w-20 rounded-full bg-black/10 dark:bg-white/10" />
+                    <div className="h-8 w-3/4 rounded-xl bg-black/10 dark:bg-white/10 mt-5" />
+                    <div className="h-4 w-5/6 rounded-lg bg-black/10 dark:bg-white/10 mt-3" />
+                  </div>
+                  <div className="gb-foot">
+                    <div className="h-4 w-24 rounded-lg bg-black/10 dark:bg-white/10" />
+                  </div>
+                </div>
+              </div>
+              <section className="gb-grid">
+                {[0, 1, 2, 3].map((idx) => (
+                  <div key={idx} className="gb-tile gb-card animate-pulse">
+                    <div className="gb-thumb bg-black/10 dark:bg-white/10" />
+                    <div className="gb-body">
+                      <div className="h-4 w-3/4 rounded-lg bg-black/10 dark:bg-white/10" />
+                      <div className="h-3 w-1/2 rounded-lg bg-black/10 dark:bg-white/10 mt-3" />
+                    </div>
+                  </div>
+                ))}
+              </section>
+            </>
+          ) : loadError && files.length === 0 ? (
+            <div className="gb-empty flex flex-col items-center gap-3">
+              <p className="m-0">{loadError}</p>
+              <button
+                type="button"
+                onClick={loadFiles}
+                className="gb-add"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          ) : filteredList.length === 0 ? (
             <div className="gb-empty">
               Belum ada berkas {activeTab.toLowerCase()}. Klik &ldquo;+ Tambah File&rdquo; untuk mengunggah.
             </div>
@@ -524,23 +619,15 @@ export const GaleriBerkasView: React.FC = () => {
                     }}
                   >
                     {featItem.src && featItem.t === 'Gambar' && (
-                      <img src={featItem.src} alt={featItem.n} loading="lazy" />
+                      <img src={featItem.src} alt={featItem.n} loading="eager" decoding="async" />
                     )}
-                    {featItem.src && featItem.t === 'Video' && (
-                      <>
-                        <video src={`${featItem.src}#t=0.5`} muted playsInline />
-                        <div className="absolute inset-0 grid place-items-center bg-black/25">
-                          <span className="w-12 h-12 rounded-full bg-white/90 text-black flex items-center justify-center font-bold">
-                            ▶
-                          </span>
-                        </div>
-                      </>
-                    )}
-                    {!featItem.src && featItem.t === 'Video' && (
-                      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                        <rect x="3" y="5" width="18" height="14" rx="3" />
-                        <path d="M10 9l5 3-5 3z" />
-                      </svg>
+                    {featItem.t === 'Video' && (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
+                        <span className="w-14 h-14 rounded-full bg-white/90 text-black flex items-center justify-center font-bold shadow-lg">
+                          ▶
+                        </span>
+                        <span className="text-xs font-semibold uppercase tracking-wider opacity-85">Video</span>
+                      </div>
                     )}
                     {!featItem.src && featItem.t === 'Gambar' && (
                       <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -569,12 +656,12 @@ export const GaleriBerkasView: React.FC = () => {
                 </article>
               )}
 
-              {/* GRID CARDS (RESPONSIF 1-4 KOLOM) */}
-              {gridItems.length > 0 && (
+              {/* GRID CARDS (RESPONSIF 1-4 KOLOM DENGAN PAGINATION PROGRESIF) */}
+              {visibleGridItems.length > 0 && (
                 <section className="gb-grid">
-                  {gridItems.map((item, idx) => (
+                  {visibleGridItems.map((item, idx) => (
                     <article
-                      key={idx}
+                      key={`${item.n}-${idx}`}
                       className="gb-tile gb-card"
                       onClick={() => setSelectedFile(item)}
                     >
@@ -587,23 +674,14 @@ export const GaleriBerkasView: React.FC = () => {
                         }}
                       >
                         {item.src && item.t === 'Gambar' && (
-                          <img src={item.src} alt={item.n} loading="lazy" />
+                          <img src={item.src} alt={item.n} loading="lazy" decoding="async" />
                         )}
-                        {item.src && item.t === 'Video' && (
-                          <>
-                            <video src={`${item.src}#t=0.5`} muted playsInline />
-                            <div className="absolute inset-0 grid place-items-center bg-black/25">
-                              <span className="w-9 h-9 rounded-full bg-white/90 text-black flex items-center justify-center font-bold text-xs">
-                                ▶
-                              </span>
-                            </div>
-                          </>
-                        )}
-                        {!item.src && item.t === 'Video' && (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="5" width="18" height="14" rx="3" />
-                            <path d="M10 9l5 3-5 3z" />
-                          </svg>
+                        {item.t === 'Video' && (
+                          <div className="absolute inset-0 grid place-items-center bg-black/15">
+                            <span className="w-10 h-10 rounded-full bg-white/90 text-black flex items-center justify-center font-bold text-xs shadow">
+                              ▶
+                            </span>
+                          </div>
                         )}
                         {!item.src && item.t === 'Gambar' && (
                           <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -626,6 +704,18 @@ export const GaleriBerkasView: React.FC = () => {
                     </article>
                   ))}
                 </section>
+              )}
+
+              {remainingCount > 0 && (
+                <div className="flex justify-center mt-7">
+                  <button
+                    type="button"
+                    className="gb-add"
+                    onClick={() => setVisibleGridCount((c) => c + INITIAL_GRID_PAGE_SIZE)}
+                  >
+                    Muat Lebih Banyak ({remainingCount} berkas tersisa)
+                  </button>
+                </div>
               )}
             </>
           )}

@@ -58,7 +58,8 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     return () => window.removeEventListener('OPEN_REPORT_FILES_MODAL', handleOpen);
   }, []);
 
-  const { reports: fastReports, counters: fastCounters, refreshReports: fastRefreshReports } = useFastData();
+  const { reports: fastReports, counters: fastCounters } = useFastData();
+  const [visibleCount, setVisibleCount] = useState<number>(24);
 
   // 1. Inisialisasi State Persisten (Zero-Wait Hydration pada Reload F5 & Navigasi 0ms)
   const [localReports, setLocalReports] = useState<Report[]>(() => {
@@ -105,14 +106,14 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxTitle, setLightboxTitle] = useState('');
 
-  // Sync saat fastReports atau reports prop tiba
+  // Sync saat reports prop atau fastReports berubah (App.tsx mengatur lifecycle fetch)
   useEffect(() => {
-    if (Array.isArray(fastReports) && fastReports.length > 0) {
-      setLocalReports(fastReports);
-    } else if (Array.isArray(reports) && reports.length > 0) {
+    if (Array.isArray(reports) && reports.length > 0) {
       setLocalReports(reports);
+    } else if (Array.isArray(fastReports) && fastReports.length > 0) {
+      setLocalReports(fastReports);
     }
-  }, [fastReports, reports]);
+  }, [reports, fastReports]);
 
   useEffect(() => {
     if (fastCounters && fastCounters.total > 0) {
@@ -120,28 +121,18 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     }
   }, [fastCounters]);
 
-  // Background Revalidation senyap tanpa skeleton/spinner
-  useEffect(() => {
-    fastRefreshReports(true).catch(() => {});
-  }, [fastRefreshReports]);
-
-  // Paksa trigger initial dispatch saat data siap agar observer/viewport langsung mendeteksi kartu
-  useEffect(() => {
-    if (localReports && localReports.length > 0) {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new Event('scroll'));
-        window.dispatchEvent(new Event('resize'));
-      });
-    }
-  }, [localReports]);
-
-  // Debounce search input by 300ms without triggering network requests
+  // Debounce search input by 250ms without triggering network requests
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(search);
-    }, 300);
+    }, 250);
     return () => clearTimeout(handler);
   }, [search]);
+
+  // Reset visible batch count when filters change
+  useEffect(() => {
+    setVisibleCount(24);
+  }, [filterTab, debouncedSearch]);
 
   // Effective display data
   const displayReports = localReports.length > 0 ? localReports : reports;
@@ -236,26 +227,34 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
     );
   }, [allReportFiles, searchFileQuery]);
 
-  // Purely in-memory filtering: never request server on filter tab switch or search
-  const filteredReports = displayReports.filter((r) => {
-    if (filterTab === 'In Review' && r.status !== 'In Review') return false;
-    if (filterTab === 'In Progress' && (r.status as string) !== 'In Progress' && (r.status as string) !== 'Sedang Berjalan') return false;
-    if (filterTab === 'Completed' && r.status !== 'Completed') return false;
+  // Purely in-memory memoized filtering
+  const filteredReports = useMemo(() => {
     const query = debouncedSearch.trim().toLowerCase();
-    if (query) {
-      const matchTask = r.task && r.task.toLowerCase().includes(query);
-      const matchPerson = r.person && r.person.toLowerCase().includes(query);
-      const matchProject = r.project && r.project.toLowerCase().includes(query);
-      const matchDesc = r.desc && r.desc.toLowerCase().includes(query);
-      const matchCategory = r.category && r.category.toLowerCase().includes(query);
-      const matchEmail = r.user_email && r.user_email.toLowerCase().includes(query);
+    return displayReports.filter((r) => {
+      if (filterTab === 'In Review' && r.status !== 'In Review') return false;
+      if (filterTab === 'In Progress' && (r.status as string) !== 'In Progress' && (r.status as string) !== 'Sedang Berjalan') return false;
+      if (filterTab === 'Completed' && r.status !== 'Completed') return false;
+      if (query) {
+        const matchTask = r.task && r.task.toLowerCase().includes(query);
+        const matchPerson = r.person && r.person.toLowerCase().includes(query);
+        const matchProject = r.project && r.project.toLowerCase().includes(query);
+        const matchDesc = r.desc && r.desc.toLowerCase().includes(query);
+        const matchCategory = r.category && r.category.toLowerCase().includes(query);
+        const matchEmail = r.user_email && r.user_email.toLowerCase().includes(query);
 
-      if (!matchTask && !matchPerson && !matchProject && !matchDesc && !matchCategory && !matchEmail) {
-        return false;
+        if (!matchTask && !matchPerson && !matchProject && !matchDesc && !matchCategory && !matchEmail) {
+          return false;
+        }
       }
-    }
-    return true;
-  });
+      return true;
+    });
+  }, [displayReports, filterTab, debouncedSearch]);
+
+  const visibleReports = useMemo(
+    () => filteredReports.slice(0, visibleCount),
+    [filteredReports, visibleCount]
+  );
+  const remainingReportsCount = Math.max(0, filteredReports.length - visibleReports.length);
 
   const handleConfirmDeleteReport = async () => {
     if (!reportToDelete) return;
@@ -532,195 +531,209 @@ export const ReportsView: React.FC<ReportsViewProps> = ({
             gap: '18px',
           }}
         >
-          {filteredReports.length === 0 ? (
+          {visibleReports.length === 0 ? (
             <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 0', color: 'var(--muted)', background: 'var(--glass)', borderRadius: '24px', border: '1px solid var(--line)' }}>
               <p style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 4px' }}>Tidak ada laporan ditemukan</p>
               <span style={{ fontSize: '13px' }}>Coba ubah kata kunci pencarian atau filter status.</span>
             </div>
           ) : (
-            filteredReports.map((r, index) => {
-              const statusClass =
-                r.status === 'Completed'
-                  ? 'bg-[#e9f5b8] text-[#2a3308]'
-                  : r.status === 'In Review'
-                  ? 'bg-[#f6e6cf] text-[#8c4e03]'
-                  : 'bg-[#d9d3f5] text-[#433385]';
+            <>
+              {visibleReports.map((r, index) => {
+                const statusClass =
+                  r.status === 'Completed'
+                    ? 'bg-[#e9f5b8] text-[#2a3308]'
+                    : r.status === 'In Review'
+                    ? 'bg-[#f6e6cf] text-[#8c4e03]'
+                    : 'bg-[#d9d3f5] text-[#433385]';
 
-              const canDelete =
-                isAdmin ||
-                Boolean(
-                  currentUserEmail &&
-                    ((r.user_email && r.user_email.toLowerCase() === currentUserEmail.toLowerCase()) ||
-                      (r.created_by && r.created_by.toLowerCase() === currentUserEmail.toLowerCase()))
-                );
+                const canDelete =
+                  isAdmin ||
+                  Boolean(
+                    currentUserEmail &&
+                      ((r.user_email && r.user_email.toLowerCase() === currentUserEmail.toLowerCase()) ||
+                        (r.created_by && r.created_by.toLowerCase() === currentUserEmail.toLowerCase()))
+                  );
 
-              return (
-                <article
-                  key={r.id}
-                  className="report-card cursor-pointer animate-fadeIn"
-                  data-motion="none"
-                  tabIndex={0}
-                  role="button"
-                  aria-label={`Buka detail laporan ${r.task}`}
-                  onClick={() => handleOpenDetail(r)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      handleOpenDetail(r);
-                    }
-                  }}
-                  style={{
-                    animationDelay: `${Math.min(index * 0.03, 0.3)}s`,
-                    background: 'var(--glass-solid, rgba(255, 255, 255, 0.92))',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    border: '1px solid var(--line, rgba(31, 29, 43, 0.08))',
-                    borderRadius: '24px',
-                    padding: '18px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: '14px',
-                    boxShadow: '0 4px 20px -8px rgba(60, 50, 110, 0.12)',
-                    transition: 'transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease',
-                    cursor: 'pointer',
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-4px)';
-                    e.currentTarget.style.boxShadow = '0 16px 32px -12px rgba(60, 50, 110, 0.22)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'none';
-                    e.currentTarget.style.boxShadow = '0 4px 20px -8px rgba(60, 50, 110, 0.12)';
-                  }}
-                >
-                  {/* Top: Thumbnail & Info */}
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
-                    <div
-                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs relative group/thumb cursor-pointer"
-                      style={{
-                        padding: 0,
-                        margin: 0,
-                      }}
-                      title="Klik untuk melihat bukti pekerjaan nyata"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handlePreviewEvidence(r);
-                      }}
-                    >
-                      <ReportCoverThumbnail report={r} />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
-                        <Icon name="search" style={{ width: 15, height: 15 }} />
-                      </div>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <h4
-                        style={{
-                          fontSize: '15px',
-                          fontWeight: 700,
-                          color: 'var(--ink, #1f1d2b)',
-                          lineHeight: 1.3,
-                          marginBottom: '4px',
-                          display: '-webkit-box',
-                          WebkitLineClamp: 2,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {cleanReportText(r.task)}
-                      </h4>
-                      <div
-                        style={{
-                          fontSize: '12.5px',
-                          color: 'var(--muted, #8b8898)',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {r.person}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: '11.5px',
-                          color: 'var(--muted, #8b8898)',
-                          marginTop: '2px',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                      >
-                        {r.project} &bull; {r.date} ({r.progress}%)
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Bottom: Status Badge & Delete Action */}
-                  <div
+                return (
+                  <article
+                    key={r.id}
+                    className="report-card cursor-pointer animate-fadeIn"
+                    data-motion="none"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Buka detail laporan ${r.task}`}
+                    onClick={() => handleOpenDetail(r)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleOpenDetail(r);
+                      }
+                    }}
                     style={{
+                      animationDelay: `${Math.min(index * 0.02, 0.2)}s`,
+                      background: 'var(--glass-solid, rgba(255, 255, 255, 0.92))',
+                      backdropFilter: 'blur(20px)',
+                      WebkitBackdropFilter: 'blur(20px)',
+                      border: '1px solid var(--line, rgba(31, 29, 43, 0.08))',
+                      borderRadius: '24px',
+                      padding: '18px',
                       display: 'flex',
-                      alignItems: 'center',
+                      flexDirection: 'column',
                       justifyContent: 'space-between',
-                      gap: '10px',
-                      paddingTop: '10px',
-                      borderTop: '1px solid var(--line, rgba(31, 29, 43, 0.06))',
+                      gap: '14px',
+                      boxShadow: '0 4px 20px -8px rgba(60, 50, 110, 0.12)',
+                      transition: 'transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease',
+                      cursor: 'pointer',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-4px)';
+                      e.currentTarget.style.boxShadow = '0 16px 32px -12px rgba(60, 50, 110, 0.22)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'none';
+                      e.currentTarget.style.boxShadow = '0 4px 20px -8px rgba(60, 50, 110, 0.12)';
                     }}
                   >
-                    <span
-                      className={statusClass}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        padding: '4px 12px',
-                        borderRadius: '999px',
-                        fontSize: '11.5px',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {r.status}
-                    </span>
-
-                    {canDelete && (
-                      <button
-                        type="button"
-                        title="Hapus laporan ini"
-                        aria-label="Hapus laporan"
+                    {/* Top: Thumbnail & Info */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                      <div
+                        className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl overflow-hidden flex-shrink-0 bg-gray-100 border border-black/5 shadow-xs relative group/thumb cursor-pointer"
+                        style={{
+                          padding: 0,
+                          margin: 0,
+                        }}
+                        title="Klik untuk melihat bukti pekerjaan nyata"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setReportToDelete(r);
-                        }}
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '10px',
-                          background: 'rgba(20, 19, 26, 0.04)',
-                          border: '1px solid var(--line-soft)',
-                          color: 'var(--muted)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                          flexShrink: 0,
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#fee2e2';
-                          e.currentTarget.style.color = '#dc2626';
-                          e.currentTarget.style.borderColor = '#fca5a5';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(20, 19, 26, 0.04)';
-                          e.currentTarget.style.color = 'var(--muted)';
-                          e.currentTarget.style.borderColor = 'var(--line-soft)';
+                          handlePreviewEvidence(r);
                         }}
                       >
-                        <Icon name="trash" style={{ width: 14, height: 14 }} />
-                      </button>
-                    )}
-                  </div>
-                </article>
-              );
-            })
+                        <ReportCoverThumbnail report={r} />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
+                          <Icon name="search" style={{ width: 15, height: 15 }} />
+                        </div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <h4
+                          style={{
+                            fontSize: '15px',
+                            fontWeight: 700,
+                            color: 'var(--ink, #1f1d2b)',
+                            lineHeight: 1.3,
+                            marginBottom: '4px',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {cleanReportText(r.task)}
+                        </h4>
+                        <div
+                          style={{
+                            fontSize: '12.5px',
+                            color: 'var(--muted, #8b8898)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {r.person}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: '11.5px',
+                            color: 'var(--muted, #8b8898)',
+                            marginTop: '2px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {r.project} &bull; {r.date} ({r.progress}%)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom: Status Badge & Delete Action */}
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '10px',
+                        paddingTop: '10px',
+                        borderTop: '1px solid var(--line, rgba(31, 29, 43, 0.06))',
+                      }}
+                    >
+                      <span
+                        className={statusClass}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '4px 12px',
+                          borderRadius: '999px',
+                          fontSize: '11.5px',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {r.status}
+                      </span>
+
+                      {canDelete && (
+                        <button
+                          type="button"
+                          title="Hapus laporan ini"
+                          aria-label="Hapus laporan"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReportToDelete(r);
+                          }}
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '10px',
+                            background: 'rgba(20, 19, 26, 0.04)',
+                            border: '1px solid var(--line-soft)',
+                            color: 'var(--muted)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            flexShrink: 0,
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#fee2e2';
+                            e.currentTarget.style.color = '#dc2626';
+                            e.currentTarget.style.borderColor = '#fca5a5';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(20, 19, 26, 0.04)';
+                            e.currentTarget.style.color = 'var(--muted)';
+                            e.currentTarget.style.borderColor = 'var(--line-soft)';
+                          }}
+                        >
+                          <Icon name="trash" style={{ width: 14, height: 14 }} />
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+              {remainingReportsCount > 0 && (
+                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'center', paddingTop: '8px' }}>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => setVisibleCount((c) => c + 24)}
+                    style={{ borderRadius: '999px', padding: '10px 24px', fontWeight: 600 }}
+                  >
+                    Muat Lebih Banyak ({remainingReportsCount} laporan tersisa)
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 

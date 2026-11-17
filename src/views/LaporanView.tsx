@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Report, ViewType } from '../types';
 import { Icon } from '../components/icons';
-import { fetchWithFastCache, getCachedData, invalidateCache } from '../utils/apiCache';
+import { fetchWithFastCache, fetchWithTimeout, getCachedData, invalidateCache } from '../utils/apiCache';
 import { useFastData } from '../context/FastDataContext';
 import { AttachmentPreviewModal, AttachmentPreviewData } from '../components/AttachmentPreviewModal';
 
@@ -156,6 +156,14 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
 
   const [filterTab, setFilterTab] = useState<'Semua' | 'In Review' | 'Sedang Berjalan' | 'Selesai'>('Semua');
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
   const [reportToDelete, setReportToDelete] = useState<DailyReportItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
@@ -176,9 +184,16 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
   });
 
   useEffect(() => {
-    fetch('https://api-laporanwe.mkverse.my.id/api/daily-reports/files.php')
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+    if (!token) return;
+    const controller = new AbortController();
+    fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/daily-reports/files.php', {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    }, 12000)
       .then((r) => r.json())
       .then((json) => {
+        if (controller.signal.aborted) return;
         if (json && json.success && Array.isArray(json.data)) {
           setReportFiles(json.data);
           try {
@@ -186,7 +201,10 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
           } catch (_) {}
         }
       })
-      .catch((err) => console.warn('Fetch report files error:', err));
+      .catch((err) => {
+        if (err?.name !== 'AbortError') console.warn('Fetch report files error:', err);
+      });
+    return () => controller.abort();
   }, []);
 
   // Ekstraksi otomatis seluruh berkas dari state 'reportItems' / 'initialReportsProp'
@@ -283,46 +301,16 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
     }
   }, [fastCounters]);
 
-  // 2. Di background (useEffect), panggil refreshReports() secara senyap di latar belakang (0ms UI delay)
+  // 2. Refresh single deduplicated source only when reports list is empty (no duplicate direct fetch)
   useEffect(() => {
-    refreshReports(true).catch(() => {});
-
-    // Silent background fetch dengan token sync dari localStorage
-    try {
-      const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-      fetch(REPORT_ENDPOINT, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-        .then((res) => res.json())
-        .then((json) => {
-          if (json && json.success && Array.isArray(json.data) && json.data.length > 0) {
-            const norm = json.data.map(normalizeReport);
-            setReportItems(norm);
-            try {
-              localStorage.setItem('lw_reports_cache', JSON.stringify(json.data));
-              if (json.counters) {
-                setCounters(json.counters);
-                localStorage.setItem('lw_counters_cache', JSON.stringify(json.counters));
-              }
-            } catch (_) {}
-          }
-        })
-        .catch(() => {});
-    } catch (_) {}
-  }, [refreshReports]);
-
-  // Paksa trigger initial dispatch saat data siap agar viewport/observer langsung mendeteksi kartu
-  useEffect(() => {
-    if (reportItems && reportItems.length > 0) {
-      requestAnimationFrame(() => {
-        window.dispatchEvent(new Event('scroll'));
-        window.dispatchEvent(new Event('resize'));
-      });
+    if (reportItems.length === 0) {
+      refreshReports(false).catch(() => {});
     }
-  }, [reportItems]);
+  }, [refreshReports, reportItems.length]);
 
-  // 3. Filter Tab & Search Bar Frontend Instan
+  // 3. Filter Tab & Search Bar Frontend Instan (debounced)
   const filteredReports = useMemo(() => {
+    const query = debouncedSearch.trim().toLowerCase();
     return reportItems.filter((item) => {
       const badge = getStatusBadge(item.status);
       if (filterTab !== 'Semua') {
@@ -330,7 +318,6 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
         if (filterTab === 'In Review' && badge.label !== 'In Review') return false;
         if (filterTab === 'Sedang Berjalan' && badge.label !== 'Sedang Berjalan') return false;
       }
-      const query = searchQuery.trim().toLowerCase();
       if (query) {
         const matchTitle = item.title.toLowerCase().includes(query);
         const matchAuthor = item.author_name.toLowerCase().includes(query);
@@ -339,7 +326,7 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
       }
       return true;
     });
-  }, [reportItems, filterTab, searchQuery]);
+  }, [reportItems, filterTab, debouncedSearch]);
 
   const handleOpenDetail = (id: number | string) => {
     onSelectReport(String(id));
@@ -661,6 +648,8 @@ export const LaporanView: React.FC<LaporanViewProps> = ({
                           <img
                             src={report.avatar_url}
                             alt={report.author_name}
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-full object-cover"
                             onError={(e) => {
                               (e.currentTarget as HTMLElement).style.display = 'none';

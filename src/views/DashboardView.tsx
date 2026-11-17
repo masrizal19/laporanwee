@@ -3,7 +3,16 @@ import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../type
 import { getUserFirstName } from '../utils/userUtils';
 import { getAbsoluteAvatarUrl } from '../utils/api';
 import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
-import { fetchWithCache, getCachedData } from '../utils/apiCache';
+import { fetchWithCache, fetchWithTimeout } from '../utils/apiCache';
+
+const CHART_DATA = [210, 330, 250, 300, 390, 280, 340, 260, 300, 380, 330, 430];
+const CHART_MAX_VAL = 450;
+const CHART_W = 760;
+const CHART_H = 238;
+const CHART_PAD = 30;
+const getChartX = (i: number) => CHART_PAD + (i * (CHART_W - CHART_PAD * 2)) / (CHART_DATA.length - 1);
+const getChartY = (v: number) => CHART_H - 24 - (v / CHART_MAX_VAL) * (CHART_H - 50);
+const CHART_POINTS = CHART_DATA.map((v, i) => [getChartX(i), getChartY(v)]);
 
 interface DashboardViewProps {
   projects: Project[];
@@ -61,9 +70,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     { id: '4', title: 'Rapat sinkronisasi tim', subtitle: 'Google Meet', time: '16.00 – 16.30', done: false, assignees: [{ initial: 'Ba', bg: '#d6ecdf' }, { initial: 'Ti', bg: '#f1d8e4' }] },
   ]);
 
-  // Sync dashboard data from backend API with 30s polling
+  const reportsRef = useRef(reports);
+  reportsRef.current = reports;
+
+  // Sync dashboard data from backend API with visibility-aware 30s polling
   useEffect(() => {
     const syncDashboardData = async () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
       try {
         const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
         const adminEmail = localStorage.getItem('admin_email') || '';
@@ -84,9 +99,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
 
         if (Array.isArray(result.running_tasks) && result.running_tasks.length > 0) {
+          const latestReports = reportsRef.current || [];
           setTodoList(
             result.running_tasks.map((t: any) => {
-              const matchedReport = (reports || []).find(
+              const matchedReport = latestReports.find(
                 (r) =>
                   String(r.id) === String(t.report_id || t.daily_report_id || t.id) ||
                   r.task.trim().toLowerCase() === String(t.title || '').trim().toLowerCase()
@@ -137,7 +153,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     try {
       const token = localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/tasks/toggle.php', {
+      const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/tasks/toggle.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -207,22 +223,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     { id: '3', name: 'Website Studio Kaya', desc: 'Desain dan pengembangan landing page', status: 'Berisiko', progress: 34, due: '2026-10-30' },
   ];
 
-  // Interactive wave spline chart
+  // Interactive wave spline chart (using hoisted static geometry constants)
   const chartRef = useRef<HTMLDivElement>(null);
   const [activePointIndex, setActivePointIndex] = useState<number>(4);
-  const chartData = [210, 330, 250, 300, 390, 280, 340, 260, 300, 380, 330, 430];
-  const maxVal = 450;
-  const W = 760;
-  const H = 238;
-  const pad = 30;
-
-  const getX = (i: number) => pad + (i * (W - pad * 2)) / (chartData.length - 1);
-  const getY = (v: number) => H - 24 - (v / maxVal) * (H - 50);
-
-  const chartPoints = useMemo(
-    () => chartData.map((v, i) => [getX(i), getY(v)]),
-    []
-  );
+  const chartData = CHART_DATA;
+  const W = CHART_W;
+  const H = CHART_H;
+  const pad = CHART_PAD;
+  const getY = getChartY;
+  const chartPoints = CHART_POINTS;
 
   const splinePath = useMemo(() => {
     if (chartPoints.length === 0) return '';
@@ -246,7 +255,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const last = chartPoints[chartPoints.length - 1];
     const first = chartPoints[0];
     return `${splinePath} L${last[0]},${H - 24} L${first[0]},${H - 24} Z`;
-  }, [splinePath, chartPoints]);
+  }, [splinePath, chartPoints, H]);
 
   const rafRef = useRef<number | null>(null);
   const handleMouseMoveChart = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -353,6 +362,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <img
             src={avatarUrl}
             alt={displayName}
+            loading="lazy"
+            decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
             onError={(e) => {
               (e.currentTarget as HTMLElement).style.display = 'none';
@@ -468,6 +479,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     <img
                       src={t.cover_url}
                       alt={t.title}
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover block"
                     />
                   </div>

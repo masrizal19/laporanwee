@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Activity, TeamMember, ViewType } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
@@ -143,36 +143,68 @@ export const TeamView: React.FC<TeamViewProps> = ({
     }
   }, [activities]);
 
-  // Fetch data aktivitas menggunakan endpoint:
-  // https://api-laporanwe.mkverse.my.id/api/activities/list.php?limit=120
-  // dengan storageKey='activities_120'
+  // Fetch data aktivitas hanya jika token tersedia & data belum disuplai dari parent/cache
   useEffect(() => {
+    if (!token || (Array.isArray(activities) && activities.length > 0)) return;
+    let active = true;
     fetchWithCache(
       'https://api-laporanwe.mkverse.my.id/api/activities/list.php?limit=120',
       { Authorization: `Bearer ${token}` },
       'activities_120'
     )
       .then((json: any) => {
+        if (!active) return;
         if (json && Array.isArray(json.data) && json.data.length > 0) {
           const mapped = json.data.map(mapRawActivityToActivity);
           setActivitiesState(mapped);
         }
       })
       .catch((err: any) => {
-        console.warn('Gagal memuat aktivitas 120 di TeamView:', err);
+        if (active) console.warn('Gagal memuat aktivitas 120 di TeamView:', err);
       });
-  }, [token]);
+    return () => {
+      active = false;
+    };
+  }, [token, activities.length]);
 
-  const safeActivities = activitiesState.length > 0 ? activitiesState : (Array.isArray(activities) ? activities : []);
-  const safeMembers = Array.isArray(members) ? members : [];
+  const safeActivities = useMemo(
+    () => (activitiesState.length > 0 ? activitiesState : (Array.isArray(activities) ? activities : [])),
+    [activitiesState, activities]
+  );
+  const safeMembers = useMemo(
+    () => (Array.isArray(members) ? members : []),
+    [members]
+  );
 
-  const filteredActivities = safeActivities.filter((a) => {
-    if (filter === 'All') return true;
-    return a.kind === filter;
-  });
+  const memberByFirstWordMap = useMemo(() => {
+    const map = new Map<string, TeamMember>();
+    for (const m of safeMembers) {
+      if (!m?.name) continue;
+      const lower = m.name.toLowerCase();
+      map.set(lower, m);
+      const firstWord = lower.split(' ')[0];
+      if (firstWord && !map.has(firstWord)) {
+        map.set(firstWord, m);
+      }
+    }
+    return map;
+  }, [safeMembers]);
 
-  const workingMembers = safeMembers.filter((m) => m && (m.is_online || m.status === 'working'));
-  const offlineMembers = safeMembers.filter((m) => m && (!m.is_online && m.status !== 'working'));
+  const filteredActivities = useMemo(() => {
+    if (filter === 'All') return safeActivities;
+    return safeActivities.filter((a) => a.kind === filter);
+  }, [safeActivities, filter]);
+
+  const { workingMembers, offlineMembers } = useMemo(() => {
+    const working: TeamMember[] = [];
+    const offline: TeamMember[] = [];
+    for (const m of safeMembers) {
+      if (!m) continue;
+      if (m.is_online || m.status === 'working') working.push(m);
+      else offline.push(m);
+    }
+    return { workingMembers: working, offlineMembers: offline };
+  }, [safeMembers]);
 
   const handleCopyInvite = () => {
     navigator.clipboard?.writeText('https://laporanwee.agency/invite/team-creative-q4');
@@ -211,6 +243,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
           <img
             src={avatarUrl}
             alt={displayName}
+            loading="lazy"
+            decoding="async"
             style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
             onError={(e) => {
               (e.currentTarget as HTMLElement).style.display = 'none';
@@ -388,9 +422,8 @@ export const TeamView: React.FC<TeamViewProps> = ({
               </div>
             ) : (
               filteredActivities.map((act) => {
-                const member = members.find((m) =>
-                  m.name.toLowerCase().includes(act.person.toLowerCase().split(' ')[0])
-                );
+                const personKey = act.person.toLowerCase();
+                const member = memberByFirstWordMap.get(personKey) || memberByFirstWordMap.get(personKey.split(' ')[0]);
 
                 return (
                   <div

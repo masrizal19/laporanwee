@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Report, Activity } from '../types';
-import { fetchWithCache } from '../utils/apiCache';
+import { fetchWithCache, fetchWithTimeout } from '../utils/apiCache';
 import { mapRawDailyReportToReport, normalizeFileUrl } from '../utils/api';
 
 export interface FastCounters {
@@ -258,9 +258,12 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             localStorage.getItem('laporanwee_token') ||
             ''
           : '';
+      if (!token || token === 'undefined' || token === 'null') {
+        return globalMemoryStore.activities;
+      }
 
       const res: any = await fetchWithCache(
-        'https://api-laporanwe.mkverse.my.id/api/activities/list.php',
+        'https://api-laporanwe.mkverse.my.id/api/activities/list.php?limit=120',
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -306,6 +309,9 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             localStorage.getItem('laporanwee_token') ||
             ''
           : '';
+      if (!token || token === 'undefined' || token === 'null') {
+        return globalMemoryStore.files;
+      }
 
       const endpoint = projectId
         ? `https://api-laporanwe.mkverse.my.id/api/project-documents/list.php?project_id=${projectId}`
@@ -395,9 +401,9 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (Date.now() - last > PREFETCH_THROTTLE_MS) {
       globalMemoryStore.lastFetch['chat'] = Date.now();
       // Prefetch obrolan kontak & percakapan secara pasif
-      fetch('https://api-laporanwe.mkverse.my.id/api/chat/contacts.php', {
+      fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/chat/contacts.php', {
         headers: { Authorization: `Bearer ${token}` },
-      }).catch(() => {});
+      }, 10000).catch(() => {});
     }
   }, []);
 
@@ -426,11 +432,21 @@ export const FastDataProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     updateCounters(clearedCounters);
   }, [updateReports, updateCounters]);
 
-  // Initial passive hydration sync on mount
+  // Initial passive hydration sync ONLY when authenticated (data already hydrated synchronously via globalMemoryStore)
   useEffect(() => {
-    refreshReports(true);
-    refreshActivities(true);
-  }, [refreshReports, refreshActivities]);
+    const token =
+      typeof window !== 'undefined'
+        ? localStorage.getItem('auth_token') ||
+          localStorage.getItem('token') ||
+          localStorage.getItem('laporanwee_token') ||
+          ''
+        : '';
+    if (!token || token === 'undefined' || token === 'null') return;
+    // Trigger single deduplicated reports refresh only if cache is empty; other views load on-demand
+    if (globalMemoryStore.reports.length === 0) {
+      refreshReports(true);
+    }
+  }, [refreshReports]);
 
   const value: FastDataContextType = {
     reports,

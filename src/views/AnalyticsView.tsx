@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { AnalyticsSummary, ViewType, AuthUser } from '../types';
 import { Icon } from '../components/icons';
 import { analyticsService, getStoredToken, getStoredUser } from '../utils/api';
@@ -43,27 +43,49 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
   const [isExportOpen, setIsExportOpen] = useState(false);
   const exportDropdownRef = useRef<HTMLDivElement>(null);
 
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (propAnalytics) {
       setData(propAnalytics);
     }
   }, [propAnalytics]);
 
-  const loadAnalytics = async () => {
+  const loadAnalytics = useCallback(async (isManual = false) => {
     setIsLoading(true);
     try {
       const summary = await analyticsService.fetchSummary();
+      if (!mountedRef.current) return;
       setData(summary);
-      if (onRefresh) onRefresh();
+      if (isManual) {
+        onAddToast('Data analitik berhasil diperbarui.');
+      }
     } catch (err) {
       console.warn('Load analytics error:', err);
+      if (isManual && mountedRef.current) {
+        onAddToast('Gagal memuat analitik. Silakan coba lagi.');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) setIsLoading(false);
     }
-  };
+  }, [onAddToast]);
 
   useEffect(() => {
-    loadAnalytics();
+    const hasInitialData =
+      propAnalytics &&
+      (propAnalytics.total_hours > 0 ||
+        propAnalytics.reports?.total > 0 ||
+        propAnalytics.tasks?.total > 0);
+    if (!hasInitialData) {
+      loadAnalytics(false);
+    }
   }, []);
 
   // Close export dropdown on outside click
@@ -109,21 +131,24 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     onAddToast('Membuka editor desain rekap laporan...');
   };
 
-  const dailyList =
-    data.daily_activity && data.daily_activity.length > 0
-      ? data.daily_activity
-      : [
-          { day: 'Senin', tasks_completed: 0, reports: 0 },
-          { day: 'Selasa', tasks_completed: 0, reports: 0 },
-          { day: 'Rabu', tasks_completed: 0, reports: 0 },
-          { day: 'Kamis', tasks_completed: 0, reports: 0 },
-          { day: 'Jumat', tasks_completed: 0, reports: 0 },
-        ];
+  const dailyList = useMemo(
+    () =>
+      data.daily_activity && data.daily_activity.length > 0
+        ? data.daily_activity
+        : [
+            { day: 'Senin', tasks_completed: 0, reports: 0 },
+            { day: 'Selasa', tasks_completed: 0, reports: 0 },
+            { day: 'Rabu', tasks_completed: 0, reports: 0 },
+            { day: 'Kamis', tasks_completed: 0, reports: 0 },
+            { day: 'Jumat', tasks_completed: 0, reports: 0 },
+          ],
+    [data.daily_activity]
+  );
 
   // Compute maximum value for relative bar heights
-  const maxVal = Math.max(
-    ...dailyList.map((d) => Math.max(d.tasks_completed, d.reports)),
-    1
+  const maxVal = useMemo(
+    () => Math.max(...dailyList.map((d) => Math.max(d.tasks_completed, d.reports)), 1),
+    [dailyList]
   );
 
   const months = [
@@ -182,7 +207,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           <button
             type="button"
             className="btn btn-outline"
-            onClick={loadAnalytics}
+            onClick={() => loadAnalytics(true)}
             disabled={isLoading}
             title="Muat ulang analitik dari database"
           >

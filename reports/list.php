@@ -92,7 +92,10 @@ try {
 
     // 3. Fetch GLOBAL reports list for any authenticated user
     // NO user_email or created_by filter here - reports are GLOBAL for all logged-in users
-    $stmt = $pdo->query("
+    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 0;
+    $offset = isset($_GET['offset']) ? max(0, (int)$_GET['offset']) : 0;
+
+    $baseSql = "
         SELECT
             r.id,
             r.title,
@@ -111,18 +114,38 @@ try {
             r.created_by,
             r.created_at,
             r.updated_at,
-            (
-                SELECT f.file_url 
-                FROM daily_report_files f 
-                WHERE f.report_id = r.id 
-                  AND f.file_category = 'proof' 
-                  AND (f.mime_type LIKE 'image/%' OR f.file_url LIKE '%.jpg' OR f.file_url LIKE '%.jpeg' OR f.file_url LIKE '%.png' OR f.file_url LIKE '%.webp' OR f.file_url LIKE '%.gif')
-                ORDER BY f.id ASC 
-                LIMIT 1
-            ) AS proof_cover_url
+            pc.proof_cover_url
         FROM daily_reports r
+        LEFT JOIN (
+            SELECT f1.report_id, f1.file_url AS proof_cover_url
+            FROM daily_report_files f1
+            INNER JOIN (
+                SELECT report_id, MIN(id) AS min_id
+                FROM daily_report_files
+                WHERE file_category = 'proof'
+                  AND (
+                      mime_type LIKE 'image/%'
+                      OR file_url LIKE '%.jpg'
+                      OR file_url LIKE '%.jpeg'
+                      OR file_url LIKE '%.png'
+                      OR file_url LIKE '%.webp'
+                      OR file_url LIKE '%.gif'
+                  )
+                GROUP BY report_id
+            ) fm ON fm.min_id = f1.id
+        ) pc ON pc.report_id = r.id
         ORDER BY r.report_date DESC, r.created_at DESC, r.id DESC
-    ");
+    ";
+
+    if ($limit > 0) {
+        $limit = min(500, $limit);
+        $stmt = $pdo->prepare($baseSql . " LIMIT :limit OFFSET :offset");
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $stmt->execute();
+    } else {
+        $stmt = $pdo->query($baseSql);
+    }
     $reports = $stmt->fetchAll();
 
     response(true, 'Berhasil mengambil seluruh laporan harian global.', [

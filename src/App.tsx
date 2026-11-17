@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   AuthUser,
   ViewType,
@@ -14,42 +14,8 @@ import {
 } from './types';
 import { Navbar } from './components/Navbar';
 import { ToastContainer } from './components/Toast';
-import { Icon } from './components/icons';
-
-// Views
-import { DashboardView } from './views/DashboardView';
-import { ProjectsView } from './views/ProjectsView';
-import { ProjectDetailView } from './views/ProjectDetailView';
-import { ReportsView } from './views/ReportsView';
-import { ReportDetailView } from './views/ReportDetailView';
-import { CreateReportView } from './views/CreateReportView';
-import { TasksView } from './views/TasksView';
-import { TeamView } from './views/TeamView';
-import { CalendarView } from './views/CalendarView';
-import { ProfileView } from './views/ProfileView';
-import { UserProfileView } from './views/UserProfileView';
-import { AnalyticsView } from './views/AnalyticsView';
-import { SocialMediaView } from './views/SocialMediaView';
-import { AdminUISettingsView } from './views/AdminUISettingsView';
-import { ProfileSettingsView } from './views/ProfileSettingsView';
-import { UiSettingsView } from './views/UiSettingsView';
-import { ExportLaporanStandalone } from './views/ExportLaporanStandalone';
-import { EditLaporanStandalone } from './views/EditLaporanStandalone';
-import { PengajuanBarangView } from './views/PengajuanBarangView';
-import { ChatView } from './views/ChatView';
-import { GaleriLampiranView } from './views/GaleriLampiranView';
-import { GaleriBerkasView } from './views/GaleriBerkasView';
-import { PengajuanBarangExportView } from './views/PengajuanBarangExportView';
-import { AplikasiView } from './views/AplikasiView';
-import { AplikasiHostView } from './views/AplikasiHostView';
 import { findAppBySlug, RegisteredApp } from './data/appsRegistry';
-
-// Auth views
-import { LoginView } from './views/LoginView';
-import { RegisterView } from './views/RegisterView';
 import { isUserAdmin } from './utils/userUtils';
-import { VerifyEmailView } from './views/VerifyEmailView';
-import { VersionUpdateModal } from './components/VersionUpdateModal';
 import {
   api,
   profileService,
@@ -68,7 +34,6 @@ import {
   mapRawDailyReportToReport,
   extractReportsArrayFromResponse,
   getStoredToken,
-  setStoredToken,
   getStoredUser,
   setStoredUser,
   clearStoredAuth,
@@ -76,7 +41,6 @@ import {
   reportStatusToTaskCol,
   mapFrontendStatusToBackend,
   taskColToReportStatus,
-  taskColToBackendReportStatus,
   computeTargetProgress,
 } from './utils/api';
 import { projectService } from './utils/projectService';
@@ -86,10 +50,45 @@ import {
   DEFAULT_UI_SETTINGS,
 } from './utils/uiSettings';
 
-import { ProfileCropSettingPage } from './views/ProfileCropSettingPage';
+// Route-level code splitting for faster initial load and lightweight navigation
+const DashboardView = lazy(() => import('./views/DashboardView').then((m) => ({ default: m.DashboardView })));
+const ProjectsView = lazy(() => import('./views/ProjectsView').then((m) => ({ default: m.ProjectsView })));
+const ProjectDetailView = lazy(() => import('./views/ProjectDetailView').then((m) => ({ default: m.ProjectDetailView })));
+const ReportsView = lazy(() => import('./views/ReportsView').then((m) => ({ default: m.ReportsView })));
+const ReportDetailView = lazy(() => import('./views/ReportDetailView').then((m) => ({ default: m.ReportDetailView })));
+const CreateReportView = lazy(() => import('./views/CreateReportView').then((m) => ({ default: m.CreateReportView })));
+const TasksView = lazy(() => import('./views/TasksView').then((m) => ({ default: m.TasksView })));
+const TeamView = lazy(() => import('./views/TeamView').then((m) => ({ default: m.TeamView })));
+const CalendarView = lazy(() => import('./views/CalendarView').then((m) => ({ default: m.CalendarView })));
+const UserProfileView = lazy(() => import('./views/UserProfileView').then((m) => ({ default: m.UserProfileView })));
+const AnalyticsView = lazy(() => import('./views/AnalyticsView').then((m) => ({ default: m.AnalyticsView })));
+const SocialMediaView = lazy(() => import('./views/SocialMediaView').then((m) => ({ default: m.SocialMediaView })));
+const ProfileSettingsView = lazy(() => import('./views/ProfileSettingsView').then((m) => ({ default: m.ProfileSettingsView })));
+const UiSettingsView = lazy(() => import('./views/UiSettingsView').then((m) => ({ default: m.UiSettingsView })));
+const ExportLaporanStandalone = lazy(() => import('./views/ExportLaporanStandalone').then((m) => ({ default: m.ExportLaporanStandalone })));
+const EditLaporanStandalone = lazy(() => import('./views/EditLaporanStandalone').then((m) => ({ default: m.EditLaporanStandalone })));
+const PengajuanBarangView = lazy(() => import('./views/PengajuanBarangView').then((m) => ({ default: m.PengajuanBarangView })));
+const ChatView = lazy(() => import('./views/ChatView').then((m) => ({ default: m.ChatView })));
+const GaleriBerkasView = lazy(() => import('./views/GaleriBerkasView').then((m) => ({ default: m.GaleriBerkasView })));
+const PengajuanBarangExportView = lazy(() => import('./views/PengajuanBarangExportView').then((m) => ({ default: m.PengajuanBarangExportView })));
+const AplikasiView = lazy(() => import('./views/AplikasiView').then((m) => ({ default: m.AplikasiView })));
+const AplikasiHostView = lazy(() => import('./views/AplikasiHostView').then((m) => ({ default: m.AplikasiHostView })));
+const ProfileCropSettingView = lazy(() => import('./views/ProfileCropSettingPage').then((m) => ({ default: m.ProfileCropSettingPage })));
+const LoginView = lazy(() => import('./views/LoginView').then((m) => ({ default: m.LoginView })));
+const RegisterView = lazy(() => import('./views/RegisterView').then((m) => ({ default: m.RegisterView })));
+const VerifyEmailView = lazy(() => import('./views/VerifyEmailView').then((m) => ({ default: m.VerifyEmailView })));
+const VersionUpdateModal = lazy(() => import('./components/VersionUpdateModal').then((m) => ({ default: m.VersionUpdateModal })));
 
-export const ProfileCropSettingView = ProfileCropSettingPage;
-export const CropSettingPage = ProfileCropSettingPage;
+export const CropSettingPage = ProfileCropSettingView;
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="flex flex-col items-center justify-center min-h-[320px] py-16 px-4 animate-fade-in">
+    <div className="w-10 h-10 rounded-2xl bg-[var(--ink)]/5 flex items-center justify-center mb-3">
+      <div className="w-5 h-5 border-2 border-[var(--ink)] border-t-transparent rounded-full animate-spin" />
+    </div>
+    <p className="text-xs font-medium text-[var(--muted)]">Memuat halaman...</p>
+  </div>
+);
 
 export function App() {
   // 1. Session & Routing state
@@ -382,7 +381,7 @@ export function App() {
     return DEFAULT_UI_SETTINGS;
   });
 
-  // Revalidate UI Settings from MySQL backend on app start (Rule 8, 9, 10, 11)
+  // Revalidate UI Settings once on mount or when authenticated email changes (deduped via 30s cooldown)
   useEffect(() => {
     fetchUISettings(user?.email)
       .then((data) => {
@@ -392,23 +391,9 @@ export function App() {
         }
       })
       .catch(() => {});
-  }, []);
-
-  // Revalidate whenever user logs in, logs out, or switches profile (Rule 5, 9)
-  useEffect(() => {
-    if (user?.email) {
-      fetchUISettings(user.email)
-        .then((data) => {
-          if (data) {
-            setUiSettings(data);
-            applyUISettingsToDocument(data);
-          }
-        })
-        .catch(() => {});
-    }
   }, [user?.email]);
 
-  // Real-time SPA sync: Listen for custom events, tab visibility changes, and window focus (Rule 14, 15)
+  // Real-time SPA sync: Listen for custom events, storage updates, and tab visibility changes
   useEffect(() => {
     const handleSettingsUpdated = (e: any) => {
       if (e.detail) {
@@ -441,13 +426,11 @@ export function App() {
     window.addEventListener('ui-settings-updated', handleSettingsUpdated);
     window.addEventListener('storage', handleStorageChange);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('focus', handleVisibilityChange);
 
     return () => {
       window.removeEventListener('ui-settings-updated', handleSettingsUpdated);
       window.removeEventListener('storage', handleStorageChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('focus', handleVisibilityChange);
     };
   }, [user?.email]);
 
@@ -589,6 +572,9 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [reports, setReports] = useState<Report[]>(() => dailyReportService.getCachedReports());
+  const reportsRef = useRef<Report[]>(reports);
+  reportsRef.current = reports;
+  const loadedModulesAtRef = useRef<Record<string, number>>({});
   const [activities, setActivities] = useState<Activity[]>(() => activityService.getCachedActivities());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -624,16 +610,17 @@ export function App() {
     }
   });
 
-  // Determine if current logged in user has Administrator privileges (ID 1, ID 13, admin role, or is_admin)
+  // Determine if current logged in user has Administrator privileges
   const isAdmin = Boolean(isUserAdmin(user));
 
-  // Synchronize Tasks and Daily Reports with Backend PHP/MySQL API — Single Source of Truth
+  // Synchronize Tasks and Daily Reports with Backend PHP/MySQL API — O(N) indexed lookup
   const refreshTasksFromApi = useCallback(async (reportListOverride?: Report[]) => {
     try {
+      loadedModulesAtRef.current.tasks = Date.now();
       const fetchedTasks = await taskService.fetchTasks();
 
-      // Retrieve current reports from parameter, state, cache, or API
-      let reportList: Report[] = reportListOverride || reports;
+      // Retrieve current reports via ref (avoiding callback churn on reports state changes)
+      let reportList: Report[] = reportListOverride || reportsRef.current;
       if (!reportList || reportList.length === 0) {
         reportList = dailyReportService.getCachedReports();
         if (!reportList || reportList.length === 0) {
@@ -644,13 +631,24 @@ export function App() {
         }
       }
 
-      // Build a map of reports by ID for instant O(1) lookup
+      // Build O(1) lookup maps before iterating tasks
       const reportById = new Map<string, Report>();
+      const reportByTaskId = new Map<string, Report>();
+      const reportByTitle = new Map<string, Report[]>();
       for (const r of reportList) {
-        reportById.set(String(r.id).trim(), r);
+        const rId = String(r.id).trim();
+        reportById.set(rId, r);
+        if (r.task_id) {
+          reportByTaskId.set(String(r.task_id).trim(), r);
+        }
+        if (r.task) {
+          const titleKey = r.task.trim().toLowerCase();
+          const bucket = reportByTitle.get(titleKey);
+          if (bucket) bucket.push(r);
+          else reportByTitle.set(titleKey, [r]);
+        }
       }
 
-      // Track reports that have been linked to a task to guarantee uniqueness (Rule 1, Rule 11)
       const linkedReportIds = new Set<string>();
       const processedTaskIds = new Set<string>();
       const uniqueTasks: Task[] = [];
@@ -659,39 +657,35 @@ export function App() {
         if (processedTaskIds.has(t.id)) continue;
         processedTaskIds.add(t.id);
 
-        // Find linked report primarily by daily_report_id / report_id (Rule 3, Rule 8)
         let matchedReport: Report | undefined;
         const taskRepId = t.report_id || (t as any).daily_report_id;
         if (taskRepId) {
           matchedReport = reportById.get(String(taskRepId).trim());
         }
-
-        // Secondary match: if report has task_id pointing to this task
         if (!matchedReport) {
-          matchedReport = reportList.find((r) => r.task_id && String(r.task_id).trim() === String(t.id).trim());
+          matchedReport = reportByTaskId.get(String(t.id).trim());
         }
-
-        // Fallback match for legacy records:
         if (!matchedReport && t.title) {
-          matchedReport = reportList.find(
-            (r) =>
-              !linkedReportIds.has(String(r.id).trim()) &&
-              r.task.trim().toLowerCase() === t.title.trim().toLowerCase() &&
-              ((r.user_email && t.assignee_email && r.user_email.toLowerCase() === t.assignee_email.toLowerCase()) ||
-               (r.person && t.assignee && r.person.toLowerCase() === t.assignee.toLowerCase()))
-          );
+          const candidates = reportByTitle.get(t.title.trim().toLowerCase());
+          if (candidates && candidates.length > 0) {
+            const tEmail = t.assignee_email?.toLowerCase();
+            const tAssignee = t.assignee?.toLowerCase();
+            matchedReport = candidates.find(
+              (r) =>
+                !linkedReportIds.has(String(r.id).trim()) &&
+                ((r.user_email && tEmail && r.user_email.toLowerCase() === tEmail) ||
+                  (r.person && tAssignee && r.person.toLowerCase() === tAssignee))
+            );
+          }
         }
 
         if (matchedReport) {
           const rId = String(matchedReport.id).trim();
-          // If another task was already linked to this report, do NOT add duplicate (Rule 1, Rule 11)
           if (linkedReportIds.has(rId)) {
-            console.warn(`[LaporanWe] Duplicate task ${t.id} detected for daily report ${rId}, ignoring duplicate.`);
             continue;
           }
           linkedReportIds.add(rId);
 
-          // Synchronize task attributes from daily report (Rule 13, 14, 15)
           uniqueTasks.push({
             ...t,
             report_id: rId,
@@ -708,21 +702,20 @@ export function App() {
             cover_url: matchedReport.evidence_url || t.cover_url,
           });
         } else {
-          // Normal standalone task not linked to any report
           uniqueTasks.push(t);
         }
       }
 
-      // DO NOT SYNTHESIZE OR INSERT TASKS HERE (Rule 6, Rule 21: GET/refresh/polling TIDAK BOLEH membuat task baru)
       setTasks(uniqueTasks);
     } catch (err) {
       console.warn('Sync tasks from API notice:', err);
     }
-  }, [reports, user?.email, isAdmin]);
+  }, [user?.email, isAdmin]);
 
   // Synchronize Projects with Backend PHP/MySQL API — Single Source of Truth
   const refreshProjectsFromApi = useCallback(async () => {
     try {
+      loadedModulesAtRef.current.projects = Date.now();
       const fetchedProjects = await projectService.fetchProjects();
       setProjects(fetchedProjects || []);
       if (fetchedProjects && fetchedProjects.length > 0) {
@@ -741,6 +734,7 @@ export function App() {
   // Synchronize Activities with Backend PHP/MySQL API
   const refreshActivitiesFromApi = useCallback(async () => {
     try {
+      loadedModulesAtRef.current.activities = Date.now();
       const fetchedActivities = await activityService.fetchActivities();
       if (fetchedActivities && fetchedActivities.length > 0) {
         setActivities(fetchedActivities);
@@ -753,6 +747,7 @@ export function App() {
   // Synchronize Calendar Events with Backend PHP/MySQL API
   const refreshEventsFromApi = useCallback(async () => {
     try {
+      loadedModulesAtRef.current.events = Date.now();
       const fetchedEvents = await calendarService.fetchEvents();
       setEvents(fetchedEvents || []);
     } catch (err) {
@@ -785,6 +780,7 @@ export function App() {
     }
     const controller = new AbortController();
     reportsAbortControllerRef.current = controller;
+    loadedModulesAtRef.current.reports = Date.now();
 
     // Show loading spinner if not silent OR if we do not yet have reports loaded from server
     setIsReportsLoading((prev) => !silent || prev);
@@ -903,6 +899,7 @@ export function App() {
   // Synchronize Team Members from Backend PHP/MySQL API
   const refreshTeamFromApi = useCallback(async () => {
     try {
+      loadedModulesAtRef.current.team = Date.now();
       const res = await teamService.fetchTeamMembers();
       setMembers(res.members || []);
     } catch (err) {
@@ -914,6 +911,7 @@ export function App() {
   // Synchronize Analytics from Backend PHP/MySQL API
   const refreshAnalyticsFromApi = useCallback(async () => {
     try {
+      loadedModulesAtRef.current.analytics = Date.now();
       const res = await analyticsService.fetchSummary();
       setAnalytics(res);
     } catch (err) {
@@ -933,59 +931,18 @@ export function App() {
     }
   }, [refreshTeamFromApi]);
 
-  // Initial load when user is authenticated:
-  // Immediately prioritize current view (e.g. reports) so it displays without waiting for secondary requests
+  // Helper: Fetch module only if never loaded or older than 30s
+  const ensureModuleFresh = useCallback((key: string, fn: () => Promise<any>, maxAgeMs = 30000) => {
+    const last = loadedModulesAtRef.current[key] || 0;
+    if (Date.now() - last > maxAgeMs) {
+      fn();
+    }
+  }, []);
+
+  // Initial session lifecycle: presence, heartbeat & clearing state on logout
   useEffect(() => {
-    if (user) {
-      // 1. Immediate primary fetch for active screen
-      if (currentView === 'reports') {
-        refreshReportsFromApi();
-      } else if (currentView === 'tasks') {
-        refreshTasksFromApi();
-      } else if (currentView === 'projects') {
-        refreshProjectsFromApi();
-      } else {
-        refreshReportsFromApi();
-      }
-
-      // 2. Defer secondary data fetching so initial report list renders in milliseconds
-      const secondaryTimer = setTimeout(() => {
-        refreshTasksFromApi();
-        refreshProjectsFromApi();
-        refreshActivitiesFromApi();
-        refreshEventsFromApi();
-        refreshTeamFromApi();
-        refreshAnalyticsFromApi();
-      }, 350);
-
-      // Mark current user as online in database
-      if (user.email) {
-        teamService.updatePresence(true, user.email).then(() => {
-          refreshTeamFromApi();
-        });
-      }
-
-      // Periodic heartbeat every 45s (lightweight)
-      teamService.sendHeartbeat((user as any).id, user.email);
-      const heartbeatInterval = setInterval(() => {
-        if (navigator.onLine) {
-          teamService.sendHeartbeat((user as any).id, user.email);
-        }
-      }, 45000);
-
-      const handleBeforeUnload = () => {
-        if (user?.email) {
-          teamService.updatePresence(false, user.email);
-        }
-      };
-      window.addEventListener('beforeunload', handleBeforeUnload);
-
-      return () => {
-        clearTimeout(secondaryTimer);
-        clearInterval(heartbeatInterval);
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-      };
-    } else {
+    if (!user) {
+      loadedModulesAtRef.current = {};
       setProjects([]);
       setTasks([]);
       setActivities([]);
@@ -993,26 +950,96 @@ export function App() {
       setReports([]);
       setMembers([]);
       setAnalytics(undefined);
+      return;
     }
-  }, [user]);
 
-  // Re-fetch tasks whenever user navigates to tasks view
-  useEffect(() => {
-    if (user && currentView === 'tasks') {
-      refreshTasksFromApi();
+    // Lightweight presence & periodic heartbeat (skip sending offline while just navigating)
+    if (user.email) {
+      teamService.updatePresence(true, user.email).catch(() => {});
     }
-  }, [user, currentView, refreshTasksFromApi]);
+    teamService.sendHeartbeat((user as any).id, user.email);
 
-  // Re-fetch reports whenever user navigates to reports view
+    const heartbeatInterval = setInterval(() => {
+      if (navigator.onLine && document.visibilityState === 'visible') {
+        teamService.sendHeartbeat((user as any).id, user.email);
+      }
+    }, 45000);
+
+    const handleBeforeUnload = () => {
+      if (user?.email) {
+        teamService.updatePresence(false, user.email);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      clearInterval(heartbeatInterval);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user?.email, (user as any)?.id]);
+
+  // On-demand view-based loading: ONLY fetch APIs needed for the currently open page (eliminates 6-API startup storm)
   useEffect(() => {
-    if (user && currentView === 'reports') {
-      refreshReportsFromApi(reports.length > 0);
+    if (!user) return;
+
+    switch (currentView) {
+      case 'dashboard':
+        ensureModuleFresh('reports', () => refreshReportsFromApi(reportsRef.current.length > 0));
+        ensureModuleFresh('projects', refreshProjectsFromApi);
+        ensureModuleFresh('team', refreshTeamFromApi);
+        ensureModuleFresh('analytics', refreshAnalyticsFromApi);
+        break;
+      case 'projects':
+      case 'project-detail':
+        ensureModuleFresh('projects', refreshProjectsFromApi);
+        if (currentView === 'project-detail') {
+          ensureModuleFresh('reports', () => refreshReportsFromApi(reportsRef.current.length > 0));
+          ensureModuleFresh('tasks', refreshTasksFromApi);
+        }
+        break;
+      case 'reports':
+        ensureModuleFresh('reports', () => refreshReportsFromApi(reportsRef.current.length > 0), 15000);
+        break;
+      case 'report-detail':
+      case 'create-report':
+        ensureModuleFresh('reports', () => refreshReportsFromApi(reportsRef.current.length > 0));
+        ensureModuleFresh('projects', refreshProjectsFromApi);
+        break;
+      case 'tasks':
+        ensureModuleFresh('tasks', refreshTasksFromApi, 15000);
+        ensureModuleFresh('reports', () => refreshReportsFromApi(reportsRef.current.length > 0), 20000);
+        ensureModuleFresh('projects', refreshProjectsFromApi);
+        ensureModuleFresh('team', refreshTeamFromApi);
+        break;
+      case 'team':
+        ensureModuleFresh('team', refreshTeamFromApi, 20000);
+        ensureModuleFresh('activities', refreshActivitiesFromApi, 20000);
+        break;
+      case 'calendar':
+        ensureModuleFresh('events', refreshEventsFromApi, 20000);
+        ensureModuleFresh('team', refreshTeamFromApi);
+        break;
+      case 'analytics':
+        ensureModuleFresh('analytics', refreshAnalyticsFromApi, 20000);
+        break;
+      default:
+        break;
     }
-  }, [user, currentView, refreshReportsFromApi, reports.length]);
+  }, [
+    user,
+    currentView,
+    ensureModuleFresh,
+    refreshReportsFromApi,
+    refreshProjectsFromApi,
+    refreshTasksFromApi,
+    refreshTeamFromApi,
+    refreshActivitiesFromApi,
+    refreshEventsFromApi,
+    refreshAnalyticsFromApi,
+  ]);
 
-  // Optimized Incremental Realtime Polling via /api/realtime/poll.php
+  // Optimized Incremental Realtime Polling via /api/realtime/poll.php (reads reportsRef to avoid restarting timer)
   useEffect(() => {
-    // Poll when: user is logged in, reports or tasks view is active, and browser is online
     const isReportsOrTasks = currentView === 'reports' || currentView === 'tasks';
     if (!user || !isReportsOrTasks) return;
 
@@ -1021,11 +1048,10 @@ export function App() {
     let pollController: AbortController | null = null;
 
     const executePoll = async () => {
-      if (!isMounted || !user || (!isReportsOrTasks) || !navigator.onLine) {
+      if (!isMounted || !user || !navigator.onLine) {
         return;
       }
 
-      // Abort old pending poll request before issuing new one
       if (pollController) {
         pollController.abort();
       }
@@ -1036,14 +1062,12 @@ export function App() {
         const res = await realtimeService.poll(sinceParam, pollController.signal);
 
         if (res && isMounted) {
-          // Track server timestamp or cursor
           if (res.server_time || res.latest || res.last_sync) {
             const nextCursor = String(res.server_time || res.latest || res.last_sync).trim();
             lastSyncAtRef.current = nextCursor;
             localStorage.setItem('laporanwee_last_sync', nextCursor);
           }
 
-          // Check if deleted reports are indicated directly
           const deletedIdsRaw = res.deleted_ids || res.deleted_reports || res.deleted || res.removed || [];
           if (Array.isArray(deletedIdsRaw) && deletedIdsRaw.length > 0) {
             const deletedSet = new Set(deletedIdsRaw.map((id: any) => String(id).trim()));
@@ -1052,22 +1076,17 @@ export function App() {
             setTasks((prev) => prev.filter((t) => !deletedSet.has(String(t.report_id || '').trim())));
           }
 
-          // Check if total count changed (e.g. report deleted or added by another user)
+          const currentLen = reportsRef.current.length;
           const serverTotal = res.total_count ?? res.count;
-          if (typeof serverTotal === 'number' && reports.length > 0 && serverTotal !== reports.length) {
-            console.log('[Realtime] Report count discrepancy detected (server:', serverTotal, 'local:', reports.length, '), refetching...');
+          if (typeof serverTotal === 'number' && currentLen > 0 && serverTotal !== currentLen) {
             refreshReportsFromApi(true);
             refreshTasksFromApi();
           } else {
-            // Check if incremental updated reports are provided directly
             const changedItems = extractReportsArrayFromResponse(res);
             if (changedItems && changedItems.length > 0) {
-              console.log('[Realtime] Received incremental reports update:', changedItems.length);
               mergeUpdatedReports(changedItems);
               refreshTasksFromApi();
             } else if (res.changed === true || res.has_updates === true) {
-              // If server indicated changes occurred without sending list, do a silent refetch
-              console.log('[Realtime] Database change flagged, fetching latest reports and tasks...');
               refreshReportsFromApi(true);
               refreshTasksFromApi();
             }
@@ -1083,19 +1102,13 @@ export function App() {
     };
 
     const scheduleNext = () => {
-      if (!isMounted || !user || (!isReportsOrTasks)) return;
+      if (!isMounted || !user) return;
       if (pollTimer) clearTimeout(pollTimer);
-
-      // 5-10s (8s) when active, 30s when hidden
       const isVisible = document.visibilityState === 'visible';
-      const delay = isVisible ? 8000 : 30000;
-
-      pollTimer = setTimeout(() => {
-        executePoll();
-      }, delay);
+      const delay = isVisible ? 12000 : 30000;
+      pollTimer = setTimeout(executePoll, delay);
     };
 
-    // On tab visibility change: sync immediately when becoming visible
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
         if (pollTimer) clearTimeout(pollTimer);
@@ -1103,7 +1116,6 @@ export function App() {
       }
     };
 
-    // On reconnecting online
     const handleOnline = () => {
       if (pollTimer) clearTimeout(pollTimer);
       executePoll();
@@ -1111,8 +1123,6 @@ export function App() {
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('online', handleOnline);
-
-    // Initial scheduled poll
     scheduleNext();
 
     return () => {
@@ -1122,27 +1132,30 @@ export function App() {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('online', handleOnline);
     };
-  }, [user, currentView, refreshReportsFromApi, mergeUpdatedReports]);
+  }, [user, currentView, refreshReportsFromApi, refreshTasksFromApi, mergeUpdatedReports]);
 
-  const addToast = (text: string) => {
+  const addToast = useCallback((text: string) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     setToasts((prev) => [...prev, { id, text }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3500);
-  };
+  }, []);
 
-  const handleNavigate = (view: ViewType) => {
-    const targetPath = viewToPathMap[view] || '/dashboard';
+  const viewToPathMapRef = useRef(viewToPathMap);
+  viewToPathMapRef.current = viewToPathMap;
+
+  const handleNavigate = useCallback((view: ViewType) => {
+    const targetPath = viewToPathMapRef.current[view] || '/dashboard';
     navigateToPath(targetPath);
     setCurrentView(view);
-  };
+  }, []);
 
-  const handleOpenApp = (app: RegisteredApp) => {
+  const handleOpenApp = useCallback((app: RegisteredApp) => {
     setActiveAppSlug(app.slug);
     navigateToPath(`/Aplikasi/${app.slug}`);
     setCurrentView('aplikasi-detail');
-  };
+  }, []);
 
   const handleSelectUserProfile = (userId: string | number) => {
     setSelectedUserProfileId(userId);
@@ -1860,26 +1873,27 @@ export function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     const token = getStoredToken();
     if (user?.email) {
       teamService.updatePresence(false, user.email).catch(() => {});
     }
     
-    // Clear state & storage immediately for reactive UI response
     clearStoredAuth();
     clearReportCache();
+    loadedModulesAtRef.current = {};
     setUser(null);
     setReports([]);
     setReportsError(null);
     addToast('Berhasil keluar dari sesi.');
     navigateToPath('/login');
 
-    // Notify backend
     if (token) {
       api.post('/logout.php', {}).catch(() => {});
     }
-  };
+  }, [user?.email, addToast]);
+
+  const handleOpenWhatsNew = useCallback(() => setShowWhatsNewModal(true), []);
 
   const [reportInitialEdit, setReportInitialEdit] = useState<boolean>(false);
 
@@ -1913,9 +1927,6 @@ export function App() {
   const currentReport =
     reports.find((r) => String(r.id).trim() === String(selectedReportId).trim()) || reports[0];
 
-  // Conditional Rendering for Standalone Export / Edit / Crop Views
-  console.log('[APP RENDER STAGE 1: Evaluating View Branch]', { currentView, currentPath, isUserLoggedIn: !!user });
-
   if (
     currentView === 'crop-setting' ||
     currentView === 'setting-profile-picture' ||
@@ -1925,51 +1936,47 @@ export function App() {
     currentPath.includes('/setting-profile-picture')
   ) {
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <ProfileCropSettingView
           onBack={() => handleNavigate('profil')}
           onNavigate={handleNavigate}
           onAddToast={addToast}
         />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
 
   if (currentView === 'pengajuan-barang-export' || currentPath === '/pengajuan-barang/export') {
-    console.log('[APP RENDER: Mounting Standalone PengajuanBarangExportView]');
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <PengajuanBarangExportView onBack={() => handleNavigate('pengajuan-barang')} />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
 
   if (currentView === 'export-laporan' || currentPath === '/analitik/exporlaporan') {
-    console.log('[APP RENDER STAGE 2A: Mounting Standalone ExportLaporanView]');
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <ExportLaporanStandalone />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
 
   if (currentView === 'edit-laporan' || currentPath === '/analitik/editlaporan') {
-    console.log('[APP RENDER STAGE 2B: Mounting Standalone EditLaporanView]');
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <EditLaporanStandalone />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
 
   if (currentPath === '/verify-email') {
-    console.log('[APP RENDER STAGE 2C: Mounting VerifyEmailView]');
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <VerifyEmailView
           onNavigateToLogin={() => {
             localStorage.removeItem('laporanwee_user');
@@ -1980,14 +1987,13 @@ export function App() {
           onAddToast={addToast}
         />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
 
   if (!user && currentPath === '/register') {
-    console.log('[APP RENDER STAGE 2D: Mounting RegisterView]');
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <RegisterView
           logoUrl={uiSettings?.logo_url}
           onRegisterSuccess={() => {
@@ -1997,18 +2003,18 @@ export function App() {
           onNavigateToLogin={() => navigateToPath('/login')}
         />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
 
   if (!user || currentPath === '/login') {
-    console.log('[APP RENDER STAGE 2E: Mounting LoginView]');
     return (
-      <>
+      <Suspense fallback={<ViewLoadingFallback />}>
         <LoginView
           logoUrl={uiSettings?.logo_url}
           onLoginSuccess={(email, name, fullUser) => {
             clearReportCache();
+            loadedModulesAtRef.current = {};
             setReports([]);
             setReportsError(null);
             setIsReportsLoading(true);
@@ -2021,13 +2027,7 @@ export function App() {
             };
             setStoredUser(loggedInUser);
             setUser(loggedInUser);
-            console.log('[AUTH] Current user:', {
-              id: loggedInUser.id,
-              email: loggedInUser.email,
-              role: loggedInUser.role,
-            });
-            // Revalidate UI Settings immediately on login (Rule 9)
-            fetchUISettings(email)
+            fetchUISettings(email, true)
               .then((data) => {
                 if (data) {
                   setUiSettings(data);
@@ -2041,15 +2041,9 @@ export function App() {
           onNavigateToRegister={() => navigateToPath('/register')}
         />
         <ToastContainer toasts={toasts} />
-      </>
+      </Suspense>
     );
   }
-
-  console.log('[APP RENDER STAGE 3: Mounting Main App Shell Layout]', {
-    currentView,
-    userEmail: user?.email,
-    userName: user?.name || user?.full_name,
-  });
 
   return (
     <div id="app-shell">
@@ -2071,11 +2065,12 @@ export function App() {
         menuIconUrl={uiSettings?.menu_icon_url}
         signoutIconUrl={uiSettings?.signout_icon_url}
         isAdmin={isAdmin}
-        onOpenWhatsNew={() => setShowWhatsNewModal(true)}
+        onOpenWhatsNew={handleOpenWhatsNew}
       />
 
       {/* Main Content Viewport */}
       <main className={`app-shell-main ${currentView === 'chat' || currentView === 'aplikasi-detail' ? 'h-screen max-h-screen overflow-hidden !pb-0 !pt-3 !mb-0 flex flex-col' : ''}`}>
+        <Suspense fallback={<ViewLoadingFallback />}>
         {currentView === 'dashboard' && (
           <DashboardView
             projects={projects}
@@ -2308,13 +2303,18 @@ export function App() {
             LaporanWee v5.2 &bull; JANGAN LUPA KERJA HARI INI
           </div>
         )}
+        </Suspense>
       </main>
 
       {/* Version 3.0 Release & Announcements Modal */}
-      <VersionUpdateModal
-        isOpen={showWhatsNewModal}
-        onClose={() => setShowWhatsNewModal(false)}
-      />
+      {showWhatsNewModal && (
+        <Suspense fallback={null}>
+          <VersionUpdateModal
+            isOpen={showWhatsNewModal}
+            onClose={() => setShowWhatsNewModal(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Global Toast Stack */}
       <ToastContainer toasts={toasts} />

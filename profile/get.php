@@ -13,23 +13,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 $user = getAuthenticatedProfileUser($pdo);
 $userId = (int)$user['id'];
 
-// If a specific ID is requested, fetch fresh user data from database
-if (isset($_GET['id']) && (int)$_GET['id'] > 0) {
+// Only execute an extra user lookup if requesting a different user's profile ID
+if (isset($_GET['id']) && (int)$_GET['id'] > 0 && (int)$_GET['id'] !== $userId) {
     $requestedId = (int)$_GET['id'];
-    $fetchStmt = $pdo->prepare("SELECT * FROM users WHERE id = :id LIMIT 1");
+    $fetchStmt = $pdo->prepare("SELECT id, full_name, email, role, status, avatar_url, updated_at FROM users WHERE id = :id LIMIT 1");
     $fetchStmt->execute(['id' => $requestedId]);
     $freshUser = $fetchStmt->fetch();
     if ($freshUser) {
         $user = $freshUser;
         $userId = (int)$user['id'];
-    }
-} else {
-    // Ensure we have latest data directly from database
-    $fetchStmt = $pdo->prepare("SELECT * FROM users WHERE id = :id LIMIT 1");
-    $fetchStmt->execute(['id' => $userId]);
-    $freshUser = $fetchStmt->fetch();
-    if ($freshUser) {
-        $user = $freshUser;
     }
 }
 

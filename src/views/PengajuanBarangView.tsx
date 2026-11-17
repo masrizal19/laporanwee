@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { getStoredToken } from '../utils/api';
+import { fetchWithTimeout } from '../utils/apiCache';
 
 export interface PengajuanBarangViewProps {
   onAddToast?: (message: string) => void;
@@ -187,6 +188,14 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Toast notification helper (Single Toast Management) ── */
   const toastTimeoutRef = useRef<any>(null);
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const triggerToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
@@ -262,6 +271,7 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   /* ── Load default settings from backend ── */
   useEffect(() => {
+    const controller = new AbortController();
     const fetchSettings = async () => {
       try {
         const token =
@@ -270,13 +280,14 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
           localStorage.getItem('laporanwee_token') ||
           '';
 
-        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/settings.php', {
+        const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/settings.php', {
           method: 'GET',
           headers: {
             Accept: 'application/json',
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
-        });
+          signal: controller.signal,
+        }, 10000);
 
         if (res.ok) {
           const json = await res.json().catch(() => null);
@@ -313,12 +324,15 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
             }
           }
         }
-      } catch (err) {
-        console.warn('Notice loading backend settings:', err);
+      } catch (err: any) {
+        if (err?.name !== 'AbortError') {
+          console.warn('Notice loading backend settings:', err);
+        }
       }
     };
 
     fetchSettings();
+    return () => controller.abort();
   }, []);
 
   /* ── Calculations & Summary ── */
@@ -518,6 +532,10 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
 
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [historyList, setHistoryList] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState<boolean>(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [isDeletingHistory, setIsDeletingHistory] = useState<boolean>(false);
 
   /* ── Auth Headers ── */
   const getAuthHeaders = () => {
@@ -533,16 +551,24 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   };
 
   const fetchHistory = async () => {
+    setHistoryLoading(true);
+    setHistoryError(null);
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/read.php', {
+      const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/read.php', {
         headers: getAuthHeaders()
-      });
+      }, 15000);
+      if (!res.ok) throw new Error(`Server merespons ${res.status}`);
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setHistoryList(json.data);
+      } else if (json.success === false) {
+        setHistoryError(json.message || 'Gagal memuat riwayat pengajuan.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.warn('Gagal memuat riwayat:', e);
+      setHistoryError(e?.message || 'Koneksi gagal saat memuat riwayat.');
+    } finally {
+      setHistoryLoading(false);
     }
   };
 
@@ -577,14 +603,14 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       } catch (_) {}
 
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
+      const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { Authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify(payload)
-      });
+      }, 20000);
       const text = await res.text();
       let json: any = {};
       try {
@@ -660,14 +686,14 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
     if (!explicitId) {
       try {
         showToast('Menyimpan perubahan ke database...');
-        const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
+        const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/create.php', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
           },
           body: JSON.stringify(payload)
-        });
+        }, 20000);
         const text = await res.text();
         let json: any = {};
         try {
@@ -710,22 +736,26 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
   const handleOpenPratinjau = handleOpenPreview;
 
   const handleSoftDelete = async (id: number) => {
-    if (!window.confirm('Yakin ingin menghapus pengajuan ini dari riwayat?')) return;
+    if (isDeletingHistory) return;
+    setIsDeletingHistory(true);
     try {
-      const res = await fetch('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/delete.php', {
+      const res = await fetchWithTimeout('https://api-laporanwe.mkverse.my.id/api/pengajuan-barang/delete.php', {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ id })
-      });
+      }, 15000);
       const json = await res.json();
       if (json.success) {
-        fetchHistory();
-        showToast('✓ Pengajuan berhasil dihapus dari riwayat.');
+        setDeleteConfirmId(null);
+        setHistoryList((prev) => prev.filter((item) => Number(item.id) !== id));
+        showToast('✓ Pengajuan berhasil dihapus dari riwayat.', 'success');
       } else {
-        showToast(json.message || 'Gagal menghapus.');
+        showToast(json.message || 'Gagal menghapus.', 'error');
       }
     } catch {
-      showToast('Gagal menghubungi server.');
+      showToast('Gagal menghubungi server.', 'error');
+    } finally {
+      setIsDeletingHistory(false);
     }
   };
 
@@ -1909,19 +1939,60 @@ export const PengajuanBarangView: React.FC<PengajuanBarangViewProps> = ({ onAddT
                 <button onClick={() => setShowHistoryModal(false)} className="p-2 hover:bg-black/5 dark:hover:bg-white/10 rounded-full">✕</button>
               </div>
               <div className="max-h-[60vh] overflow-y-auto space-y-3">
-                {historyList.length === 0 && <p className="text-center text-muted">Belum ada riwayat.</p>}
-                {historyList.map(item => (
-                  <div key={item.id} className="p-4 rounded-xl border border-line bg-black/5 dark:bg-white/5 flex justify-between items-center">
-                    <div>
-                      <p className="font-semibold">{item.meta?.keperluan || 'Tanpa keperluan'}</p>
-                      <p className="text-xs text-muted">{item.created_at}</p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={() => handleOpenPreview(item.id)} className="text-xs font-bold text-accent hover:underline cursor-pointer px-2 py-1">Pratinjau</button>
-                      <button onClick={() => handleSoftDelete(Number(item.id))} className="text-xs font-bold text-bad">Hapus</button>
-                    </div>
+                {historyLoading && (
+                  <p className="text-center text-muted py-4 text-sm">Memuat riwayat pengajuan...</p>
+                )}
+                {!historyLoading && historyError && (
+                  <div className="p-4 rounded-xl border border-rose-500/30 bg-rose-500/10 text-center space-y-2">
+                    <p className="text-xs font-semibold text-rose-500">{historyError}</p>
+                    <button
+                      type="button"
+                      onClick={fetchHistory}
+                      className="text-xs font-bold px-3 py-1.5 rounded-lg bg-rose-500 text-white cursor-pointer"
+                    >
+                      Coba Lagi
+                    </button>
                   </div>
-                ))}
+                )}
+                {!historyLoading && !historyError && historyList.length === 0 && (
+                  <p className="text-center text-muted py-4">Belum ada riwayat.</p>
+                )}
+                {historyList.map(item => {
+                  const itemId = Number(item.id);
+                  const isConfirming = deleteConfirmId === itemId;
+                  return (
+                    <div key={item.id} className="p-4 rounded-xl border border-line bg-black/5 dark:bg-white/5 flex justify-between items-center gap-3">
+                      <div>
+                        <p className="font-semibold">{item.meta?.keperluan || 'Tanpa keperluan'}</p>
+                        <p className="text-xs text-muted">{item.created_at}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button type="button" onClick={() => handleOpenPreview(item.id)} className="text-xs font-bold text-accent hover:underline cursor-pointer px-2 py-1">Pratinjau</button>
+                        {isConfirming ? (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={isDeletingHistory}
+                              onClick={() => handleSoftDelete(itemId)}
+                              className="text-xs font-bold px-2.5 py-1 rounded-lg bg-rose-600 text-white cursor-pointer disabled:opacity-50"
+                            >
+                              {isDeletingHistory ? '...' : 'Yakin Hapus'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="text-xs font-semibold px-2 py-1 rounded-lg bg-black/10 dark:bg-white/10 cursor-pointer"
+                            >
+                              Batal
+                            </button>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => setDeleteConfirmId(itemId)} className="text-xs font-bold text-bad cursor-pointer px-2 py-1">Hapus</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { CalendarEvent, TeamMember } from '../types';
 import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
@@ -73,53 +73,62 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     }
   };
 
-  // Generate calendar days for currentMonth of currentYear
-  const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay(); // 0 is Sunday
-  const adjustedFirstDay = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
-  const daysInPrevMonth = new Date(currentYear, currentMonth, 0).getDate();
+  const calendarCells = useMemo(() => {
+    const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay(); // 0 is Sunday
+    const adjustedFirstDay = firstDayOfMonth === 0 ? 6 : firstDayOfMonth - 1;
+    const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+    const daysInPrevMonth = new Date(currentYear, currentMonth, 0).getDate();
 
-  const calendarCells: { dayNum: number; dateStr: string; isCurrentMonth: boolean }[] = [];
+    const cells: { dayNum: number; dateStr: string; isCurrentMonth: boolean }[] = [];
 
-  // Previous month trailing days
-  for (let i = adjustedFirstDay - 1; i >= 0; i--) {
-    const dayNum = daysInPrevMonth - i;
-    const m = currentMonth === 0 ? 12 : currentMonth;
-    const y = currentMonth === 0 ? currentYear - 1 : currentYear;
-    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-    calendarCells.push({
-      dayNum,
-      dateStr,
-      isCurrentMonth: false,
-    });
-  }
+    for (let i = adjustedFirstDay - 1; i >= 0; i--) {
+      const dayNum = daysInPrevMonth - i;
+      const m = currentMonth === 0 ? 12 : currentMonth;
+      const y = currentMonth === 0 ? currentYear - 1 : currentYear;
+      const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      cells.push({
+        dayNum,
+        dateStr,
+        isCurrentMonth: false,
+      });
+    }
 
-  // Current month days
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    calendarCells.push({
-      dayNum: d,
-      dateStr,
-      isCurrentMonth: true,
-    });
-  }
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      cells.push({
+        dayNum: d,
+        dateStr,
+        isCurrentMonth: true,
+      });
+    }
 
-  // Next month leading days to complete grid
-  const remaining = (7 - (calendarCells.length % 7)) % 7;
-  for (let nextD = 1; nextD <= remaining; nextD++) {
-    const m = currentMonth === 11 ? 1 : currentMonth + 2;
-    const y = currentMonth === 11 ? currentYear + 1 : currentYear;
-    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(nextD).padStart(2, '0')}`;
-    calendarCells.push({
-      dayNum: nextD,
-      dateStr,
-      isCurrentMonth: false,
-    });
-  }
+    const remaining = (7 - (cells.length % 7)) % 7;
+    for (let nextD = 1; nextD <= remaining; nextD++) {
+      const m = currentMonth === 11 ? 1 : currentMonth + 2;
+      const y = currentMonth === 11 ? currentYear + 1 : currentYear;
+      const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(nextD).padStart(2, '0')}`;
+      cells.push({
+        dayNum: nextD,
+        dateStr,
+        isCurrentMonth: false,
+      });
+    }
+    return cells;
+  }, [currentYear, currentMonth]);
+
+  const eventsByDate = useMemo(() => {
+    const map: Record<string, CalendarEvent[]> = {};
+    for (const ev of events) {
+      if (!ev.date) continue;
+      if (!map[ev.date]) map[ev.date] = [];
+      map[ev.date].push(ev);
+    }
+    return map;
+  }, [events]);
 
   const handleCellClick = (cellDate: string) => {
     setSelectedDate(cellDate);
-    const dayEvs = events.filter((e) => e.date === cellDate);
+    const dayEvs = eventsByDate[cellDate] || [];
     setViewingDayEvents({ date: cellDate, events: dayEvs });
   };
 
@@ -275,9 +284,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       .map((cell) => {
                         const isToday = cell.dateStr === todayDateStr;
                         const isSelected = cell.dateStr === selectedDate;
-                        const cellEvents = events.filter(
-                          (e) => e.date === cell.dateStr
-                        );
+                        const cellEvents = eventsByDate[cell.dateStr] || [];
 
                         return (
                           <td
@@ -435,6 +442,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         <img
                           src={avatarUrl}
                           alt={m.name}
+                          loading="lazy"
+                          decoding="async"
                           onError={(e) => {
                             (e.currentTarget as HTMLElement).style.display = 'none';
                             const parent = (e.currentTarget as HTMLElement).parentElement;
