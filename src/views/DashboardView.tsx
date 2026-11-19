@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Project, Report, TeamMember, AnalyticsSummary, ViewType } from '../types';
 import { getUserFirstName } from '../utils/userUtils';
 import { getAbsoluteAvatarUrl } from '../utils/api';
+import { normalizeTaskAvatarUrl } from '../components/TaskAvatar';
 import { TeamAttendanceWidget } from '../components/TeamAttendanceWidget';
 import { fetchWithCache, fetchWithTimeout } from '../utils/apiCache';
 
@@ -111,6 +112,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 t.cover_url ||
                 t.thumbnail_url ||
                 (matchedReport ? matchedReport.evidence_url || (matchedReport.evidence_urls && matchedReport.evidence_urls[0]) : undefined);
+              const directAvatar =
+                t.assignee_avatar ||
+                t.user_avatar ||
+                t.avatar_url ||
+                t.avatar ||
+                t.foto_profil ||
+                t.user?.avatar_url ||
+                t.user?.avatar ||
+                matchedReport?.user_avatar ||
+                matchedReport?.avatar_url ||
+                matchedReport?.avatar ||
+                matchedReport?.foto_profil ||
+                '';
+              const directName =
+                t.assignee_name ||
+                t.user_name ||
+                t.user?.full_name ||
+                t.user?.name ||
+                t.assignee ||
+                matchedReport?.user_name ||
+                matchedReport?.person ||
+                'User';
               return {
                 id: String(t.id),
                 title: t.title || '',
@@ -118,7 +141,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 time: t.time || '10.00 – 11.00',
                 done: Boolean(t.done),
                 cover_url: cover,
-                assignees: Array.isArray(t.assignees) ? t.assignees : [{ initial: 'Ri', bg: '#e3ddfa' }],
+                assignees:
+                  Array.isArray(t.assignees) && t.assignees.length > 0
+                    ? t.assignees
+                    : [
+                        {
+                          name: directName,
+                          initial: directName.charAt(0).toUpperCase(),
+                          avatar_url: directAvatar || undefined,
+                          bg: '#e3ddfa',
+                        },
+                      ],
               };
             })
           );
@@ -334,9 +367,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ) => {
     const rawObj = typeof item === 'string' ? resolveMember(item) || { name: item, initial: item } : item;
     const memberObj = resolveMember(rawObj) || rawObj;
-    const displayName = (memberObj as any)?.full_name || (memberObj as any)?.name || (typeof item === 'string' ? item : (item as any)?.initial) || 'User';
-    const rawAvatar = (memberObj as any)?.avatar_url || (memberObj as any)?.img || (typeof item === 'object' ? (item as any)?.avatar_url : null);
-    const avatarUrl = rawAvatar ? getAbsoluteAvatarUrl(rawAvatar, displayName) : null;
+    const itemObj = typeof item === 'object' && item !== null ? (item as any) : null;
+    const displayName =
+      (memberObj as any)?.full_name ||
+      (memberObj as any)?.name ||
+      itemObj?.assignee_name ||
+      itemObj?.user_name ||
+      itemObj?.user?.name ||
+      (typeof item === 'string' ? item : itemObj?.initial) ||
+      'User';
+    const rawAvatar =
+      itemObj?.assignee_avatar ||
+      itemObj?.user_avatar ||
+      itemObj?.avatar_url ||
+      itemObj?.avatar ||
+      itemObj?.foto_profil ||
+      itemObj?.user?.avatar_url ||
+      itemObj?.user?.avatar ||
+      (memberObj as any)?.avatar_url ||
+      (memberObj as any)?.img ||
+      '';
+    const avatarUrl = normalizeTaskAvatarUrl(rawAvatar) || (rawAvatar ? getAbsoluteAvatarUrl(rawAvatar, displayName) : '');
     const initialText = ((memberObj as any)?.initial || displayName.charAt(0) || 'U').toUpperCase();
 
     return (

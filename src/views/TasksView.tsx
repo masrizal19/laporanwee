@@ -4,7 +4,8 @@ import { Icon } from '../components/icons';
 import { Modal } from '../components/Modal';
 import { taskDocumentsService, validateTaskDocumentFile, formatFileSize } from '../utils/taskDocuments';
 import { MediaViewerModal } from '../components/MediaViewerModal';
-import { computeTargetProgress, getAbsoluteAvatarUrl } from '../utils/api';
+import { computeTargetProgress } from '../utils/api';
+import { TaskAvatar, buildMembersLookup } from '../components/TaskAvatar';
 
 interface TasksViewProps {
   tasks: Task[];
@@ -90,20 +91,25 @@ export const TasksView: React.FC<TasksViewProps> = ({
     return map;
   }, [reports]);
 
-  const membersByIdentifier = useMemo(() => {
-    const map = new Map<string, TeamMember>();
-    for (const m of members) {
-      if (m.name) map.set(m.name.toLowerCase(), m);
-      if (m.full_name) map.set(m.full_name.toLowerCase(), m);
-      if (m.email) map.set(m.email.toLowerCase(), m);
+  const reportByIdMap = useMemo(() => {
+    const map = new Map<string, Report>();
+    for (const r of reports) {
+      map.set(String(r.id).trim(), r);
     }
     return map;
-  }, [members]);
+  }, [reports]);
 
-  const findReportIdForTask = (task: Task): string | undefined => {
-    if (task.report_id) return String(task.report_id).trim();
-    if ((task as any).daily_report_id) return String((task as any).daily_report_id).trim();
-    if (task.id.startsWith('report-')) return task.id.replace('report-', '');
+  const membersByIdentifier = useMemo(() => buildMembersLookup(members), [members]);
+
+  const findMatchedReportForTask = (task: Task): Report | undefined => {
+    const directId =
+      task.report_id ||
+      (task as any).daily_report_id ||
+      (task.id.startsWith('report-') ? task.id.replace('report-', '') : undefined);
+    if (directId) {
+      const byId = reportByIdMap.get(String(directId).trim());
+      if (byId) return byId;
+    }
     const candidates = reportLookupByTitle.get((task.title || '').trim().toLowerCase());
     if (candidates && candidates.length > 0) {
       const assigneeEmail = task.assignee_email?.toLowerCase();
@@ -113,10 +119,17 @@ export const TasksView: React.FC<TasksViewProps> = ({
           (r.user_email && assigneeEmail && r.user_email.toLowerCase() === assigneeEmail) ||
           (r.person && assigneeName && r.person.toLowerCase() === assigneeName)
       );
-      if (matched) return String(matched.id).trim();
-      return String(candidates[0].id).trim();
+      return matched || candidates[0];
     }
     return undefined;
+  };
+
+  const findReportIdForTask = (task: Task): string | undefined => {
+    if (task.report_id) return String(task.report_id).trim();
+    if ((task as any).daily_report_id) return String((task as any).daily_report_id).trim();
+    if (task.id.startsWith('report-')) return task.id.replace('report-', '');
+    const matched = findMatchedReportForTask(task);
+    return matched ? String(matched.id).trim() : undefined;
   };
 
   // Load documents when editing task opens
@@ -444,11 +457,19 @@ export const TasksView: React.FC<TasksViewProps> = ({
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
+    const matchedMember = newTaskAssignee
+      ? membersByIdentifier.get(newTaskAssignee.trim().toLowerCase())
+      : undefined;
+
     onAddTask({
       proj: newTaskProj || (projects[0]?.name || 'Creative Sprint'),
       title: newTaskTitle.trim(),
       priority: newTaskPriority,
       assignee: newTaskAssignee || '',
+      assignee_id: matchedMember?.user_id ?? matchedMember?.id,
+      assignee_name: matchedMember?.full_name || matchedMember?.name || newTaskAssignee || '',
+      assignee_email: matchedMember?.email || '',
+      assignee_avatar: matchedMember?.avatar_url || matchedMember?.img || '',
       due: newTaskDue || 'Besok',
       progress: defaultCol === 'done' ? 100 : 0,
       col: defaultCol,
@@ -470,127 +491,6 @@ export const TasksView: React.FC<TasksViewProps> = ({
     }
   };
 
-  const renderAssigneeAvatar = (assignee?: string) => {
-    if (!assignee) {
-      return (
-        <div
-          className="kcard-avatar-fallback"
-          style={{
-            width: 22,
-            height: 22,
-            borderRadius: '50%',
-            background: 'var(--violet-bg, #ede9fe)',
-            color: 'var(--violet, #7c3aed)',
-            fontSize: '10px',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            border: '1px solid rgba(0,0,0,0.06)',
-            flexShrink: 0,
-          }}
-        >
-          <Icon name="user" style={{ width: 12, height: 12 }} />
-        </div>
-      );
-    }
-
-    if (
-      assignee.startsWith('http://') ||
-      assignee.startsWith('https://') ||
-      assignee.startsWith('data:') ||
-      assignee.startsWith('blob:')
-    ) {
-      return (
-        <img
-          src={assignee}
-          alt="Assignee"
-          loading="lazy"
-          decoding="async"
-          style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }}
-          onError={(e) => {
-            (e.currentTarget as HTMLElement).style.display = 'none';
-          }}
-        />
-      );
-    }
-
-    // Check if assignee matches any team member in O(1) lookup map
-    const foundMember = membersByIdentifier.get(assignee.toLowerCase());
-
-    const memberAvatar = foundMember
-      ? (foundMember.img || (foundMember.avatar_url ? getAbsoluteAvatarUrl(foundMember.avatar_url, foundMember.name) : undefined))
-      : undefined;
-
-    const avatarUrl = memberAvatar || (
-      assignee.startsWith('http://') ||
-      assignee.startsWith('https://') ||
-      assignee.startsWith('data:') ||
-      assignee.startsWith('blob:')
-        ? assignee
-        : undefined
-    );
-
-    const initial = (foundMember?.full_name || foundMember?.name || assignee)
-      .trim()
-      .charAt(0)
-      .toUpperCase() || 'U';
-
-    return (
-      <div
-        className="avatar kcard-avatar-fallback"
-        style={{
-          width: 24,
-          height: 24,
-          borderRadius: '50%',
-          overflow: 'hidden',
-          background: 'var(--violet-bg, #ede9fe)',
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          border: '1px solid rgba(0,0,0,0.06)',
-          flexShrink: 0,
-          position: 'relative',
-        }}
-        title={assignee}
-      >
-        {avatarUrl ? (
-          <img
-            src={avatarUrl}
-            alt={assignee}
-            loading="lazy"
-            decoding="async"
-            style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
-            onError={(e) => {
-              (e.currentTarget as HTMLElement).style.display = 'none';
-              const parent = e.currentTarget.parentElement;
-              if (parent) {
-                const initialEl = parent.querySelector('.avatar-initial') as HTMLElement | null;
-                if (initialEl) initialEl.style.display = 'flex';
-              }
-            }}
-          />
-        ) : null}
-        <span
-          className="avatar-initial"
-          style={{
-            display: avatarUrl ? 'none' : 'flex',
-            width: '100%',
-            height: '100%',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'var(--violet, #7c3aed)',
-            fontSize: '10px',
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            lineHeight: 1,
-          }}
-        >
-          {initial}
-        </span>
-      </div>
-    );
-  };
 
   return (
     <div className="view">
@@ -775,7 +675,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
                   <h5>{t.title}</h5>
 
                   <div className="kcard-foot">
-                    {renderAssigneeAvatar(t.assignee)}
+                    <TaskAvatar
+                      task={t}
+                      members={members}
+                      membersLookup={membersByIdentifier}
+                      matchedReport={findMatchedReportForTask(t)}
+                    />
                     <span className="kdate">
                       <Icon name="clock" />
                       <span>{t.due}</span>

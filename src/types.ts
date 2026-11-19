@@ -197,7 +197,24 @@ export interface Task {
   category?: string;
   priority: PriorityLevel;
   assignee: string;
+  assignee_id?: string | number;
+  user_id?: string | number;
+  assignee_name?: string;
+  user_name?: string;
   assignee_email?: string;
+  assignee_avatar?: string | null;
+  user_avatar?: string | null;
+  avatar_url?: string | null;
+  avatar?: string | null;
+  foto_profil?: string | null;
+  user?: {
+    id?: string | number;
+    name?: string;
+    full_name?: string;
+    email?: string;
+    avatar_url?: string | null;
+    avatar?: string | null;
+  } | null;
   due: string;
   progress: number;
   col: TaskStatus;
@@ -231,8 +248,13 @@ export interface Report {
   next_plan?: string;
   updated_at?: string;
   created_at?: string;
+  user_id?: string | number;
   user_email?: string;
   user_name?: string;
+  user_avatar?: string | null;
+  avatar_url?: string | null;
+  avatar?: string | null;
+  foto_profil?: string | null;
   created_by?: string;
 }
 
