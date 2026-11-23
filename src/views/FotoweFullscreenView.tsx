@@ -3,7 +3,6 @@ import {
   fotoweApi,
   fetchPhotoBlobCorsSafe,
   rememberPhotoBlob,
-  migrateIndexedDbProjects,
   formatFotoweError,
   FotoweArtboardPayload,
   FotowePermissionEntry,
@@ -110,6 +109,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       blob: Blob | null;
       photoId?: number | null;
       photoUrl?: string | null;
+      imageUrl?: string | null;
+      src?: string | null;
       corsUrl?: string | null;
       thumbUrl?: string | null;
       fileSize?: number;
@@ -182,6 +183,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         blob: null,
         photoId: null,
         photoUrl: null,
+        imageUrl: null,
+        src: null,
         corsUrl: null,
         thumbUrl: null,
         fileSize: 0,
@@ -259,14 +262,13 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
     /* ---- Project & Cloud Sync state variables ---- */
     let proj: ProjectData | null = null;
+    let activeProjectId: string | number = 0;
     let ab: Artboard | null = null;
     let plist: FotoweProjectSummary[] = [];
     let isLoadingList = true;
     let listError = '';
     let savedSig: string | null = null;
-    let savedAt = '';
     let busy = '';
-    let autoT = 0;
     let thT = 0;
     let hsz = 1;
     let isRefreshingList = false;
@@ -285,11 +287,23 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] || c;
       });
     }
-    function nowT(ts?: number): string {
-      return new Date(ts || Date.now()).toLocaleTimeString('id-ID', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+    function normalizeWireProjectId(rawId: string | number | null | undefined): string | number {
+      const clean = String(rawId ?? '').trim();
+      if (!clean || clean === '0') return 0;
+      return /^\d+$/.test(clean) ? Number(clean) : clean;
+    }
+    function isRemotePhotoUrl(url?: string | null): boolean {
+      if (!url || typeof url !== 'string') return false;
+      return /^https?:\/\//i.test(url.trim());
+    }
+    function isEmptyUntitledProject(p: FotoweProjectSummary): boolean {
+      const normName = (p.name || '').trim().toLowerCase();
+      const isUntitled =
+        !normName ||
+        normName === 'project tanpa nama' ||
+        normName === 'untitled' ||
+        normName === 'untitled project';
+      return isUntitled && (p.photos || 0) <= 0;
     }
     function newAb(name: string, t: string, s?: number): Artboard {
       return { id: 'ab_' + Math.random().toString(36).slice(2, 9), name, t, s: s == null ? 1 : s, a: 0, slots: [] };
@@ -707,6 +721,21 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       });
     }
 
+    function loadImageFromRemoteUrl(
+      url: string,
+      crossOriginMode: 'anonymous' | null
+    ): Promise<HTMLImageElement | null> {
+      return new Promise((resolve) => {
+        const im = new Image();
+        if (crossOriginMode) {
+          im.crossOrigin = crossOriginMode;
+        }
+        im.onload = () => resolve(im);
+        im.onerror = () => resolve(null);
+        im.src = url;
+      });
+    }
+
     function ensureBlobUpload(blob: Blob, name: string): Promise<UploadedFotowePhoto> {
       const existing = blobUploadMap.get(blob);
       if (existing) return existing;
@@ -727,14 +756,17 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
     function applyUploadMetadataToAllMatchingSlots(blob: Blob, uploaded: UploadedFotowePhoto) {
       if (!proj) return;
+      const permanentUrl = uploaded.url || uploaded.file_url || uploaded.cors_url || null;
       proj.artboards.forEach((b) => {
         b.slots.forEach((s) => {
           if (s && s.blob === blob) {
-            s.photoId = uploaded.photo_id;
-            s.photoUrl = uploaded.file_url;
-            s.corsUrl = uploaded.cors_url;
-            s.thumbUrl = uploaded.thumb_url;
-            s.fileSize = uploaded.file_size;
+            s.photoId = uploaded.photo_id || s.photoId || null;
+            s.photoUrl = permanentUrl;
+            s.imageUrl = permanentUrl;
+            s.src = permanentUrl;
+            s.corsUrl = uploaded.cors_url || permanentUrl;
+            s.thumbUrl = uploaded.thumb_url || permanentUrl;
+            s.fileSize = uploaded.file_size || s.fileSize;
           }
         });
       });
@@ -751,6 +783,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         status: 'filled',
         photoId: null,
         photoUrl: null,
+        imageUrl: null,
+        src: null,
         corsUrl: null,
         thumbUrl: null,
         fileSize: o.blob.size,
@@ -855,6 +889,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         blob: s.blob,
         photoId: s.photoId,
         photoUrl: s.photoUrl,
+        imageUrl: s.imageUrl ?? s.photoUrl,
+        src: s.src ?? s.photoUrl,
         corsUrl: s.corsUrl,
         thumbUrl: s.thumbUrl,
         fileSize: s.fileSize,
@@ -1370,6 +1406,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       blob: Blob | null;
       photoId?: number | null;
       photoUrl?: string | null;
+      imageUrl?: string | null;
+      src?: string | null;
       corsUrl?: string | null;
       thumbUrl?: string | null;
       fileSize?: number;
@@ -1418,6 +1456,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           blob: s.blob,
           photoId: s.photoId,
           photoUrl: s.photoUrl,
+          imageUrl: s.imageUrl ?? s.photoUrl,
+          src: s.src ?? s.photoUrl,
           corsUrl: s.corsUrl,
           thumbUrl: s.thumbUrl,
           fileSize: s.fileSize,
@@ -1481,6 +1521,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           blob: c.blob,
           photoId: c.photoId,
           photoUrl: c.photoUrl,
+          imageUrl: c.imageUrl ?? c.photoUrl,
+          src: c.src ?? c.photoUrl,
           corsUrl: c.corsUrl,
           thumbUrl: c.thumbUrl,
           fileSize: c.fileSize,
@@ -1528,7 +1570,12 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         a.push(`#${b.id}${b.name}${b.t}${b.s}${b.a}`);
         b.slots.forEach((x) => {
           const sz = x && x.blob ? x.blob.size : x?.fileSize || 0;
-          a.push(x && x.img ? [x.name, sz, Number(x.z.toFixed(5)), Number(x.ox.toFixed(5)), Number(x.oy.toFixed(5))].join('|') : '-');
+          const urlKey = x?.photoUrl || x?.imageUrl || x?.src || '';
+          a.push(
+            x && (x.img || urlKey)
+              ? [x.name, sz, urlKey, Number(x.z.toFixed(5)), Number(x.ox.toFixed(5)), Number(x.oy.toFixed(5))].join('|')
+              : '-'
+          );
         });
       });
       return a.join(';');
@@ -1544,25 +1591,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       }
       el.textContent =
         busy ||
-        (autoT
-          ? 'Menyimpan ke server…'
-          : savedSig === null
+        (!proj.isRemotePersisted || savedSig === null
           ? 'Belum tersimpan'
           : savedSig === sig()
           ? 'Tersimpan'
           : 'Ada perubahan belum disimpan');
-    }
-
-    function autoSched() {
-      if (!proj || !proj.canEdit || disposed) return;
-      if (sig() !== savedSig) {
-        safeClearTimeout(autoT);
-        autoT = safeSetTimeout(() => {
-          autoT = 0;
-          saveProject(false);
-        }, 1200);
-      }
-      status();
     }
 
     function updThumb() {
@@ -1577,7 +1610,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     function afterUi() {
       if (!proj || disposed) return;
       updThumb();
-      if (proj.canEdit) autoSched();
+      status();
     }
 
     function generateCoverThumbnail(targetProj: ProjectData): string | null {
@@ -1606,9 +1639,14 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     function buildSummaryFromProj(targetProj: ProjectData, savedTs: number, serverSummary?: FotoweProjectSummary): FotoweProjectSummary {
       let photoCount = 0;
       targetProj.artboards.forEach((b) => {
-        b.slots.forEach((x) => {
-          if (x && (x.img || x.status === 'filled')) photoCount++;
-        });
+        const L = layout(P[b.t] || P['4R'], S[b.s] || S[1]);
+        const limit = Math.max(L.n, b.slots.length);
+        for (let idx = 0; idx < limit; idx++) {
+          const x = b.slots[idx];
+          if (x && (x.img || x.photoUrl || x.imageUrl || x.src || x.photoId)) {
+            photoCount++;
+          }
+        }
       });
       return {
         id: targetProj.id,
@@ -1635,7 +1673,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function upsertSummary(m: FotoweProjectSummary) {
-      const idx = plist.findIndex((x) => x.id === m.id);
+      const idx = plist.findIndex((x) => String(x.id) === String(m.id));
       if (idx < 0) plist.unshift(m);
       else plist[idx] = { ...plist[idx], ...m };
       plist.sort((a, b) => b.saved - a.saved);
@@ -1645,13 +1683,17 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       const uploadsToWait: Array<Promise<void>> = [];
       for (const b of targetProj.artboards) {
         for (const s of b.slots) {
-          if (s && s.img && !s.photoId && !s.photoUrl && s.blob) {
+          const existingUrl = s?.photoUrl || s?.imageUrl || s?.src || null;
+          if (s && s.img && !isRemotePhotoUrl(existingUrl) && s.blob) {
             const p = ensureBlobUpload(s.blob, s.name || 'foto.jpg').then((uploaded) => {
-              s.photoId = uploaded.photo_id;
-              s.photoUrl = uploaded.file_url;
-              s.corsUrl = uploaded.cors_url;
-              s.thumbUrl = uploaded.thumb_url;
-              s.fileSize = uploaded.file_size;
+              const permanentUrl = uploaded.url || uploaded.file_url || uploaded.cors_url || null;
+              s.photoId = uploaded.photo_id || s.photoId || null;
+              s.photoUrl = permanentUrl;
+              s.imageUrl = permanentUrl;
+              s.src = permanentUrl;
+              s.corsUrl = uploaded.cors_url || permanentUrl;
+              s.thumbUrl = uploaded.thumb_url || permanentUrl;
+              s.fileSize = uploaded.file_size || s.fileSize;
               applyUploadMetadataToAllMatchingSlots(s.blob!, uploaded);
             });
             uploadsToWait.push(p);
@@ -1670,17 +1712,27 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         const mappedSlots: FotoweSlotPayload[] = [];
         for (let idx = 0; idx < maxSlots; idx++) {
           const s = b.slots[idx];
-          if (s && s.img && (s.photoId || s.photoUrl)) {
+          const resolvedUrl = s ? (s.photoUrl || s.imageUrl || s.src || null) : null;
+          if (s && (s.img || s.status === 'filled') && (s.photoId || resolvedUrl)) {
             mappedSlots.push({
               slot_index: idx,
               photo_id: s.photoId ?? null,
-              photo_url: s.photoUrl ?? null,
-              thumb_url: s.thumbUrl ?? s.photoUrl ?? null,
+              photo_url: resolvedUrl,
+              photoUrl: resolvedUrl,
+              imageUrl: resolvedUrl,
+              image_url: resolvedUrl,
+              url: resolvedUrl,
+              src: resolvedUrl,
+              cors_url: s.corsUrl ?? resolvedUrl,
+              thumb_url: s.thumbUrl ?? resolvedUrl,
               name: s.name || 'foto.jpg',
               file_size: s.fileSize || (s.blob ? s.blob.size : 0),
               z: s.z,
               ox: s.ox,
               oy: s.oy,
+              zoom: s.z,
+              offset_x: s.ox,
+              offset_y: s.oy,
               status: 'filled',
             });
           } else {
@@ -1688,12 +1740,21 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               slot_index: idx,
               photo_id: null,
               photo_url: null,
+              photoUrl: null,
+              imageUrl: null,
+              image_url: null,
+              url: null,
+              src: null,
+              cors_url: null,
               thumb_url: null,
               name: '',
               file_size: 0,
               z: 1,
               ox: 0,
               oy: 0,
+              zoom: 1,
+              offset_x: 0,
+              offset_y: 0,
               status: 'empty',
             });
           }
@@ -1702,8 +1763,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           id: b.id,
           name: b.name,
           t: b.t,
+          template: b.t,
           s: b.s,
+          size_index: b.s,
           a: b.a,
+          active_slot: b.a,
           slots: mappedSlots,
         };
       });
@@ -1711,15 +1775,13 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
     function getActiveProjectId(target: ProjectData | null): string | number {
       if (!target || !target.isRemotePersisted) return 0;
-      const cleanId = String(target.id || '').trim();
-      if (!cleanId || cleanId === '0') return 0;
-      return cleanId;
+      const fromState = normalizeWireProjectId(activeProjectId);
+      if (fromState !== 0) return fromState;
+      return normalizeWireProjectId(target.id);
     }
 
     function saveProject(manual: boolean, opts?: { suppressToast?: boolean }): Promise<boolean> {
       if (!proj || !proj.canEdit) return Promise.resolve(false);
-      safeClearTimeout(autoT);
-      autoT = 0;
 
       if (activeSavePromise) {
         trailingSaveRequested = true;
@@ -1732,7 +1794,6 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         do {
           trailingSaveRequested = false;
           syncAb();
-          const sg = sig();
           const prevLocalId = targetProj.id;
 
           busy = 'Menyimpan…';
@@ -1741,6 +1802,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
           try {
             await ensureAllSlotsUploaded(targetProj);
+            const sg = sig();
             const coverData = generateCoverThumbnail(targetProj);
             const artboardsPayload = serializeArtboards(targetProj);
             const activeAb = targetProj.artboards[targetProj.active] || targetProj.artboards[0];
@@ -1751,11 +1813,12 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               .filter((p) => p.permission === 'editor' && p.user_email)
               .map((p) => p.user_email.toLowerCase());
 
-            const activeProjectId = getActiveProjectId(targetProj);
+            const currentProjectId = getActiveProjectId(targetProj);
 
             const resSummary = await fotoweApi.saveProject({
-              id: activeProjectId || 0,
+              id: currentProjectId || 0,
               name: targetProj.name,
+              explicit_save: true,
               W: widthPx,
               H: heightPx,
               dpi: targetProj.dpi,
@@ -1782,11 +1845,12 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               isOwner: targetProj.isOwner,
             });
 
-            const persistedId = String(resSummary.id || prevLocalId);
+            const persistedId = String(resSummary.id || (currentProjectId ? currentProjectId : prevLocalId));
             if (persistedId && persistedId !== prevLocalId) {
-              plist = plist.filter((item) => item.id !== prevLocalId);
+              plist = plist.filter((item) => String(item.id) !== String(prevLocalId));
               targetProj.id = persistedId;
             }
+            activeProjectId = normalizeWireProjectId(persistedId);
             targetProj.isRemotePersisted = true;
 
             if (resSummary.thumbnail_url) {
@@ -1802,10 +1866,9 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             upsertSummary(mergedSummary);
             lastSucceeded = true;
 
-            if (!disposed && proj && proj.id === targetProj.id) {
+            if (!disposed && proj && String(proj.id) === String(targetProj.id)) {
               busy = '';
               savedSig = sg;
-              savedAt = nowT(savedTs);
               setSaveBarLoading(false);
               status();
               if (manual && !opts?.suppressToast && !trailingSaveRequested) {
@@ -1825,7 +1888,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               toast(errMsg, 'err');
             }
           }
-        } while (trailingSaveRequested && !disposed && proj && proj.id === targetProj.id && proj.canEdit);
+        } while (trailingSaveRequested && !disposed && proj && String(proj.id) === String(targetProj.id) && proj.canEdit);
       };
 
       activeSavePromise = runSave().finally(() => {
@@ -1837,21 +1900,52 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
     async function hydrateServerDetail(detail: FotoweProjectDetail): Promise<{ project: ProjectData; missingCount: number }> {
       // Deduplicate fetching remote photos across all artboards/slots in this project
-      const fetchPromises = new Map<string, Promise<{ img: HTMLImageElement; name: string; blob: Blob } | null>>();
+      const fetchPromises = new Map<string, Promise<{ img: HTMLImageElement; name: string; blob: Blob | null } | null>>();
       let missingCount = 0;
 
-      const fetchSlotMedia = (s: FotoweSlotPayload): Promise<{ img: HTMLImageElement; name: string; blob: Blob } | null> => {
-        const cacheKey = s.photo_id ? `id:${s.photo_id}` : `url:${s.photo_url || ''}`;
+      const fetchSlotMedia = (
+        s: FotoweSlotPayload
+      ): Promise<{ img: HTMLImageElement; name: string; blob: Blob | null } | null> => {
+        const primaryUrl = s.photo_url || s.photoUrl || s.imageUrl || s.image_url || s.url || s.src || null;
+        const cacheKey = primaryUrl
+          ? `url:${primaryUrl}`
+          : s.photo_id
+          ? `id:${s.photo_id}`
+          : `thumb:${s.thumb_url || ''}`;
         let p = fetchPromises.get(cacheKey);
         if (!p) {
           p = (async () => {
+            // Tier 1: Fetch blob via CORS-safe loader (supports Bearer auth on file.php & untainted canvas export)
             const blob = await fetchPhotoBlobCorsSafe({
               corsUrl: s.cors_url,
-              photoUrl: s.photo_url,
+              photoUrl: primaryUrl,
               photoId: s.photo_id,
             });
-            if (!blob) return null;
-            return await load(blob, s.name || 'foto.jpg');
+            if (blob) {
+              const loaded = await load(blob, s.name || 'foto.jpg');
+              if (loaded) return loaded;
+            }
+
+            // Tier 2: Direct HTMLImageElement load with crossOrigin="anonymous"
+            const urlCandidates = Array.from(
+              new Set([primaryUrl, s.cors_url, s.thumb_url].filter((u): u is string => Boolean(u && u.trim())))
+            );
+            for (const candidateUrl of urlCandidates) {
+              const corsImg = await loadImageFromRemoteUrl(candidateUrl, 'anonymous');
+              if (corsImg) {
+                return { img: corsImg, name: s.name || 'foto.jpg', blob: null };
+              }
+            }
+
+            // Tier 3: Fallback HTMLImageElement load without crossOrigin so photo remains visible on canvas
+            for (const candidateUrl of urlCandidates) {
+              const plainImg = await loadImageFromRemoteUrl(candidateUrl, null);
+              if (plainImg) {
+                return { img: plainImg, name: s.name || 'foto.jpg', blob: null };
+              }
+            }
+
+            return null;
           })();
           fetchPromises.set(cacheKey, p);
         }
@@ -1862,31 +1956,54 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         (detail.artboards || []).map(async (b, abIdx) => {
           const tpl = P[b.t] ? b.t : '4R';
           const szIdx = S[b.s] ? b.s : 1;
-          const hydratedSlots = await Promise.all(
-            (b.slots || []).map(async (q) => {
-              if (q && q.status === 'filled' && (q.photo_id || q.photo_url)) {
+          const rawSlots = Array.isArray(b.slots) ? b.slots : [];
+
+          const resolvedEntries = await Promise.all(
+            rawSlots.map(async (q, arrIdx) => {
+              const targetIdx =
+                typeof q?.slot_index === 'number' && Number.isFinite(q.slot_index) && q.slot_index >= 0
+                  ? q.slot_index
+                  : arrIdx;
+              const slotUrl = q?.photo_url || q?.photoUrl || q?.imageUrl || q?.image_url || q?.url || q?.src || null;
+              const hasMediaRef = Boolean(q && (q.photo_id || slotUrl) && q.status !== 'empty');
+
+              if (hasMediaRef && q) {
                 const media = await fetchSlotMedia(q);
                 if (media) {
                   return {
-                    img: media.img,
-                    name: q.name || media.name || 'foto.jpg',
-                    blob: media.blob,
-                    photoId: q.photo_id ?? null,
-                    photoUrl: q.photo_url ?? null,
-                    corsUrl: q.cors_url ?? null,
-                    thumbUrl: q.thumb_url ?? q.photo_url ?? null,
-                    fileSize: q.file_size || media.blob.size,
-                    z: typeof q.z === 'number' ? q.z : 1,
-                    ox: typeof q.ox === 'number' ? q.ox : 0,
-                    oy: typeof q.oy === 'number' ? q.oy : 0,
-                    status: 'filled',
-                  } as SlotState;
+                    idx: targetIdx,
+                    slot: {
+                      img: media.img,
+                      name: q.name || media.name || 'foto.jpg',
+                      blob: media.blob,
+                      photoId: q.photo_id ?? null,
+                      photoUrl: slotUrl,
+                      imageUrl: slotUrl,
+                      src: slotUrl,
+                      corsUrl: q.cors_url ?? slotUrl,
+                      thumbUrl: q.thumb_url ?? slotUrl,
+                      fileSize: q.file_size || (media.blob ? media.blob.size : 0),
+                      z: typeof q.z === 'number' ? q.z : 1,
+                      ox: typeof q.ox === 'number' ? q.ox : 0,
+                      oy: typeof q.oy === 'number' ? q.oy : 0,
+                      status: 'filled',
+                    } as SlotState,
+                  };
                 }
                 missingCount++;
               }
-              return blank();
+              return { idx: targetIdx, slot: blank() };
             })
           );
+
+          const maxIdx = resolvedEntries.reduce((mx, entry) => Math.max(mx, entry.idx), -1);
+          const hydratedSlots: SlotState[] = [];
+          for (let i = 0; i <= maxIdx; i++) {
+            hydratedSlots[i] = blank();
+          }
+          resolvedEntries.forEach((entry) => {
+            hydratedSlots[entry.idx] = entry.slot;
+          });
 
           return {
             id: b.id || `ab_${abIdx + 1}`,
@@ -1932,9 +2049,6 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     async function openProject(id: string): Promise<void> {
-      if (proj && proj.canEdit && sig() !== savedSig) {
-        saveProject(false);
-      }
       if (activeSavePromise) {
         await activeSavePromise.catch(() => {});
       }
@@ -1947,16 +2061,23 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         const { project: hydrated, missingCount } = await hydrateServerDetail(detail);
         if (disposed) return;
 
+        const dbProjectId = String(hydrated.id || id);
+        hydrated.id = dbProjectId;
+        hydrated.isRemotePersisted = true;
+
         ab = null;
         proj = hydrated;
+        activeProjectId = normalizeWireProjectId(dbProjectId);
         useAb(Math.min(hydrated.active, hydrated.artboards.length - 1));
         savedSig = sig();
-        savedAt = nowT(hydrated.saved);
-        safeClearTimeout(autoT);
-        autoT = 0;
 
         if (window.location.hash.slice(1) === 'editor') route();
         else window.location.hash = 'editor';
+
+        setup();
+        ui();
+        renderStrip();
+        kick();
 
         if (missingCount > 0) {
           toast(`${missingCount} foto pada project ini tidak dapat dimuat dari server.`, 'err');
@@ -2014,14 +2135,16 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       sec.hidden = false;
       setHomeBarLoading(isLoadingList);
 
-      if (isLoadingList && !plist.length) {
+      const visibleProjects = plist.filter((p) => !isEmptyUntitledProject(p));
+
+      if (isLoadingList && !visibleProjects.length) {
         stateEl.hidden = false;
         stateEl.className = 'pj-status-box';
         stateEl.innerHTML = '<span>Memuat daftar project tersimpan dari server…</span>';
         return;
       }
 
-      if (listError && !plist.length) {
+      if (listError && !visibleProjects.length) {
         stateEl.hidden = false;
         stateEl.className = 'pj-status-box is-error';
         stateEl.innerHTML = '';
@@ -2037,7 +2160,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         return;
       }
 
-      if (!plist.length) {
+      if (!visibleProjects.length) {
         stateEl.hidden = false;
         stateEl.className = 'pj-status-box';
         stateEl.innerHTML = '<span>Belum ada project tersimpan untuk akun ini</span>';
@@ -2063,7 +2186,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         stateEl.innerHTML = '';
       }
 
-      plist.forEach((r) => {
+      visibleProjects.forEach((r) => {
         const d = document.createElement('div');
         d.className = 'tc pjc';
         d.tabIndex = 0;
@@ -2104,9 +2227,10 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
                   .deleteProject(r.id)
                   .then(() => {
                     if (disposed) return;
-                    plist = plist.filter((x) => x.id !== r.id);
-                    if (proj && proj.id === r.id) {
+                    plist = plist.filter((x) => String(x.id) !== String(r.id));
+                    if (proj && String(proj.id) === String(r.id)) {
                       proj = null;
+                      activeProjectId = 0;
                       ab = null;
                       savedSig = null;
                     }
@@ -2239,7 +2363,6 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     }
 
     function newProject(def: string) {
-      if (proj && proj.canEdit && sig() !== savedSig) saveProject(false);
       modal({
         title: 'Project baru',
         sub: 'Atur nama, ukuran kertas, resolusi, dan mode warna.',
@@ -2289,6 +2412,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             return 'Resolusi terlalu tinggi untuk ukuran ini (maks. 120 megapiksel).';
           const me = getStoredUser();
           ab = null;
+          activeProjectId = 0;
           proj = {
             id: uid(),
             name: nm,
@@ -2310,9 +2434,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           };
           useAb(0);
           savedSig = null;
-          savedAt = '';
           window.location.hash = 'editor';
-          saveProject(false);
         },
       });
     }
@@ -2380,10 +2502,10 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           targetProj.visibility = selectedVisibility;
           targetProj.permissions = nextPermissions;
 
-          const activeProjectId = getActiveProjectId(targetProj);
+          const currentProjectId = getActiveProjectId(targetProj);
           setSaveBarLoading(true);
 
-          if (!activeProjectId) {
+          if (!currentProjectId) {
             // Project belum tersimpan ke server: jalankan Save Project terlebih dahulu beserta izin aksesnya
             saveProject(false, { suppressToast: true })
               .then((savedOk) => {
@@ -2400,8 +2522,9 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
           fotoweApi
             .updatePermissions({
-              id: activeProjectId,
+              id: currentProjectId,
               name: targetProj.name,
+              explicit_save: true,
               visibility: selectedVisibility,
               shared_editors: selectedEditors,
               permissions: nextPermissions,
@@ -2561,6 +2684,8 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
                 blob: x.blob,
                 photoId: x.photoId,
                 photoUrl: x.photoUrl,
+                imageUrl: x.imageUrl ?? x.photoUrl,
+                src: x.src ?? x.photoUrl,
                 corsUrl: x.corsUrl,
                 thumbUrl: x.thumbUrl,
                 fileSize: x.fileSize,
@@ -2589,7 +2714,11 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           ab!.name = nm;
           renderStrip();
           ui();
-          toast('Nama artboard diganti.');
+          saveProject(false, { suppressToast: true }).then((ok) => {
+            if (!disposed && ok) {
+              toast('Nama artboard diganti.');
+            }
+          });
         },
       });
       (m.querySelector('#mn') as HTMLInputElement).value = ab!.name;
@@ -2642,11 +2771,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         renderStrip();
         say('');
       } else {
-        if (proj && proj.canEdit && sig() !== savedSig) {
-          saveProject(false).then(() => {
-            if (!disposed) refreshList({ silent: true });
-          });
-        } else if (proj) {
+        if (proj) {
           refreshList({ silent: true });
         }
         cardAnim = Boolean($('home').hidden);
@@ -2667,15 +2792,12 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     if (backBtn) {
       backBtn.onclick = (e) => {
         e.preventDefault();
-        if (proj && proj.canEdit && sig() !== savedSig) saveProject(false);
         onBackToHubRef.current();
       };
     }
 
     const onVisibilityChange = () => {
-      if (document.hidden) {
-        if (proj && proj.canEdit && sig() !== savedSig) saveProject(false);
-      } else if (!$('home').hidden && !root.querySelector('.mo')) {
+      if (!document.hidden && !$('home').hidden && !root.querySelector('.mo')) {
         refreshList({ silent: true });
       }
     };
@@ -2749,22 +2871,9 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       await refreshList({ silent: false });
       if (disposed) return;
 
-      // Safe IndexedDB -> MySQL migration (never deletes local data unless server confirms 100%)
-      migrateIndexedDbProjects(scopeIdentityRef.current)
-        .then(async ({ migratedCount, failedCount }) => {
-          if (disposed) return;
-          if (migratedCount > 0) {
-            toast(`${migratedCount} project lama berhasil dimigrasikan ke cloud workspace.`);
-            await refreshList({ silent: true });
-          }
-          if (failedCount > 0) {
-            toast(`${failedCount} project lokal belum dapat dimigrasikan dan tetap aman di browser.`, 'err');
-          }
-        })
-        .catch(() => {});
-
       if (window.location.hash.slice(1) === 'editor') {
-        if (plist.length) return openProject(plist[0].id);
+        const validProjects = plist.filter((p) => !isEmptyUntitledProject(p));
+        if (validProjects.length) return openProject(validProjects[0].id);
         window.location.hash = 'home';
       }
     }
@@ -2787,9 +2896,6 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
     Promise.all([init(), fr]).then(hideBoot, hideBoot);
 
     return () => {
-      if (proj && proj.canEdit && sig() !== savedSig) {
-        saveProject(false);
-      }
       disposed = true;
       if (pollIntervalId) window.clearInterval(pollIntervalId);
       if (raf) cancelAnimationFrame(raf);

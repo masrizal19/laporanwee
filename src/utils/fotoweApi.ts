@@ -38,6 +38,11 @@ export interface FotoweSlotPayload {
   slot_index: number;
   photo_id?: number | null;
   photo_url?: string | null;
+  photoUrl?: string | null;
+  imageUrl?: string | null;
+  image_url?: string | null;
+  url?: string | null;
+  src?: string | null;
   cors_url?: string | null;
   thumb_url?: string | null;
   name?: string;
@@ -45,6 +50,9 @@ export interface FotoweSlotPayload {
   z: number;
   ox: number;
   oy: number;
+  zoom?: number;
+  offset_x?: number;
+  offset_y?: number;
   status: 'empty' | 'filled';
 }
 
@@ -52,8 +60,11 @@ export interface FotoweArtboardPayload {
   id: string;
   name: string;
   t: string;
+  template?: string;
   s: number;
+  size_index?: number;
   a: number;
+  active_slot?: number;
   thumbnail_url?: string | null;
   slots: FotoweSlotPayload[];
 }
@@ -92,6 +103,7 @@ export interface UploadedFotowePhoto {
   photo_key: string;
   original_name: string;
   file_url: string;
+  url: string;
   cors_url: string;
   thumb_url: string;
   thumb_cors_url?: string;
@@ -142,20 +154,94 @@ function normalizeAssetUrl(rawUrl?: string | null): string | null {
   return `https://api-laporanwe.mkverse.my.id/${clean.replace(/^\/+/, '')}`;
 }
 
-function normalizeProjectSummary(raw: any): FotoweProjectSummary {
-  const artboardsArr = Array.isArray(raw?.artboards) ? raw.artboards : [];
-  let computedPhotos = 0;
-  if (artboardsArr.length > 0) {
-    for (const ab of artboardsArr) {
-      if (Array.isArray(ab?.slots)) {
-        for (const sl of ab.slots) {
-          if (sl && (sl.status === 'filled' || sl.photo_id || sl.photo_url)) {
-            computedPhotos++;
-          }
+function parseArrayLike(input: unknown): any[] | null {
+  if (Array.isArray(input)) return input;
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (trimmed.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) return parsed;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function extractSlotUrl(q: any): string | null {
+  if (!q || typeof q !== 'object') return null;
+  const raw =
+    q.photo_url ??
+    q.photoUrl ??
+    q.imageUrl ??
+    q.image_url ??
+    q.file_url ??
+    q.url ??
+    q.src ??
+    q.thumb_url ??
+    null;
+  return normalizeAssetUrl(raw);
+}
+
+function extractArtboardsArray(raw: any, envelope?: any): any[] {
+  const candidates = [
+    envelope?.project?.artboards,
+    envelope?.project?.pages,
+    envelope?.data?.artboards,
+    envelope?.data?.pages,
+    raw?.artboards,
+    raw?.pages,
+    raw?.data?.artboards,
+    raw?.data?.pages,
+    envelope?.artboards,
+    envelope?.pages,
+  ];
+  for (const cand of candidates) {
+    const arr = parseArrayLike(cand);
+    if (arr && arr.length > 0) return arr;
+  }
+  for (const cand of candidates) {
+    const arr = parseArrayLike(cand);
+    if (arr) return arr;
+  }
+  return [];
+}
+
+function countFilledSlotsInArtboards(artboardsArr: any[]): { count: number; hasSlotData: boolean } {
+  let count = 0;
+  let hasSlotData = false;
+  for (const ab of artboardsArr) {
+    const slots = parseArrayLike(ab?.slots);
+    if (slots) {
+      hasSlotData = true;
+      for (const sl of slots) {
+        if (!sl || typeof sl !== 'object') continue;
+        const url = extractSlotUrl(sl);
+        const hasPhotoId = sl.photo_id != null && Number(sl.photo_id) > 0;
+        const hasFilledImg = Boolean(url || hasPhotoId);
+        if (hasFilledImg && sl.status !== 'empty') {
+          count++;
         }
       }
     }
   }
+  return { count, hasSlotData };
+}
+
+function normalizeProjectSummary(raw: any): FotoweProjectSummary {
+  const artboardsArr = extractArtboardsArray(raw);
+  const { count: computedPhotos, hasSlotData } = countFilledSlotsInArtboards(artboardsArr);
+
+  const serverPhotoCount = Number(raw?.photos ?? raw?.photo_count ?? raw?.filled_slots ?? 0);
+  const normalizedServerCount = Number.isFinite(serverPhotoCount) && serverPhotoCount > 0 ? serverPhotoCount : 0;
+  const finalPhotos = hasSlotData
+    ? computedPhotos
+    : normalizedServerCount > 0
+    ? normalizedServerCount
+    : computedPhotos;
+
   const savedRaw = raw?.saved ?? raw?.updated_at ?? raw?.created_at;
   let savedTs = Date.now();
   if (typeof savedRaw === 'number' && Number.isFinite(savedRaw)) {
@@ -174,14 +260,21 @@ function normalizeProjectSummary(raw: any): FotoweProjectSummary {
   const accessRole: FotoweProjectSummary['access_role'] =
     raw?.access_role || (isAdmin ? 'admin' : isOwner ? 'owner' : canEdit ? 'editor' : 'viewer');
 
+  const rawName = String(raw?.name ?? raw?.title ?? '').trim();
+
   return {
     id: String(raw?.id ?? raw?.project_id ?? ''),
-    name: String(raw?.name ?? raw?.title ?? 'Project Tanpa Nama'),
+    name: rawName || 'Project Tanpa Nama',
     dpi: Number(raw?.dpi) > 0 ? Number(raw.dpi) : 300,
     color: raw?.color === 'gray' || raw?.color_mode === 'gray' ? 'gray' : 'rgb',
     active: typeof raw?.active === 'number' ? raw.active : Number(raw?.active_artboard ?? 0) || 0,
-    n: typeof raw?.n === 'number' ? raw.n : artboardsArr.length || Number(raw?.artboard_count ?? 1) || 1,
-    photos: typeof raw?.photos === 'number' ? raw.photos : Number(raw?.photo_count ?? computedPhotos) || computedPhotos,
+    n:
+      artboardsArr.length > 0
+        ? artboardsArr.length
+        : typeof raw?.n === 'number' && raw.n > 0
+        ? raw.n
+        : Number(raw?.artboard_count ?? raw?.pages_count ?? 1) || 1,
+    photos: finalPhotos,
     thumbnail_url: normalizeAssetUrl(raw?.thumbnail_url ?? raw?.thumbnail ?? null),
     visibility: raw?.visibility === 'private' ? 'private' : 'workspace',
     version: typeof raw?.version === 'number' ? raw.version : 1,
@@ -199,47 +292,83 @@ function normalizeProjectSummary(raw: any): FotoweProjectSummary {
   };
 }
 
-function normalizeProjectDetail(raw: any): FotoweProjectDetail {
+function normalizeProjectDetail(raw: any, envelope?: any): FotoweProjectDetail {
   const summary = normalizeProjectSummary(raw);
-  const rawArtboards = Array.isArray(raw?.artboards)
-    ? raw.artboards
-    : Array.isArray(raw?.data?.artboards)
-    ? raw.data.artboards
-    : [];
+  const rawArtboards = extractArtboardsArray(raw, envelope);
 
-  const artboards: FotoweArtboardPayload[] = rawArtboards.map((b: any, abIdx: number) => ({
-    id: String(b?.id || `ab_${abIdx + 1}`),
-    name: String(b?.name || `Artboard ${abIdx + 1}`),
-    t: String(b?.t || b?.template || '4R'),
-    s: typeof b?.s === 'number' ? b.s : Number(b?.size_index ?? 1) || 1,
-    a: typeof b?.a === 'number' ? b.a : Number(b?.active_slot ?? 0) || 0,
-    thumbnail_url: normalizeAssetUrl(b?.thumbnail_url ?? null),
-    slots: Array.isArray(b?.slots)
-      ? b.slots.map((q: any, slotIdx: number) => ({
-          slot_index: typeof q?.slot_index === 'number' ? q.slot_index : slotIdx,
-          photo_id: q?.photo_id != null ? Number(q.photo_id) : null,
-          photo_url: normalizeAssetUrl(q?.photo_url ?? q?.file_url ?? null),
-          cors_url: normalizeAssetUrl(q?.cors_url ?? null),
-          thumb_url: normalizeAssetUrl(q?.thumb_url ?? q?.photo_url ?? null),
-          name: typeof q?.name === 'string' ? q.name : '',
+  const artboards: FotoweArtboardPayload[] = rawArtboards.map((b: any, abIdx: number) => {
+    const rawSlots = parseArrayLike(b?.slots) || [];
+    return {
+      id: String(b?.id || `ab_${abIdx + 1}`),
+      name: String(b?.name || `Artboard ${abIdx + 1}`),
+      t: String(b?.t || b?.template || b?.template_code || '4R'),
+      s: typeof b?.s === 'number' ? b.s : Number(b?.size_index ?? b?.photo_size_index ?? 1) || 1,
+      a: typeof b?.a === 'number' ? b.a : Number(b?.active_slot ?? 0) || 0,
+      thumbnail_url: normalizeAssetUrl(b?.thumbnail_url ?? null),
+      slots: rawSlots.map((q: any, slotIdx: number) => {
+        const resolvedUrl = extractSlotUrl(q);
+        const resolvedPhotoId = q?.photo_id != null && Number(q.photo_id) > 0 ? Number(q.photo_id) : null;
+        const resolvedCorsUrl = normalizeAssetUrl(q?.cors_url ?? null) ?? resolvedUrl;
+        const resolvedThumbUrl = normalizeAssetUrl(q?.thumb_url ?? null) ?? resolvedUrl;
+        const isFilled =
+          q?.status === 'filled'
+            ? Boolean(resolvedPhotoId || resolvedUrl)
+            : Boolean((resolvedPhotoId || resolvedUrl) && q?.status !== 'empty');
+
+        const zoomVal =
+          typeof q?.z === 'number'
+            ? q.z
+            : typeof q?.zoom === 'number'
+            ? q.zoom
+            : Number(q?.z ?? q?.zoom ?? 1) || 1;
+        const oxVal =
+          typeof q?.ox === 'number'
+            ? q.ox
+            : typeof q?.offset_x === 'number'
+            ? q.offset_x
+            : Number(q?.ox ?? q?.offset_x ?? 0) || 0;
+        const oyVal =
+          typeof q?.oy === 'number'
+            ? q.oy
+            : typeof q?.offset_y === 'number'
+            ? q.offset_y
+            : Number(q?.oy ?? q?.offset_y ?? 0) || 0;
+
+        return {
+          slot_index: typeof q?.slot_index === 'number' ? q.slot_index : Number(q?.slot_index ?? slotIdx),
+          photo_id: resolvedPhotoId,
+          photo_url: resolvedUrl,
+          photoUrl: resolvedUrl,
+          imageUrl: resolvedUrl,
+          image_url: resolvedUrl,
+          url: resolvedUrl,
+          src: resolvedUrl,
+          cors_url: resolvedCorsUrl,
+          thumb_url: resolvedThumbUrl,
+          name: typeof q?.name === 'string' ? q.name : typeof q?.photo_name === 'string' ? q.photo_name : '',
           file_size: Number(q?.file_size ?? 0) || 0,
-          z: typeof q?.z === 'number' ? q.z : 1,
-          ox: typeof q?.ox === 'number' ? q.ox : 0,
-          oy: typeof q?.oy === 'number' ? q.oy : 0,
-          status:
-            q?.status === 'filled' || q?.photo_id || q?.photo_url
-              ? 'filled'
-              : 'empty',
-        }))
-      : [],
-  }));
+          z: zoomVal,
+          ox: oxVal,
+          oy: oyVal,
+          status: isFilled ? 'filled' : 'empty',
+        };
+      }),
+    };
+  });
 
-  const permissions: FotowePermissionEntry[] = Array.isArray(raw?.permissions)
-    ? raw.permissions
-    : [];
+  const permissionsRaw =
+    parseArrayLike(raw?.permissions) ||
+    parseArrayLike(envelope?.project?.permissions) ||
+    parseArrayLike(envelope?.data?.permissions) ||
+    [];
+  const permissions: FotowePermissionEntry[] = permissionsRaw;
+
+  const { count: detailPhotoCount } = countFilledSlotsInArtboards(artboards);
 
   return {
     ...summary,
+    n: artboards.length > 0 ? artboards.length : summary.n,
+    photos: detailPhotoCount,
     artboards,
     permissions,
   };
@@ -341,6 +470,7 @@ async function fetchJsonWithFallback(
 export interface FotoweSaveProjectPayload {
   id: string | number;
   name: string;
+  explicit_save?: boolean;
   W: number;
   H: number;
   dpi: number;
@@ -364,6 +494,7 @@ export interface FotoweSaveProjectPayload {
 export interface FotoweUpdatePermissionsPayload {
   id: string | number;
   name: string;
+  explicit_save?: boolean;
   visibility: 'workspace' | 'private';
   shared_editors: Array<string | number>;
   permissions?: FotowePermissionEntry[];
@@ -412,7 +543,7 @@ export const fotoweApi = {
       })
     );
 
-    let candidate: any = json?.data ?? json?.project ?? json;
+    let candidate: any = json?.project ?? json?.data?.project ?? json?.data ?? json;
     if (Array.isArray(candidate)) {
       candidate =
         candidate.find((item) => String(item?.id ?? item?.project_id) === String(projectId)) ??
@@ -422,19 +553,35 @@ export const fotoweApi = {
       throw new Error('Detail project tidak ditemukan di server.');
     }
 
-    return normalizeProjectDetail(candidate);
+    return normalizeProjectDetail(candidate, json);
   },
 
   async saveProject(payload: FotoweSaveProjectPayload): Promise<FotoweProjectSummary> {
-    const { isRemotePersisted, isOwner, ...wirePayload } = payload;
+    const { isRemotePersisted, isOwner, ...restPayload } = payload;
+    const wirePayload = {
+      ...restPayload,
+      explicit_save: payload.explicit_save ?? true,
+    };
     const bodyStr = JSON.stringify(wirePayload);
 
-    // If a shared collaborator (non-owner) edits an existing server project, update in place via update.php
-    if (isRemotePersisted && isOwner === false && wirePayload.id && wirePayload.id !== 0) {
+    const extractSavedRaw = (json: any) => {
+      const inner = json?.project ?? json?.data ?? {};
+      const resolvedId =
+        inner?.id ??
+        inner?.project_id ??
+        json?.id ??
+        json?.project_id ??
+        wirePayload.id;
+      return {
+        ...wirePayload,
+        ...(typeof inner === 'object' && inner ? inner : {}),
+        id: resolvedId,
+      };
+    };
+
+    try {
       const { json } = await fetchJsonWithFallback(
         [
-          `${FOTOWE_API_BASE}/projects/update.php`,
-          `${FOTOWE_API_BASE}/update.php`,
           `${FOTOWE_API_BASE}/projects/create.php`,
           `${FOTOWE_API_BASE}/create.php`,
         ],
@@ -444,47 +591,51 @@ export const fotoweApi = {
           body: bodyStr,
         })
       );
-      const raw = json?.data ?? json?.project ?? wirePayload;
-      return normalizeProjectSummary(raw);
+
+      // If backend create.php reports project already exists without upserting, apply changes via update.php
+      if (json?.data?.already_exists === true && (json?.data?.id || wirePayload.id)) {
+        const targetId = json.data.id ?? wirePayload.id;
+        const updateBody = JSON.stringify({ ...wirePayload, id: targetId });
+        const updated = await fetchJsonWithFallback(
+          [
+            `${FOTOWE_API_BASE}/projects/update.php`,
+            `${FOTOWE_API_BASE}/update.php`,
+          ],
+          () => ({
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: updateBody,
+          })
+        );
+        return normalizeProjectSummary(extractSavedRaw(updated.json));
+      }
+
+      return normalizeProjectSummary(extractSavedRaw(json));
+    } catch (err: any) {
+      // If a shared collaborator (non-owner) edits an existing server project and create.php rejects, retry via update.php
+      if (isRemotePersisted && isOwner === false && wirePayload.id && wirePayload.id !== 0) {
+        const { json } = await fetchJsonWithFallback(
+          [
+            `${FOTOWE_API_BASE}/projects/update.php`,
+            `${FOTOWE_API_BASE}/update.php`,
+          ],
+          () => ({
+            method: 'POST',
+            headers: authHeaders({ 'Content-Type': 'application/json' }),
+            body: bodyStr,
+          })
+        );
+        return normalizeProjectSummary(extractSavedRaw(json));
+      }
+      throw err;
     }
-
-    const { json } = await fetchJsonWithFallback(
-      [
-        `${FOTOWE_API_BASE}/projects/create.php`,
-        `${FOTOWE_API_BASE}/create.php`,
-      ],
-      () => ({
-        method: 'POST',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: bodyStr,
-      })
-    );
-
-    // If backend create.php reports project already exists without upserting, apply changes via update.php
-    if (json?.data?.already_exists === true && (json?.data?.id || wirePayload.id)) {
-      const targetId = json.data.id ?? wirePayload.id;
-      const updateBody = JSON.stringify({ ...wirePayload, id: targetId });
-      const updated = await fetchJsonWithFallback(
-        [
-          `${FOTOWE_API_BASE}/projects/update.php`,
-          `${FOTOWE_API_BASE}/update.php`,
-        ],
-        () => ({
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: updateBody,
-        })
-      );
-      const rawUpdated = updated.json?.data ?? updated.json?.project ?? { ...wirePayload, id: targetId };
-      return normalizeProjectSummary(rawUpdated);
-    }
-
-    const raw = json?.data ?? json?.project ?? { ...wirePayload, id: json?.id ?? wirePayload.id };
-    return normalizeProjectSummary(raw);
   },
 
   async updatePermissions(payload: FotoweUpdatePermissionsPayload): Promise<FotoweProjectSummary> {
-    const bodyStr = JSON.stringify(payload);
+    const bodyStr = JSON.stringify({
+      ...payload,
+      explicit_save: payload.explicit_save ?? true,
+    });
     const { json } = await fetchJsonWithFallback(
       [
         `${FOTOWE_API_BASE}/projects/update.php`,
@@ -497,13 +648,14 @@ export const fotoweApi = {
       })
     );
 
-    const raw = json?.data ?? json?.project ?? payload;
+    const raw = json?.project ?? json?.data ?? payload;
     return normalizeProjectSummary(raw);
   },
 
   async createProject(payload: {
     id?: string | number;
     name: string;
+    explicit_save?: boolean;
     dpi: number;
     color: 'rgb' | 'gray';
     active: number;
@@ -511,9 +663,14 @@ export const fotoweApi = {
     thumbnail_url?: string | null;
     visibility?: 'workspace' | 'private';
     artboards: FotoweArtboardPayload[];
+    pages?: FotoweArtboardPayload[];
     permissions?: FotowePermissionEntry[];
   }): Promise<FotoweProjectSummary> {
-    const bodyStr = JSON.stringify(payload);
+    const bodyStr = JSON.stringify({
+      ...payload,
+      explicit_save: payload.explicit_save ?? true,
+      pages: payload.pages ?? payload.artboards,
+    });
     const { json } = await fetchJsonWithFallback(
       [
         `${FOTOWE_API_BASE}/projects/create.php`,
@@ -526,13 +683,15 @@ export const fotoweApi = {
       })
     );
 
-    const raw = json?.data ?? json?.project ?? { ...payload, id: json?.id ?? payload.id };
-    return normalizeProjectSummary(raw);
+    const inner = json?.project ?? json?.data ?? {};
+    const resolvedId = inner?.id ?? inner?.project_id ?? json?.id ?? payload.id;
+    return normalizeProjectSummary({ ...payload, ...(typeof inner === 'object' && inner ? inner : {}), id: resolvedId });
   },
 
   async updateProject(payload: {
     id: string;
     name?: string;
+    explicit_save?: boolean;
     dpi?: number;
     color?: 'rgb' | 'gray';
     active?: number;
@@ -541,9 +700,13 @@ export const fotoweApi = {
     visibility?: 'workspace' | 'private';
     shared_editors?: Array<string | number>;
     artboards?: FotoweArtboardPayload[];
+    pages?: FotoweArtboardPayload[];
     permissions?: FotowePermissionEntry[];
   }): Promise<FotoweProjectSummary> {
-    const bodyStr = JSON.stringify(payload);
+    const bodyStr = JSON.stringify({
+      ...payload,
+      explicit_save: payload.explicit_save ?? true,
+    });
     const { json } = await fetchJsonWithFallback(
       [
         `${FOTOWE_API_BASE}/projects/update.php`,
@@ -558,7 +721,7 @@ export const fotoweApi = {
       })
     );
 
-    const raw = json?.data ?? json?.project ?? payload;
+    const raw = json?.project ?? json?.data ?? payload;
     return normalizeProjectSummary(raw);
   },
 
@@ -597,15 +760,23 @@ export const fotoweApi = {
     );
 
     const raw = json?.data ?? json?.photo ?? json ?? {};
-    const fileUrl = normalizeAssetUrl(raw.file_url ?? raw.photo_url ?? raw.url) || '';
+    const fileUrl =
+      normalizeAssetUrl(
+        raw.url ?? raw.file_url ?? raw.photo_url ?? raw.image_url ?? raw.src ?? json?.url
+      ) || '';
     const corsUrl = normalizeAssetUrl(raw.cors_url ?? fileUrl) || fileUrl;
     const thumbUrl = normalizeAssetUrl(raw.thumb_url ?? fileUrl) || fileUrl;
+
+    if (!fileUrl && !(Number(raw.photo_id ?? raw.id ?? 0) > 0)) {
+      throw new Error('Server tidak mengembalikan URL foto yang valid.');
+    }
 
     return {
       photo_id: Number(raw.photo_id ?? raw.id ?? 0) || 0,
       photo_key: String(raw.photo_key ?? ''),
       original_name: String(raw.original_name ?? raw.name ?? cleanName),
       file_url: fileUrl,
+      url: fileUrl,
       cors_url: corsUrl,
       thumb_url: thumbUrl,
       thumb_cors_url: normalizeAssetUrl(raw.thumb_cors_url) || undefined,
