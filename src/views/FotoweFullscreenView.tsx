@@ -4,6 +4,7 @@ import {
   fetchPhotoBlobCorsSafe,
   rememberPhotoBlob,
   migrateIndexedDbProjects,
+  formatFotoweError,
   FotoweArtboardPayload,
   FotowePermissionEntry,
   FotoweProjectDetail,
@@ -310,22 +311,33 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       return 'Hanya Lihat';
     }
 
-    /* ---- Toast & Feedback ---- */
+    /* ---- Single Toast & Feedback (anti-double notification) ---- */
     let lastT = '';
     let lastAt = 0;
+    let activeToastHideTimer = 0;
+    let activeToastRemoveTimer = 0;
     function toast(t: string, kind?: string) {
-      if (disposed) return;
+      if (disposed || !t) return;
       const b = $('toasts');
       if (!b) return;
+      // Clear any previous toast timers and active toast so only ONE toast is shown at a time
+      safeClearTimeout(activeToastHideTimer);
+      safeClearTimeout(activeToastRemoveTimer);
+      activeToastHideTimer = 0;
+      activeToastRemoveTimer = 0;
+      b.innerHTML = '';
+
       const d = document.createElement('div');
       d.className = 'toast' + (kind === 'err' ? ' err' : '');
       d.textContent = t;
       b.appendChild(d);
-      while (b.children.length > 3) b.removeChild(b.firstChild!);
-      safeSetTimeout(() => {
+
+      activeToastHideTimer = safeSetTimeout(() => {
+        activeToastHideTimer = 0;
         d.classList.add('out');
-        safeSetTimeout(() => {
-          d.remove();
+        activeToastRemoveTimer = safeSetTimeout(() => {
+          activeToastRemoveTimer = 0;
+          if (d.parentNode === b) d.remove();
         }, 220);
       }, 2800);
     }
@@ -338,6 +350,26 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       lastT = t;
       lastAt = n;
       toast(t, /tidak|gagal|belum|semua slot|pilih |penuh|baca saja|ditolak/i.test(t) ? 'err' : '');
+    }
+    function setSaveBarLoading(loading: boolean) {
+      if (disposed) return;
+      const bar = $('svLoadingBar');
+      if (bar) bar.hidden = !loading;
+      const svBtn = $('sv') as HTMLButtonElement | null;
+      if (svBtn) {
+        svBtn.textContent = loading ? 'Menyimpan…' : 'Save Project';
+        svBtn.disabled = loading || !canModify();
+      }
+    }
+    function setHomeBarLoading(loading: boolean) {
+      if (disposed) return;
+      const bar = $('pjLoadingBar');
+      if (bar) bar.hidden = !loading;
+      const refBtn = $('pjRef') as HTMLButtonElement | null;
+      if (refBtn) {
+        refBtn.disabled = loading;
+        refBtn.textContent = loading ? 'Memuat…' : 'Segarkan';
+      }
     }
 
     /* ---- Home rendering ---- */
@@ -618,7 +650,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       });
       ($('up') as HTMLButtonElement).disabled = !L.n || !editable;
       ($('delsel') as HTMLButtonElement).disabled = !editable || !sel.some((i) => !!sl(i).img);
-      ($('sv') as HTMLButtonElement).disabled = !editable;
+      ($('sv') as HTMLButtonElement).disabled = !editable || Boolean(activeSavePromise);
       const shrBtn = $('shr') as HTMLButtonElement | null;
       if (shrBtn) {
         shrBtn.hidden = !proj.canManagePermissions;
@@ -1696,6 +1728,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           const targetId = targetProj.id;
 
           busy = 'Menyimpan ke server…';
+          setSaveBarLoading(true);
           status();
 
           try {
@@ -1745,15 +1778,20 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               busy = '';
               savedSig = sg;
               savedAt = nowT(savedTs);
+              setSaveBarLoading(false);
               status();
               if (manual && !trailingSaveRequested) {
                 toast('Project tersinkron ke server workspace.');
               }
             }
           } catch (err: any) {
-            const errMsg = err?.message || 'Gagal menyinkronkan project ke server.';
+            const errMsg = formatFotoweError(
+              err,
+              'Tidak dapat menyinkronkan project ke server. Periksa koneksi Anda lalu coba lagi.'
+            );
             if (!disposed) {
               busy = 'Gagal sinkron server';
+              setSaveBarLoading(false);
               status();
               toast(errMsg, 'err');
               safeSetTimeout(() => {
@@ -1769,6 +1807,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
       activeSavePromise = runSave().finally(() => {
         activeSavePromise = null;
+        setSaveBarLoading(false);
       });
       return activeSavePromise;
     }
@@ -1877,6 +1916,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         await activeSavePromise.catch(() => {});
       }
 
+      setHomeBarLoading(true);
       toast('Membuka project dari server…');
       try {
         const detail = await fotoweApi.getProjectDetail(id);
@@ -1899,11 +1939,18 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           toast(`${missingCount} foto pada project ini tidak dapat dimuat dari server.`, 'err');
         } else if (!hydrated.canEdit) {
           toast('Mode baca saja: Anda dapat melihat, export PNG/ZIP, dan mencetak project ini.');
+        } else {
+          toast('Project berhasil dibuka.');
         }
       } catch (err: any) {
         if (!disposed) {
-          toast(err?.message || 'Project tidak dapat dibuka dari server.', 'err');
+          toast(
+            formatFotoweError(err, 'Project tidak dapat dibuka dari server. Silakan coba lagi.'),
+            'err'
+          );
         }
+      } finally {
+        setHomeBarLoading(isLoadingList);
       }
     }
 
@@ -1925,7 +1972,10 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       } catch (err: any) {
         if (disposed) return;
         isLoadingList = false;
-        listError = err?.message || 'Gagal memuat project FOTOWE dari server.';
+        listError = formatFotoweError(
+          err,
+          'Tidak dapat terhubung ke server FOTOWE. Periksa koneksi internet Anda lalu coba lagi.'
+        );
       } finally {
         isRefreshingList = false;
         if (!disposed) renderProjects();
@@ -1938,39 +1988,56 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       const g = $('pl');
       const stateEl = $('pjState');
       g.innerHTML = '';
+      sec.hidden = false;
+      setHomeBarLoading(isLoadingList);
 
       if (isLoadingList && !plist.length) {
-        sec.hidden = false;
         stateEl.hidden = false;
-        stateEl.textContent = 'Memuat project shared workspace dari server…';
+        stateEl.className = 'pj-status-box';
+        stateEl.innerHTML = '<span>Memuat daftar project tersimpan dari server…</span>';
         return;
       }
 
       if (listError && !plist.length) {
-        sec.hidden = false;
         stateEl.hidden = false;
-        stateEl.textContent = listError;
+        stateEl.className = 'pj-status-box is-error';
+        stateEl.innerHTML = '';
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = listError;
         const retryBtn = document.createElement('button');
         retryBtn.type = 'button';
         retryBtn.className = 'b';
         retryBtn.textContent = 'Coba Lagi';
         retryBtn.onclick = () => refreshList({ silent: false });
-        g.appendChild(retryBtn);
+        stateEl.appendChild(msgSpan);
+        stateEl.appendChild(retryBtn);
         return;
       }
 
       if (!plist.length) {
-        sec.hidden = true;
-        stateEl.hidden = true;
+        stateEl.hidden = false;
+        stateEl.className = 'pj-status-box';
+        stateEl.innerHTML = '<span>Belum ada project tersimpan untuk akun ini</span>';
         return;
       }
 
-      sec.hidden = false;
       if (listError) {
         stateEl.hidden = false;
-        stateEl.textContent = `Gagal menyegarkan: ${listError}`;
+        stateEl.className = 'pj-status-box is-error';
+        stateEl.innerHTML = '';
+        const msgSpan = document.createElement('span');
+        msgSpan.textContent = `Gagal menyegarkan: ${listError}`;
+        const retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'b';
+        retryBtn.textContent = 'Coba Lagi';
+        retryBtn.onclick = () => refreshList({ silent: false });
+        stateEl.appendChild(msgSpan);
+        stateEl.appendChild(retryBtn);
       } else {
         stateEl.hidden = true;
+        stateEl.className = 'td';
+        stateEl.innerHTML = '';
       }
 
       plist.forEach((r) => {
@@ -2009,6 +2076,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               sub: `“${r.name}” beserta semua artboard dan fotonya akan dihapus permanen dari server workspace.`,
               okLabel: 'Hapus',
               ok: () => {
+                setHomeBarLoading(true);
                 fotoweApi
                   .deleteProject(r.id)
                   .then(() => {
@@ -2023,7 +2091,15 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
                     toast('Project berhasil dihapus dari semua perangkat.');
                   })
                   .catch((err: any) => {
-                    if (!disposed) toast(err?.message || 'Gagal menghapus project.', 'err');
+                    if (!disposed) {
+                      toast(
+                        formatFotoweError(err, 'Gagal menghapus project. Silakan coba lagi.'),
+                        'err'
+                      );
+                    }
+                  })
+                  .finally(() => {
+                    setHomeBarLoading(isLoadingList);
                   });
               },
             });
@@ -2270,6 +2346,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             });
           }
 
+          setSaveBarLoading(true);
           fotoweApi
             .updateProject({
               id: targetProj.id,
@@ -2283,7 +2360,15 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               toast('Izin akses project diperbarui.');
             })
             .catch((err: any) => {
-              if (!disposed) toast(err?.message || 'Gagal memperbarui izin akses.', 'err');
+              if (!disposed) {
+                toast(
+                  formatFotoweError(err, 'Gagal memperbarui izin akses. Silakan coba lagi.'),
+                  'err'
+                );
+              }
+            })
+            .finally(() => {
+              setSaveBarLoading(Boolean(activeSavePromise));
             });
         },
       });
@@ -2716,7 +2801,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             <div className="lbl">Ukuran foto</div>
             <div className="row" id="hs" />
           </div>
-          <div id="pj" hidden style={{ marginBottom: 28 }}>
+          <div id="pj" style={{ marginBottom: 28 }}>
             <div
               style={{
                 display: 'flex',
@@ -2737,6 +2822,14 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
               >
                 Segarkan
               </button>
+            </div>
+            <div
+              id="pjLoadingBar"
+              className="fotowe-loading-bar"
+              style={{ marginBottom: 10 }}
+              hidden
+            >
+              <i />
             </div>
             <div id="pjState" className="td" style={{ marginBottom: 10 }} hidden />
             <div className="grid" id="pl" />
@@ -2834,6 +2927,14 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
                   id="svs"
                   style={{ fontSize: 12, color: 'var(--mute)', fontWeight: 600 }}
                 />
+              </div>
+              <div
+                id="svLoadingBar"
+                className="fotowe-loading-bar"
+                style={{ marginTop: 8 }}
+                hidden
+              >
+                <i />
               </div>
               <dl className="info" id="inf" />
             </div>

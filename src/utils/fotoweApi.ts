@@ -1,4 +1,31 @@
-import { buildApiUrl, getStoredToken } from './api';
+import { buildApiUrl } from './api';
+import {
+  fetchWithTimeout,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  UPLOAD_REQUEST_TIMEOUT_MS,
+} from './apiCache';
+
+const FOTOWE_API_BASE = 'https://api-laporanwe.mkverse.my.id/api/fotowe';
+
+export const getActiveToken = (): string => {
+  try {
+    const raw =
+      localStorage.getItem('token') ||
+      localStorage.getItem('auth_token') ||
+      sessionStorage.getItem('token') ||
+      sessionStorage.getItem('auth_token') ||
+      localStorage.getItem('laporanwee_token') ||
+      sessionStorage.getItem('laporanwee_token') ||
+      '';
+    const clean = raw.trim();
+    if (!clean || clean === 'undefined' || clean === 'null' || clean === 'session-active-token') {
+      return '';
+    }
+    return clean;
+  } catch {
+    return '';
+  }
+};
 
 export interface FotowePermissionEntry {
   user_id?: number | null;
@@ -75,7 +102,7 @@ export interface UploadedFotowePhoto {
 }
 
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
-  const token = getStoredToken();
+  const token = getActiveToken();
   const headers: Record<string, string> = {
     Accept: 'application/json',
     ...extra,
@@ -86,60 +113,285 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
   return headers;
 }
 
-async function parseApiResponse<T>(res: Response): Promise<T> {
-  const text = await res.text();
-  let json: any = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = null;
+export function formatFotoweError(err: unknown, fallbackMessage: string): string {
+  const raw =
+    err instanceof Error
+      ? err.message
+      : typeof err === 'string'
+      ? err
+      : '';
+  const trimmed = raw.trim();
+  if (
+    !trimmed ||
+    /failed to fetch|load failed|networkerror|network request failed|fetch failed|the internet connection appears to be offline|aborted/i.test(
+      trimmed
+    )
+  ) {
+    return fallbackMessage;
+  }
+  return trimmed;
+}
+
+function normalizeAssetUrl(rawUrl?: string | null): string | null {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const clean = rawUrl.trim();
+  if (!clean) return null;
+  if (clean.startsWith('http://') || clean.startsWith('https://') || clean.startsWith('data:') || clean.startsWith('blob:')) {
+    return clean;
+  }
+  return `https://api-laporanwe.mkverse.my.id/${clean.replace(/^\/+/, '')}`;
+}
+
+function normalizeProjectSummary(raw: any): FotoweProjectSummary {
+  const artboardsArr = Array.isArray(raw?.artboards) ? raw.artboards : [];
+  let computedPhotos = 0;
+  if (artboardsArr.length > 0) {
+    for (const ab of artboardsArr) {
+      if (Array.isArray(ab?.slots)) {
+        for (const sl of ab.slots) {
+          if (sl && (sl.status === 'filled' || sl.photo_id || sl.photo_url)) {
+            computedPhotos++;
+          }
+        }
+      }
+    }
+  }
+  const savedRaw = raw?.saved ?? raw?.updated_at ?? raw?.created_at;
+  let savedTs = Date.now();
+  if (typeof savedRaw === 'number' && Number.isFinite(savedRaw)) {
+    savedTs = savedRaw > 1e12 ? savedRaw : savedRaw * 1000;
+  } else if (typeof savedRaw === 'string' && savedRaw.trim()) {
+    const parsed = Date.parse(savedRaw);
+    if (!Number.isNaN(parsed)) savedTs = parsed;
   }
 
-  if (!res.ok) {
-    const err = new Error(
-      (json && json.message) ||
-        `Server FOTOWE merespons HTTP ${res.status}. Pastikan endpoint /api/fotowe/ aktif.`
-    ) as Error & { status?: number };
-    err.status = res.status;
-    throw err;
+  const isOwner = raw?.is_owner !== undefined ? Boolean(raw.is_owner) : true;
+  const isAdmin = Boolean(raw?.is_admin);
+  const canEdit = raw?.can_edit !== undefined ? Boolean(raw.can_edit) : isOwner || isAdmin;
+  const canDelete = raw?.can_delete !== undefined ? Boolean(raw.can_delete) : isOwner || isAdmin;
+  const canManagePermissions =
+    raw?.can_manage_permissions !== undefined ? Boolean(raw.can_manage_permissions) : isOwner || isAdmin;
+  const accessRole: FotoweProjectSummary['access_role'] =
+    raw?.access_role || (isAdmin ? 'admin' : isOwner ? 'owner' : canEdit ? 'editor' : 'viewer');
+
+  return {
+    id: String(raw?.id ?? raw?.project_id ?? ''),
+    name: String(raw?.name ?? raw?.title ?? 'Project Tanpa Nama'),
+    dpi: Number(raw?.dpi) > 0 ? Number(raw.dpi) : 300,
+    color: raw?.color === 'gray' || raw?.color_mode === 'gray' ? 'gray' : 'rgb',
+    active: typeof raw?.active === 'number' ? raw.active : Number(raw?.active_artboard ?? 0) || 0,
+    n: typeof raw?.n === 'number' ? raw.n : artboardsArr.length || Number(raw?.artboard_count ?? 1) || 1,
+    photos: typeof raw?.photos === 'number' ? raw.photos : Number(raw?.photo_count ?? computedPhotos) || computedPhotos,
+    thumbnail_url: normalizeAssetUrl(raw?.thumbnail_url ?? raw?.thumbnail ?? null),
+    visibility: raw?.visibility === 'private' ? 'private' : 'workspace',
+    version: typeof raw?.version === 'number' ? raw.version : 1,
+    owner_user_id: Number(raw?.owner_user_id ?? raw?.user_id ?? 0) || 0,
+    owner_name: String(raw?.owner_name ?? raw?.user_name ?? 'Anda'),
+    owner_email: String(raw?.owner_email ?? raw?.user_email ?? ''),
+    is_owner: isOwner,
+    is_admin: isAdmin,
+    can_edit: canEdit,
+    can_delete: canDelete,
+    can_manage_permissions: canManagePermissions,
+    access_role: accessRole,
+    saved: savedTs,
+    updated_at: typeof raw?.updated_at === 'string' ? raw.updated_at : undefined,
+  };
+}
+
+function normalizeProjectDetail(raw: any): FotoweProjectDetail {
+  const summary = normalizeProjectSummary(raw);
+  const rawArtboards = Array.isArray(raw?.artboards)
+    ? raw.artboards
+    : Array.isArray(raw?.data?.artboards)
+    ? raw.data.artboards
+    : [];
+
+  const artboards: FotoweArtboardPayload[] = rawArtboards.map((b: any, abIdx: number) => ({
+    id: String(b?.id || `ab_${abIdx + 1}`),
+    name: String(b?.name || `Artboard ${abIdx + 1}`),
+    t: String(b?.t || b?.template || '4R'),
+    s: typeof b?.s === 'number' ? b.s : Number(b?.size_index ?? 1) || 1,
+    a: typeof b?.a === 'number' ? b.a : Number(b?.active_slot ?? 0) || 0,
+    thumbnail_url: normalizeAssetUrl(b?.thumbnail_url ?? null),
+    slots: Array.isArray(b?.slots)
+      ? b.slots.map((q: any, slotIdx: number) => ({
+          slot_index: typeof q?.slot_index === 'number' ? q.slot_index : slotIdx,
+          photo_id: q?.photo_id != null ? Number(q.photo_id) : null,
+          photo_url: normalizeAssetUrl(q?.photo_url ?? q?.file_url ?? null),
+          cors_url: normalizeAssetUrl(q?.cors_url ?? null),
+          thumb_url: normalizeAssetUrl(q?.thumb_url ?? q?.photo_url ?? null),
+          name: typeof q?.name === 'string' ? q.name : '',
+          file_size: Number(q?.file_size ?? 0) || 0,
+          z: typeof q?.z === 'number' ? q.z : 1,
+          ox: typeof q?.ox === 'number' ? q.ox : 0,
+          oy: typeof q?.oy === 'number' ? q.oy : 0,
+          status:
+            q?.status === 'filled' || q?.photo_id || q?.photo_url
+              ? 'filled'
+              : 'empty',
+        }))
+      : [],
+  }));
+
+  const permissions: FotowePermissionEntry[] = Array.isArray(raw?.permissions)
+    ? raw.permissions
+    : [];
+
+  return {
+    ...summary,
+    artboards,
+    permissions,
+  };
+}
+
+interface ParsedFallbackResult {
+  res: Response;
+  json: any;
+}
+
+async function fetchJsonWithFallback(
+  urls: string[],
+  initFactory: () => RequestInit,
+  timeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS
+): Promise<ParsedFallbackResult> {
+  let lastError: (Error & { status?: number }) | null = null;
+
+  for (let idx = 0; idx < urls.length; idx++) {
+    const url = urls[idx];
+    const hasNext = idx < urls.length - 1;
+
+    try {
+      const res = await fetchWithTimeout(url, initFactory(), timeoutMs);
+      const text = await res.text();
+      let json: any = null;
+      try {
+        json = text ? JSON.parse(text) : null;
+      } catch {
+        json = null;
+      }
+
+      // If endpoint path doesn't exist (404/405) or returned non-JSON error page, try fallback path
+      if (hasNext && (res.status === 404 || res.status === 405 || (!res.ok && json === null))) {
+        lastError = Object.assign(
+          new Error((json && json.message) || `Endpoint FOTOWE merespons HTTP ${res.status}.`),
+          { status: res.status }
+        );
+        continue;
+      }
+
+      if (!res.ok) {
+        const err = Object.assign(
+          new Error(
+            (json && typeof json.message === 'string' && json.message.trim()) ||
+              (res.status === 401
+                ? 'Sesi akun Anda telah berakhir. Silakan masuk kembali.'
+                : res.status === 403
+                ? 'Anda tidak memiliki izin untuk melakukan tindakan ini.'
+                : `Server FOTOWE merespons HTTP ${res.status}.`)
+          ),
+          { status: res.status }
+        );
+        throw err;
+      }
+
+      if (json && json.success === false) {
+        const err = Object.assign(
+          new Error(
+            (typeof json.message === 'string' && json.message.trim()) ||
+              'Permintaan ke server FOTOWE gagal.'
+          ),
+          { status: res.status }
+        );
+        throw err;
+      }
+
+      // Guard against unexpected HTML 200 fallback pages when another API path exists
+      if (json === null && text.trim().startsWith('<') && hasNext) {
+        lastError = new Error('Respons server FOTOWE tidak valid.');
+        continue;
+      }
+
+      return { res, json };
+    } catch (err: any) {
+      const isHttpAppError = typeof err?.status === 'number' && err.status !== 404 && err.status !== 405;
+      if (isHttpAppError) {
+        throw err;
+      }
+      lastError = err instanceof Error ? err : new Error('Tidak dapat terhubung ke server FOTOWE.');
+      if (!hasNext) {
+        throw new Error(
+          formatFotoweError(
+            lastError,
+            'Tidak dapat terhubung ke server FOTOWE. Periksa koneksi internet Anda lalu coba lagi.'
+          )
+        );
+      }
+    }
   }
 
-  if (!json || json.success !== true) {
-    const err = new Error(
-      (json && json.message) || 'Permintaan ke server FOTOWE gagal.'
-    ) as Error & { status?: number };
-    err.status = res.status;
-    throw err;
-  }
-
-  return json as T;
+  throw new Error(
+    formatFotoweError(
+      lastError,
+      'Tidak dapat terhubung ke server FOTOWE. Periksa koneksi internet Anda lalu coba lagi.'
+    )
+  );
 }
 
 export const fotoweApi = {
   async listProjects(): Promise<FotoweProjectSummary[]> {
-    const res = await fetch(buildApiUrl('/fotowe/projects/read.php'), {
-      method: 'GET',
-      cache: 'no-store',
-      headers: authHeaders(),
-    });
-    const json = await parseApiResponse<{ data?: FotoweProjectSummary[]; projects?: FotoweProjectSummary[] }>(res);
-    const list = Array.isArray(json.data)
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/read.php`,
+        `${FOTOWE_API_BASE}/read.php`,
+      ],
+      () => ({
+        method: 'GET',
+        cache: 'no-store',
+        headers: authHeaders(),
+      })
+    );
+
+    const rawList = Array.isArray(json)
+      ? json
+      : Array.isArray(json?.data)
       ? json.data
-      : Array.isArray(json.projects)
+      : Array.isArray(json?.projects)
       ? json.projects
+      : Array.isArray(json?.items)
+      ? json.items
       : [];
-    return list;
+
+    return rawList.map(normalizeProjectSummary).filter((p: FotoweProjectSummary) => Boolean(p.id));
   },
 
   async getProjectDetail(projectId: string): Promise<FotoweProjectDetail> {
-    const url = buildApiUrl(`/fotowe/projects/detail.php?id=${encodeURIComponent(projectId)}`);
-    const res = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-      headers: authHeaders(),
-    });
-    const json = await parseApiResponse<{ data: FotoweProjectDetail }>(res);
-    return json.data;
+    const encodedId = encodeURIComponent(projectId);
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/detail.php?id=${encodedId}`,
+        `${FOTOWE_API_BASE}/projects/read.php?id=${encodedId}`,
+        `${FOTOWE_API_BASE}/read.php?id=${encodedId}`,
+        `${FOTOWE_API_BASE}/detail.php?id=${encodedId}`,
+      ],
+      () => ({
+        method: 'GET',
+        cache: 'no-store',
+        headers: authHeaders(),
+      })
+    );
+
+    let candidate: any = json?.data ?? json?.project ?? json;
+    if (Array.isArray(candidate)) {
+      candidate =
+        candidate.find((item) => String(item?.id ?? item?.project_id) === String(projectId)) ??
+        candidate[0];
+    }
+    if (!candidate || typeof candidate !== 'object') {
+      throw new Error('Detail project tidak ditemukan di server.');
+    }
+
+    return normalizeProjectDetail(candidate);
   },
 
   async createProject(payload: {
@@ -154,13 +406,21 @@ export const fotoweApi = {
     artboards: FotoweArtboardPayload[];
     permissions?: FotowePermissionEntry[];
   }): Promise<FotoweProjectSummary> {
-    const res = await fetch(buildApiUrl('/fotowe/projects/create.php'), {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    });
-    const json = await parseApiResponse<{ data: FotoweProjectSummary }>(res);
-    return json.data;
+    const bodyStr = JSON.stringify(payload);
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/create.php`,
+        `${FOTOWE_API_BASE}/create.php`,
+      ],
+      () => ({
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: bodyStr,
+      })
+    );
+
+    const raw = json?.data ?? json?.project ?? { ...payload, id: json?.id ?? payload.id };
+    return normalizeProjectSummary(raw);
   },
 
   async updateProject(payload: {
@@ -175,45 +435,92 @@ export const fotoweApi = {
     artboards?: FotoweArtboardPayload[];
     permissions?: FotowePermissionEntry[];
   }): Promise<FotoweProjectSummary> {
-    const res = await fetch(buildApiUrl('/fotowe/projects/update.php'), {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify(payload),
-    });
-    const json = await parseApiResponse<{ data: FotoweProjectSummary }>(res);
-    return json.data;
+    const bodyStr = JSON.stringify(payload);
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/update.php`,
+        `${FOTOWE_API_BASE}/projects/create.php`,
+        `${FOTOWE_API_BASE}/update.php`,
+        `${FOTOWE_API_BASE}/create.php`,
+      ],
+      () => ({
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: bodyStr,
+      })
+    );
+
+    const raw = json?.data ?? json?.project ?? payload;
+    return normalizeProjectSummary(raw);
   },
 
   async deleteProject(projectId: string): Promise<void> {
-    const res = await fetch(buildApiUrl('/fotowe/projects/delete.php'), {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ id: projectId }),
-    });
-    await parseApiResponse<{ deleted_id?: string }>(res);
+    const bodyStr = JSON.stringify({ id: projectId, project_id: projectId });
+    await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/delete.php`,
+        `${FOTOWE_API_BASE}/delete.php`,
+      ],
+      () => ({
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: bodyStr,
+      })
+    );
   },
 
   async uploadPhoto(blob: Blob, fileName: string): Promise<UploadedFotowePhoto> {
-    const formData = new FormData();
     const cleanName = fileName && fileName.trim() ? fileName.trim() : 'foto.jpg';
-    formData.append('photo', blob, cleanName);
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/upload.php`,
+        `${FOTOWE_API_BASE}/upload.php`,
+      ],
+      () => {
+        const formData = new FormData();
+        formData.append('photo', blob, cleanName);
+        return {
+          method: 'POST',
+          headers: authHeaders(),
+          body: formData,
+        };
+      },
+      UPLOAD_REQUEST_TIMEOUT_MS
+    );
 
-    const res = await fetch(buildApiUrl('/fotowe/upload.php'), {
-      method: 'POST',
-      headers: authHeaders(),
-      body: formData,
-    });
-    const json = await parseApiResponse<{ data: UploadedFotowePhoto }>(res);
-    return json.data;
+    const raw = json?.data ?? json?.photo ?? json ?? {};
+    const fileUrl = normalizeAssetUrl(raw.file_url ?? raw.photo_url ?? raw.url) || '';
+    const corsUrl = normalizeAssetUrl(raw.cors_url ?? fileUrl) || fileUrl;
+    const thumbUrl = normalizeAssetUrl(raw.thumb_url ?? fileUrl) || fileUrl;
+
+    return {
+      photo_id: Number(raw.photo_id ?? raw.id ?? 0) || 0,
+      photo_key: String(raw.photo_key ?? ''),
+      original_name: String(raw.original_name ?? raw.name ?? cleanName),
+      file_url: fileUrl,
+      cors_url: corsUrl,
+      thumb_url: thumbUrl,
+      thumb_cors_url: normalizeAssetUrl(raw.thumb_cors_url) || undefined,
+      mime_type: String(raw.mime_type ?? blob.type ?? 'image/jpeg'),
+      file_size: Number(raw.file_size ?? blob.size) || blob.size,
+      width: Number(raw.width ?? 0) || 0,
+      height: Number(raw.height ?? 0) || 0,
+    };
   },
 
   async deletePhoto(photoId: number): Promise<void> {
-    const res = await fetch(buildApiUrl('/fotowe/delete.php'), {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ photo_id: photoId }),
-    });
-    await parseApiResponse(res);
+    const bodyStr = JSON.stringify({ photo_id: photoId, id: photoId });
+    await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/delete.php`,
+        `${FOTOWE_API_BASE}/projects/delete.php`,
+      ],
+      () => ({
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: bodyStr,
+      })
+    );
   },
 };
 
@@ -235,15 +542,19 @@ export async function fetchPhotoBlobCorsSafe(urls: {
     candidates.push(urls.photoUrl);
   }
 
+  const token = getActiveToken();
+
   for (const url of candidates) {
     const cached = remoteBlobCache.get(url);
     if (cached) return cached;
 
     try {
+      const isApiProxy = url.includes('/api/fotowe/');
       const res = await fetch(url, {
         method: 'GET',
         mode: 'cors',
         cache: 'force-cache',
+        headers: isApiProxy && token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (res.ok) {
         const blob = await res.blob();

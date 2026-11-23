@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, AlertCircle } from 'lucide-react';
 import { findAppBySlug } from '../data/appsRegistry';
-import { getStoredToken, profileService } from '../utils/api';
+import { profileService } from '../utils/api';
+import { getActiveToken } from '../utils/fotoweApi';
 import { AuthUser } from '../types';
 import { FotoweFullscreenView } from './FotoweFullscreenView';
 import '../styles/fotowe.css';
@@ -34,7 +35,7 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
   // Sync verified identity and validate token cleanly without iframe handshakes
   useEffect(() => {
     if (!app) return;
-    const token = getStoredToken();
+    const token = getActiveToken();
     if (!token) {
       onAddToast?.('Silakan masuk ke akun LaporanWe untuk membuka aplikasi.');
       onSessionExpired();
@@ -95,10 +96,15 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
     );
   }
 
+  const activeUserId = verifiedAccount?.id ?? currentUser?.id;
+  const activeUserEmail = verifiedAccount?.email ?? currentUser?.email;
+  const accountKey = String(activeUserId ?? activeUserEmail ?? 'anon');
+
   return (
     <FotoweFullscreenView
-      userId={verifiedAccount?.id ?? currentUser?.id}
-      userEmail={verifiedAccount?.email ?? currentUser?.email}
+      key={accountKey}
+      userId={activeUserId}
+      userEmail={activeUserEmail}
       onBackToHub={onBackToHub}
     />
   );
