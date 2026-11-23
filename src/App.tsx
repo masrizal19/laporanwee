@@ -1276,9 +1276,36 @@ export function App() {
   };
 
   const handleUpdateTask = async (updatedTask: Task): Promise<boolean> => {
-    // 1. Save previous state snapshots for reliable rollback if backend fails
+    // 1. Save previous status and snapshots for reliable rollback if server returns an error
+    const existingTask = tasks.find((t) => t.id === updatedTask.id);
+    const prevStatus = existingTask ? existingTask.col : updatedTask.col;
+    const prevProgress = existingTask ? existingTask.progress : updatedTask.progress;
     const previousTasks = [...tasks];
     const previousReports = [...reports];
+
+    // Check if this task is linked to a daily report
+    const linkedReportId =
+      updatedTask.report_id ||
+      (updatedTask.id.startsWith('report-')
+        ? updatedTask.id.replace('report-', '')
+        : undefined);
+
+    const rollbackTaskState = () => {
+      if (existingTask) {
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === updatedTask.id
+              ? { ...existingTask, col: prevStatus, progress: prevProgress }
+              : t
+          )
+        );
+      } else {
+        setTasks(previousTasks);
+      }
+      if (linkedReportId) {
+        setReports(previousReports);
+      }
+    };
 
     try {
       // 2. Compute canonical progress according to status rules
@@ -1288,22 +1315,13 @@ export function App() {
       );
       const taskWithSyncedProgress: Task = { ...updatedTask, progress: syncedProgress };
 
-      // 3. Optimistic UI update for tasks
+      // 3. Optimistic UI update so the card immediately moves to the new column
       setTasks((prev) =>
         prev.map((t) => (t.id === taskWithSyncedProgress.id ? taskWithSyncedProgress : t))
       );
 
-      // Check if this task is linked to a daily report (Rule 7: EDIT TASK - update data laporan terkait)
-      const linkedReportId =
-        taskWithSyncedProgress.report_id ||
-        (taskWithSyncedProgress.id.startsWith('report-')
-          ? taskWithSyncedProgress.id.replace('report-', '')
-          : undefined);
-
       if (linkedReportId) {
         const frontendStatus = taskColToReportStatus(taskWithSyncedProgress.col);
-
-        // Optimistically update report state
         setReports((prev) =>
           prev.map((r) => {
             if (String(r.id).trim() === String(linkedReportId).trim()) {
@@ -1320,7 +1338,7 @@ export function App() {
         );
       }
 
-      // 4. Send atomic update to backend API
+      // 4. Send controlled status update request to backend API
       const result = await taskService.updateTaskStatus({
         taskId: taskWithSyncedProgress.id,
         col: taskWithSyncedProgress.col,
@@ -1329,20 +1347,20 @@ export function App() {
       });
 
       if (!result.success) {
-        throw new Error(result.message || 'Gagal memperbarui status tugas di server backend.');
+        rollbackTaskState();
+        addToast(result.message || 'Gagal memperbarui status tugas');
+        return false;
       }
 
-      // 5. On success: refresh lists to ensure total consistency from MySQL database
-      await refreshTasksFromApi();
-      await refreshReportsFromApi(true);
-      await refreshAnalyticsFromApi();
+      // 5. On success: refresh lists silently in background without risking false rollback
+      void refreshTasksFromApi().catch(() => {});
+      void refreshReportsFromApi(true).catch(() => {});
+      void refreshAnalyticsFromApi().catch(() => {});
       return true;
     } catch (e: any) {
       console.error('API update task status error:', e);
-      // 6. On failure: ROLLBACK UI to previous state!
-      setTasks(previousTasks);
-      setReports(previousReports);
-      addToast(e?.message || 'Gagal memperbarui status tugas di database. Perubahan dibatalkan.');
+      rollbackTaskState();
+      addToast(e?.message || 'Gagal memperbarui status tugas');
       return false;
     }
   };

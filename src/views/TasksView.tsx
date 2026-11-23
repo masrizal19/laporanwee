@@ -337,20 +337,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
       progress: targetProgress,
     };
 
-    const statusLabel =
-      targetCol === 'done'
-        ? 'Selesai'
-        : targetCol === 'inprogress'
-        ? 'Sedang Dikerjakan'
-        : targetCol === 'review'
-        ? 'Dalam Review'
-        : 'To Do';
-
     isSubmittingDropRef.current = true;
     try {
       const ok = await onUpdateTask(updated);
       if (ok !== false) {
-        onAddToast(`Status tugas dan laporan kerja berhasil diperbarui ke "${statusLabel}".`);
+        onAddToast('Status tugas diperbarui');
       }
     } finally {
       isSubmittingDropRef.current = false;
@@ -361,10 +352,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
     e.preventDefault();
     e.stopPropagation();
 
-    // Accurately detect target column, prioritizing activeDropZone or colFromProp
-    let targetCol: TaskStatus = activeDropZone && ['todo', 'inprogress', 'review', 'done'].includes(activeDropZone)
-      ? activeDropZone
-      : colFromProp;
+    // Prioritize the exact column receiving the drop event
+    let targetCol: TaskStatus = colFromProp;
 
     try {
       if (e.clientX > 0 && e.clientY > 0) {

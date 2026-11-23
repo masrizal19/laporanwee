@@ -2240,71 +2240,63 @@ export const taskService = {
     progress?: number;
     reportId?: string | number;
   }): Promise<{ success: boolean; data?: any; message?: string }> => {
-    const backendStatus = mapFrontendTaskStatusToBackend(params.col);
-    const payload: Record<string, any> = {
+    const newStatus = mapFrontendTaskStatusToBackend(params.col);
+    const url = buildApiUrl('/tasks/update-status.php');
+    const token = getStoredToken();
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+
+    const payload = {
+      id: params.taskId,
       task_id: params.taskId,
-      status: backendStatus,
+      status: newStatus,
     };
-    if (params.progress !== undefined) {
-      payload.progress = params.progress;
-    }
-    if (params.reportId !== undefined) {
-      payload.daily_report_id = params.reportId;
-      payload.report_id = params.reportId;
-    }
 
-    // 1. Try dedicated endpoint /tasks/update-status.php
     try {
-      const res = await api.post('/tasks/update-status.php', payload);
-      if (res && res.success) {
-        return { success: true, data: res.data, message: res.message };
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(payload),
+        },
+        DEFAULT_REQUEST_TIMEOUT_MS
+      );
+
+      const json = await response.json().catch(() => null);
+
+      if (!response.ok || !json || json.success === false) {
+        const message =
+          json && typeof json.message === 'string' && json.message.trim()
+            ? json.message.trim()
+            : 'Gagal memperbarui status tugas';
+        return { success: false, message };
       }
+
+      invalidateCache('tasks');
+      invalidateCache('daily-reports');
+
+      return {
+        success: true,
+        data: json.data ?? {
+          id: params.taskId,
+          task_id: params.taskId,
+          status: newStatus,
+        },
+        message: json.message || 'Status tugas diperbarui',
+      };
     } catch (err: any) {
-      console.warn('/tasks/update-status.php not reachable or failed, using multi-endpoint sync fallback:', err?.message);
+      return {
+        success: false,
+        message:
+          err && typeof err.message === 'string' && err.message.trim()
+            ? err.message.trim()
+            : 'Gagal memperbarui status tugas',
+      };
     }
-
-    // 2. Fallback: update both /tasks/update.php and /daily-reports/update.php
-    let taskOk = true;
-    let reportOk = true;
-
-    const isSynthetic = String(params.taskId).startsWith('report-');
-    if (!isSynthetic) {
-      const taskRes = await api.post('/tasks/update.php', {
-        id: params.taskId,
-        status: backendStatus,
-        ...(params.progress !== undefined ? { progress: params.progress } : {}),
-        ...(params.reportId !== undefined ? { report_id: params.reportId } : {}),
-      }).catch((e) => {
-        console.warn('Update task error in fallback:', e);
-        return null;
-      });
-      taskOk = Boolean(taskRes && taskRes.success !== false);
-    }
-
-    const realReportId = params.reportId || (isSynthetic ? String(params.taskId).replace('report-', '') : undefined);
-    if (realReportId) {
-      const reportStatusBackend = taskColToBackendReportStatus(params.col);
-      const reportRes = await api.post('/daily-reports/update.php', {
-        id: realReportId,
-        status: reportStatusBackend,
-        ...(params.progress !== undefined ? { progress: params.progress } : {}),
-      }).catch((e) => {
-        console.warn('Update daily report error in fallback:', e);
-        return null;
-      });
-      reportOk = Boolean(reportRes && reportRes.success !== false);
-    }
-
-    const overallSuccess = isSynthetic ? reportOk : (taskOk && reportOk);
-    return {
-      success: overallSuccess,
-      data: {
-        task_id: params.taskId,
-        status: backendStatus,
-        progress: params.progress,
-        daily_report_id: realReportId,
-      },
-    };
   },
 
   deleteTask: async (id: string | number): Promise<boolean> => {
