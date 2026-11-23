@@ -27,67 +27,100 @@ try {
     $colorMode = $rawColor === 'gray' ? 'gray' : 'rgb';
     $activeAb = isset($input['active']) ? max(0, (int)$input['active']) : 0;
     $visibility = (isset($input['visibility']) && $input['visibility'] === 'private') ? 'private' : 'workspace';
-    $artboards = isset($input['artboards']) && is_array($input['artboards']) ? $input['artboards'] : [];
+    $artboards = isset($input['artboards']) && is_array($input['artboards'])
+        ? $input['artboards']
+        : (isset($input['pages']) && is_array($input['pages']) ? $input['pages'] : []);
     $permissions = isset($input['permissions']) && is_array($input['permissions']) ? $input['permissions'] : [];
+    $sharedEditors = isset($input['shared_editors']) && is_array($input['shared_editors']) ? $input['shared_editors'] : [];
 
-    // Check if ID already exists (idempotent migration guard)
+    // Check if ID already exists (upsert if authorized, otherwise generate new ID)
     $existStmt = $pdo->prepare("SELECT * FROM fotowe_projects WHERE id = :id LIMIT 1");
     $existStmt->execute(['id' => $projectId]);
     $existing = $existStmt->fetch();
+    $isUpsert = false;
     if ($existing) {
-        $isOwnerOrAdmin = fotoweIsAdmin($user)
-            || (int)$existing['owner_user_id'] === (int)$user['id']
-            || strtolower((string)$existing['owner_email']) === strtolower((string)$user['email']);
-        if (!$isOwnerOrAdmin) {
-            // Generate distinct ID so no collision with another user's project
+        $existingAccess = fotoweResolveAccess($pdo, $existing, $user);
+        if (!$existingAccess['can_edit']) {
+            // Generate distinct ID so no collision with another user's read-only project
             $projectId = 'ftw_' . bin2hex(random_bytes(8));
         } else {
-            response(true, 'Project sudah tersedia di server.', [
-                'data' => [
-                    'id' => $existing['id'],
-                    'name' => $existing['name'],
-                    'already_exists' => true,
-                    'version' => (int)$existing['version'],
-                ]
-            ], 200);
+            $isUpsert = true;
         }
     }
 
-    $thumbUrl = !empty($input['thumbnail_url']) ? (string)$input['thumbnail_url'] : null;
-    if (!empty($input['thumbnail_data'])) {
-        $savedCover = fotoweSaveBase64Cover($input['thumbnail_data'], $projectId);
+    $thumbUrl = !empty($input['thumbnail_url'])
+        ? (string)$input['thumbnail_url']
+        : ($isUpsert ? ($existing['thumbnail_url'] ?? null) : null);
+    $thumbDataInput = !empty($input['thumbnail_data'])
+        ? $input['thumbnail_data']
+        : (!empty($input['thumbnail']) ? $input['thumbnail'] : null);
+    if (!empty($thumbDataInput)) {
+        $savedCover = fotoweSaveBase64Cover($thumbDataInput, $projectId);
         if ($savedCover) {
             $thumbUrl = $savedCover;
         }
     }
 
-    $ownerId = (int)$user['id'];
-    $ownerName = trim((string)($user['full_name'] ?? ($user['name'] ?? $user['email'])));
-    $ownerEmail = trim((string)$user['email']);
+    $ownerId = $isUpsert ? (int)$existing['owner_user_id'] : (int)$user['id'];
+    $ownerName = $isUpsert
+        ? trim((string)($existing['owner_name'] ?? $existing['owner_email']))
+        : trim((string)($user['full_name'] ?? ($user['name'] ?? $user['email'])));
+    $ownerEmail = $isUpsert
+        ? trim((string)$existing['owner_email'])
+        : trim((string)$user['email']);
 
     $pdo->beginTransaction();
 
-    $insProj = $pdo->prepare("
-        INSERT INTO fotowe_projects
-            (id, name, dpi, color_mode, active_artboard, owner_user_id, owner_name, owner_email, thumbnail_url, visibility, version)
-        VALUES
-            (:id, :name, :dpi, :color_mode, :active_artboard, :owner_user_id, :owner_name, :owner_email, :thumbnail_url, :visibility, 1)
-    ");
-    $insProj->execute([
-        'id' => $projectId,
-        'name' => $name,
-        'dpi' => $dpi,
-        'color_mode' => $colorMode,
-        'active_artboard' => $activeAb,
-        'owner_user_id' => $ownerId,
-        'owner_name' => mb_substr($ownerName, 0, 160),
-        'owner_email' => mb_substr($ownerEmail, 0, 191),
-        'thumbnail_url' => $thumbUrl,
-        'visibility' => $visibility,
-    ]);
+    if ($isUpsert) {
+        $updProj = $pdo->prepare("
+            UPDATE fotowe_projects
+            SET name = :name,
+                dpi = :dpi,
+                color_mode = :color_mode,
+                active_artboard = :active_artboard,
+                thumbnail_url = :thumbnail_url,
+                visibility = :visibility,
+                version = version + 1,
+                updated_at = NOW()
+            WHERE id = :id
+        ");
+        $updProj->execute([
+            'name' => $name,
+            'dpi' => $dpi,
+            'color_mode' => $colorMode,
+            'active_artboard' => $activeAb,
+            'thumbnail_url' => $thumbUrl,
+            'visibility' => $visibility,
+            'id' => $projectId,
+        ]);
+
+        if (!empty($artboards)) {
+            $delAbs = $pdo->prepare("DELETE FROM fotowe_artboards WHERE project_id = :pid");
+            $delAbs->execute(['pid' => $projectId]);
+        }
+    } else {
+        $insProj = $pdo->prepare("
+            INSERT INTO fotowe_projects
+                (id, name, dpi, color_mode, active_artboard, owner_user_id, owner_name, owner_email, thumbnail_url, visibility, version)
+            VALUES
+                (:id, :name, :dpi, :color_mode, :active_artboard, :owner_user_id, :owner_name, :owner_email, :thumbnail_url, :visibility, 1)
+        ");
+        $insProj->execute([
+            'id' => $projectId,
+            'name' => $name,
+            'dpi' => $dpi,
+            'color_mode' => $colorMode,
+            'active_artboard' => $activeAb,
+            'owner_user_id' => $ownerId,
+            'owner_name' => mb_substr($ownerName, 0, 160),
+            'owner_email' => mb_substr($ownerEmail, 0, 191),
+            'thumbnail_url' => $thumbUrl,
+            'visibility' => $visibility,
+        ]);
+    }
 
     $allowedTemplates = ['2R', '3R', '4R', '5R', '6R', '8R', 'A4'];
-    if (empty($artboards)) {
+    if (empty($artboards) && !$isUpsert) {
         $artboards = [[
             'id' => fotoweNormalizeId('', 'ab_'),
             'name' => 'Artboard 1',
@@ -161,28 +194,82 @@ try {
         }
     }
 
-    if (!empty($permissions)) {
-        $insPerm = $pdo->prepare("
-            INSERT INTO fotowe_permissions (project_id, user_id, user_email, permission, granted_by)
-            VALUES (:pid, :uid, :email, :perm, :by)
-            ON DUPLICATE KEY UPDATE permission = VALUES(permission), user_id = VALUES(user_id)
-        ");
-        foreach ($permissions as $pr) {
-            if (!is_array($pr) || empty($pr['user_email'])) continue;
-            $pEmail = strtolower(trim((string)$pr['user_email']));
-            if ($pEmail === '' || $pEmail === strtolower($ownerEmail)) continue;
-            $permVal = (isset($pr['permission']) && $pr['permission'] === 'viewer') ? 'viewer' : 'editor';
-            $insPerm->execute([
-                'pid' => $projectId,
-                'uid' => !empty($pr['user_id']) ? (int)$pr['user_id'] : null,
-                'email' => mb_substr($pEmail, 0, 191),
-                'perm' => $permVal,
-                'by' => $ownerId,
-            ]);
+    $normalizedPermissions = [];
+    foreach ($permissions as $pr) {
+        if (!is_array($pr) || empty($pr['user_email'])) continue;
+        $pEmail = strtolower(trim((string)$pr['user_email']));
+        if ($pEmail === '' || $pEmail === strtolower($ownerEmail)) continue;
+        $permVal = (isset($pr['permission']) && $pr['permission'] === 'viewer') ? 'viewer' : 'editor';
+        $normalizedPermissions[$pEmail] = [
+            'user_id' => !empty($pr['user_id']) ? (int)$pr['user_id'] : null,
+            'user_email' => $pEmail,
+            'permission' => $permVal,
+        ];
+    }
+    foreach ($sharedEditors as $ed) {
+        if (is_numeric($ed)) {
+            $uStmt = $pdo->prepare("SELECT id, email FROM users WHERE id = :id LIMIT 1");
+            $uStmt->execute(['id' => (int)$ed]);
+            $uRow = $uStmt->fetch();
+            if ($uRow && !empty($uRow['email'])) {
+                $pEmail = strtolower(trim((string)$uRow['email']));
+                if ($pEmail !== '' && $pEmail !== strtolower($ownerEmail)) {
+                    $normalizedPermissions[$pEmail] = [
+                        'user_id' => (int)$uRow['id'],
+                        'user_email' => $pEmail,
+                        'permission' => 'editor',
+                    ];
+                }
+            }
+        } elseif (is_string($ed) && trim($ed) !== '') {
+            $pEmail = strtolower(trim($ed));
+            if ($pEmail !== strtolower($ownerEmail) && !isset($normalizedPermissions[$pEmail])) {
+                $uStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1");
+                $uStmt->execute(['email' => $pEmail]);
+                $uRow = $uStmt->fetch();
+                $normalizedPermissions[$pEmail] = [
+                    'user_id' => $uRow ? (int)$uRow['id'] : null,
+                    'user_email' => $pEmail,
+                    'permission' => 'editor',
+                ];
+            }
+        }
+    }
+
+    if (!$isUpsert || isset($input['permissions']) || isset($input['shared_editors'])) {
+        $canManage = !$isUpsert || (!empty($existingAccess) && $existingAccess['can_manage_permissions']);
+        if ($canManage) {
+            if ($isUpsert) {
+                $pdo->prepare("DELETE FROM fotowe_permissions WHERE project_id = :pid")->execute(['pid' => $projectId]);
+            }
+            if (!empty($normalizedPermissions)) {
+                $insPerm = $pdo->prepare("
+                    INSERT INTO fotowe_permissions (project_id, user_id, user_email, permission, granted_by)
+                    VALUES (:pid, :uid, :email, :perm, :by)
+                    ON DUPLICATE KEY UPDATE permission = VALUES(permission), user_id = VALUES(user_id)
+                ");
+                foreach ($normalizedPermissions as $pr) {
+                    $insPerm->execute([
+                        'pid' => $projectId,
+                        'uid' => $pr['user_id'],
+                        'email' => mb_substr($pr['user_email'], 0, 191),
+                        'perm' => $pr['permission'],
+                        'by' => (int)$user['id'],
+                    ]);
+                }
+            }
         }
     }
 
     $pdo->commit();
+
+    $versionOut = $isUpsert ? ((int)$existing['version'] + 1) : 1;
+    $isOwnerOut = !$isUpsert || (!empty($existingAccess) && $existingAccess['is_owner']);
+    $canDeleteOut = !$isUpsert || (!empty($existingAccess) && $existingAccess['can_delete']);
+    $canManageOut = !$isUpsert || (!empty($existingAccess) && $existingAccess['can_manage_permissions']);
+    $roleOut = !$isUpsert
+        ? (fotoweIsAdmin($user) ? 'admin' : 'owner')
+        : ($existingAccess['access_role'] ?? 'editor');
 
     response(true, 'Project FOTOWE berhasil disimpan ke server.', [
         'data' => [
@@ -192,18 +279,19 @@ try {
             'color' => $colorMode,
             'active' => $activeAb,
             'thumbnail_url' => $thumbUrl,
+            'visibility' => $visibility,
             'owner_user_id' => $ownerId,
             'owner_name' => $ownerName,
             'owner_email' => $ownerEmail,
-            'is_owner' => true,
+            'is_owner' => $isOwnerOut,
             'can_edit' => true,
-            'can_delete' => true,
-            'can_manage_permissions' => true,
-            'access_role' => fotoweIsAdmin($user) ? 'admin' : 'owner',
-            'version' => 1,
+            'can_delete' => $canDeleteOut,
+            'can_manage_permissions' => $canManageOut,
+            'access_role' => $roleOut,
+            'version' => $versionOut,
             'saved' => time() * 1000,
         ]
-    ], 201);
+    ], $isUpsert ? 200 : 201);
 } catch (Exception $e) {
     if ($pdo->inTransaction()) {
         $pdo->rollBack();

@@ -338,6 +338,37 @@ async function fetchJsonWithFallback(
   );
 }
 
+export interface FotoweSaveProjectPayload {
+  id: string | number;
+  name: string;
+  W: number;
+  H: number;
+  dpi: number;
+  unit: string;
+  bg: string;
+  visibility: 'workspace' | 'private';
+  shared_editors: Array<string | number>;
+  pp: Record<string, any>;
+  pages: FotoweArtboardPayload[];
+  thumbnail: string | null;
+  color: 'rgb' | 'gray';
+  active: number;
+  thumbnail_data?: string | null;
+  thumbnail_url?: string | null;
+  artboards: FotoweArtboardPayload[];
+  permissions?: FotowePermissionEntry[];
+  isRemotePersisted?: boolean;
+  isOwner?: boolean;
+}
+
+export interface FotoweUpdatePermissionsPayload {
+  id: string | number;
+  name: string;
+  visibility: 'workspace' | 'private';
+  shared_editors: Array<string | number>;
+  permissions?: FotowePermissionEntry[];
+}
+
 export const fotoweApi = {
   async listProjects(): Promise<FotoweProjectSummary[]> {
     const { json } = await fetchJsonWithFallback(
@@ -394,8 +425,84 @@ export const fotoweApi = {
     return normalizeProjectDetail(candidate);
   },
 
+  async saveProject(payload: FotoweSaveProjectPayload): Promise<FotoweProjectSummary> {
+    const { isRemotePersisted, isOwner, ...wirePayload } = payload;
+    const bodyStr = JSON.stringify(wirePayload);
+
+    // If a shared collaborator (non-owner) edits an existing server project, update in place via update.php
+    if (isRemotePersisted && isOwner === false && wirePayload.id && wirePayload.id !== 0) {
+      const { json } = await fetchJsonWithFallback(
+        [
+          `${FOTOWE_API_BASE}/projects/update.php`,
+          `${FOTOWE_API_BASE}/update.php`,
+          `${FOTOWE_API_BASE}/projects/create.php`,
+          `${FOTOWE_API_BASE}/create.php`,
+        ],
+        () => ({
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: bodyStr,
+        })
+      );
+      const raw = json?.data ?? json?.project ?? wirePayload;
+      return normalizeProjectSummary(raw);
+    }
+
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/create.php`,
+        `${FOTOWE_API_BASE}/create.php`,
+      ],
+      () => ({
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: bodyStr,
+      })
+    );
+
+    // If backend create.php reports project already exists without upserting, apply changes via update.php
+    if (json?.data?.already_exists === true && (json?.data?.id || wirePayload.id)) {
+      const targetId = json.data.id ?? wirePayload.id;
+      const updateBody = JSON.stringify({ ...wirePayload, id: targetId });
+      const updated = await fetchJsonWithFallback(
+        [
+          `${FOTOWE_API_BASE}/projects/update.php`,
+          `${FOTOWE_API_BASE}/update.php`,
+        ],
+        () => ({
+          method: 'POST',
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
+          body: updateBody,
+        })
+      );
+      const rawUpdated = updated.json?.data ?? updated.json?.project ?? { ...wirePayload, id: targetId };
+      return normalizeProjectSummary(rawUpdated);
+    }
+
+    const raw = json?.data ?? json?.project ?? { ...wirePayload, id: json?.id ?? wirePayload.id };
+    return normalizeProjectSummary(raw);
+  },
+
+  async updatePermissions(payload: FotoweUpdatePermissionsPayload): Promise<FotoweProjectSummary> {
+    const bodyStr = JSON.stringify(payload);
+    const { json } = await fetchJsonWithFallback(
+      [
+        `${FOTOWE_API_BASE}/projects/update.php`,
+        `${FOTOWE_API_BASE}/update.php`,
+      ],
+      () => ({
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: bodyStr,
+      })
+    );
+
+    const raw = json?.data ?? json?.project ?? payload;
+    return normalizeProjectSummary(raw);
+  },
+
   async createProject(payload: {
-    id?: string;
+    id?: string | number;
     name: string;
     dpi: number;
     color: 'rgb' | 'gray';
@@ -432,6 +539,7 @@ export const fotoweApi = {
     thumbnail_data?: string | null;
     thumbnail_url?: string | null;
     visibility?: 'workspace' | 'private';
+    shared_editors?: Array<string | number>;
     artboards?: FotoweArtboardPayload[];
     permissions?: FotowePermissionEntry[];
   }): Promise<FotoweProjectSummary> {

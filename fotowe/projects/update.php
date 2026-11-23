@@ -46,12 +46,19 @@ try {
 
     $oldThumbUrl = $project['thumbnail_url'];
     $thumbUrl = isset($input['thumbnail_url']) ? $input['thumbnail_url'] : $oldThumbUrl;
-    if (!empty($input['thumbnail_data'])) {
-        $savedCover = fotoweSaveBase64Cover($input['thumbnail_data'], $projectId);
+    $thumbDataInput = !empty($input['thumbnail_data'])
+        ? $input['thumbnail_data']
+        : (!empty($input['thumbnail']) ? $input['thumbnail'] : null);
+    if (!empty($thumbDataInput)) {
+        $savedCover = fotoweSaveBase64Cover($thumbDataInput, $projectId);
         if ($savedCover) {
             $thumbUrl = $savedCover;
         }
     }
+
+    $artboardsInput = isset($input['artboards']) && is_array($input['artboards'])
+        ? $input['artboards']
+        : (isset($input['pages']) && is_array($input['pages']) ? $input['pages'] : null);
 
     $pdo->beginTransaction();
 
@@ -77,7 +84,7 @@ try {
         'id' => $projectId,
     ]);
 
-    if (isset($input['artboards']) && is_array($input['artboards'])) {
+    if (is_array($artboardsInput)) {
         // Delete old artboards for this project (cascades fotowe_slots cleanly)
         $delAbs = $pdo->prepare("DELETE FROM fotowe_artboards WHERE project_id = :pid");
         $delAbs->execute(['pid' => $projectId]);
@@ -96,7 +103,7 @@ try {
                 (:artboard_id, :slot_index, :photo_id, :photo_url, :thumb_url, :photo_name, :file_size, :zoom, :offset_x, :offset_y, :status)
         ");
 
-        foreach ($input['artboards'] as $ord => $ab) {
+        foreach ($artboardsInput as $ord => $ab) {
             if (!is_array($ab)) continue;
             $rawAbId = !empty($ab['id']) ? (string)$ab['id'] : ('ab_' . $ord . '_' . bin2hex(random_bytes(4)));
             // Preserve prefixed ID if already scoped, otherwise namespace by projectId
@@ -150,7 +157,10 @@ try {
     }
 
     // Only Owner or Admin can modify collaborator permissions
-    if (isset($input['permissions']) && is_array($input['permissions'])) {
+    if (
+        (isset($input['permissions']) && is_array($input['permissions'])) ||
+        (isset($input['shared_editors']) && is_array($input['shared_editors']))
+    ) {
         if (!$access['can_manage_permissions']) {
             if ($pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -167,16 +177,60 @@ try {
             ON DUPLICATE KEY UPDATE permission = VALUES(permission), user_id = VALUES(user_id)
         ");
         $ownerEmailLower = strtolower(trim((string)$project['owner_email']));
-        foreach ($input['permissions'] as $pr) {
-            if (!is_array($pr) || empty($pr['user_email'])) continue;
-            $pEmail = strtolower(trim((string)$pr['user_email']));
-            if ($pEmail === '' || $pEmail === $ownerEmailLower) continue;
-            $permVal = (isset($pr['permission']) && $pr['permission'] === 'viewer') ? 'viewer' : 'editor';
+        $normalizedPermissions = [];
+
+        if (isset($input['permissions']) && is_array($input['permissions'])) {
+            foreach ($input['permissions'] as $pr) {
+                if (!is_array($pr) || empty($pr['user_email'])) continue;
+                $pEmail = strtolower(trim((string)$pr['user_email']));
+                if ($pEmail === '' || $pEmail === $ownerEmailLower) continue;
+                $permVal = (isset($pr['permission']) && $pr['permission'] === 'viewer') ? 'viewer' : 'editor';
+                $normalizedPermissions[$pEmail] = [
+                    'user_id' => !empty($pr['user_id']) ? (int)$pr['user_id'] : null,
+                    'user_email' => $pEmail,
+                    'permission' => $permVal,
+                ];
+            }
+        }
+
+        if (isset($input['shared_editors']) && is_array($input['shared_editors'])) {
+            foreach ($input['shared_editors'] as $ed) {
+                if (is_numeric($ed)) {
+                    $uStmt = $pdo->prepare("SELECT id, email FROM users WHERE id = :id LIMIT 1");
+                    $uStmt->execute(['id' => (int)$ed]);
+                    $uRow = $uStmt->fetch();
+                    if ($uRow && !empty($uRow['email'])) {
+                        $pEmail = strtolower(trim((string)$uRow['email']));
+                        if ($pEmail !== '' && $pEmail !== $ownerEmailLower) {
+                            $normalizedPermissions[$pEmail] = [
+                                'user_id' => (int)$uRow['id'],
+                                'user_email' => $pEmail,
+                                'permission' => 'editor',
+                            ];
+                        }
+                    }
+                } elseif (is_string($ed) && trim($ed) !== '') {
+                    $pEmail = strtolower(trim($ed));
+                    if ($pEmail !== $ownerEmailLower && !isset($normalizedPermissions[$pEmail])) {
+                        $uStmt = $pdo->prepare("SELECT id FROM users WHERE LOWER(email) = :email LIMIT 1");
+                        $uStmt->execute(['email' => $pEmail]);
+                        $uRow = $uStmt->fetch();
+                        $normalizedPermissions[$pEmail] = [
+                            'user_id' => $uRow ? (int)$uRow['id'] : null,
+                            'user_email' => $pEmail,
+                            'permission' => 'editor',
+                        ];
+                    }
+                }
+            }
+        }
+
+        foreach ($normalizedPermissions as $pr) {
             $insPerm->execute([
                 'pid' => $projectId,
-                'uid' => !empty($pr['user_id']) ? (int)$pr['user_id'] : null,
-                'email' => mb_substr($pEmail, 0, 191),
-                'perm' => $permVal,
+                'uid' => $pr['user_id'],
+                'email' => mb_substr($pr['user_email'], 0, 191),
+                'perm' => $pr['permission'],
                 'by' => (int)$user['id'],
             ]);
         }

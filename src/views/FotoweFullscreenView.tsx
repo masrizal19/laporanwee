@@ -1547,9 +1547,9 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         (autoT
           ? 'Menyimpan ke server…'
           : savedSig === null
-          ? 'Belum tersinkron'
+          ? 'Belum tersimpan'
           : savedSig === sig()
-          ? `Tersinkron ${savedAt}`
+          ? 'Tersimpan'
           : 'Ada perubahan belum disimpan');
     }
 
@@ -1709,25 +1709,33 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       });
     }
 
-    function saveProject(manual: boolean): Promise<void> {
-      if (!proj || !proj.canEdit) return Promise.resolve();
+    function getActiveProjectId(target: ProjectData | null): string | number {
+      if (!target || !target.isRemotePersisted) return 0;
+      const cleanId = String(target.id || '').trim();
+      if (!cleanId || cleanId === '0') return 0;
+      return cleanId;
+    }
+
+    function saveProject(manual: boolean, opts?: { suppressToast?: boolean }): Promise<boolean> {
+      if (!proj || !proj.canEdit) return Promise.resolve(false);
       safeClearTimeout(autoT);
       autoT = 0;
 
       if (activeSavePromise) {
         trailingSaveRequested = true;
-        return activeSavePromise;
+        return activeSavePromise.then(() => Boolean(proj && proj.isRemotePersisted));
       }
 
       const targetProj = proj;
+      let lastSucceeded = false;
       const runSave = async () => {
         do {
           trailingSaveRequested = false;
           syncAb();
           const sg = sig();
-          const targetId = targetProj.id;
+          const prevLocalId = targetProj.id;
 
-          busy = 'Menyimpan ke server…';
+          busy = 'Menyimpan…';
           setSaveBarLoading(true);
           status();
 
@@ -1735,32 +1743,51 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
             await ensureAllSlotsUploaded(targetProj);
             const coverData = generateCoverThumbnail(targetProj);
             const artboardsPayload = serializeArtboards(targetProj);
+            const activeAb = targetProj.artboards[targetProj.active] || targetProj.artboards[0];
+            const activePaper = P[activeAb?.t || '4R'] || P['4R'];
+            const widthPx = Math.round((activePaper.w * targetProj.dpi) / 25.4);
+            const heightPx = Math.round((activePaper.h * targetProj.dpi) / 25.4);
+            const selectedEditors = (targetProj.permissions || [])
+              .filter((p) => p.permission === 'editor' && p.user_email)
+              .map((p) => p.user_email.toLowerCase());
 
-            let resSummary: FotoweProjectSummary;
-            if (!targetProj.isRemotePersisted) {
-              resSummary = await fotoweApi.createProject({
-                id: targetProj.id,
-                name: targetProj.name,
-                dpi: targetProj.dpi,
+            const activeProjectId = getActiveProjectId(targetProj);
+
+            const resSummary = await fotoweApi.saveProject({
+              id: activeProjectId || 0,
+              name: targetProj.name,
+              W: widthPx,
+              H: heightPx,
+              dpi: targetProj.dpi,
+              unit: 'mm',
+              bg: '#ffffff',
+              visibility: targetProj.visibility,
+              shared_editors: selectedEditors,
+              pp: {
+                template: activeAb?.t || '4R',
+                sizeIndex: activeAb?.s ?? 1,
+                photoSize: S[activeAb?.s ?? 1]?.l || '3 × 4 cm',
+                activeSlot: activeAb?.a ?? 0,
                 color: targetProj.color,
-                active: targetProj.active,
-                thumbnail_data: coverData,
-                visibility: targetProj.visibility,
-                artboards: artboardsPayload,
-              });
-              targetProj.isRemotePersisted = true;
-            } else {
-              resSummary = await fotoweApi.updateProject({
-                id: targetProj.id,
-                name: targetProj.name,
                 dpi: targetProj.dpi,
-                color: targetProj.color,
-                active: targetProj.active,
-                thumbnail_data: coverData,
-                visibility: targetProj.visibility,
-                artboards: artboardsPayload,
-              });
+              },
+              pages: artboardsPayload,
+              thumbnail: coverData,
+              color: targetProj.color,
+              active: targetProj.active,
+              thumbnail_data: coverData,
+              artboards: artboardsPayload,
+              permissions: targetProj.permissions || [],
+              isRemotePersisted: targetProj.isRemotePersisted,
+              isOwner: targetProj.isOwner,
+            });
+
+            const persistedId = String(resSummary.id || prevLocalId);
+            if (persistedId && persistedId !== prevLocalId) {
+              plist = plist.filter((item) => item.id !== prevLocalId);
+              targetProj.id = persistedId;
             }
+            targetProj.isRemotePersisted = true;
 
             if (resSummary.thumbnail_url) {
               targetProj.thumbnailUrl = resSummary.thumbnail_url;
@@ -1773,33 +1800,29 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
 
             const mergedSummary = buildSummaryFromProj(targetProj, savedTs, resSummary);
             upsertSummary(mergedSummary);
+            lastSucceeded = true;
 
-            if (!disposed && proj && proj.id === targetId) {
+            if (!disposed && proj && proj.id === targetProj.id) {
               busy = '';
               savedSig = sg;
               savedAt = nowT(savedTs);
               setSaveBarLoading(false);
               status();
-              if (manual && !trailingSaveRequested) {
-                toast('Project tersinkron ke server workspace.');
+              if (manual && !opts?.suppressToast && !trailingSaveRequested) {
+                toast('Project tersimpan.');
               }
             }
           } catch (err: any) {
+            lastSucceeded = false;
             const errMsg = formatFotoweError(
               err,
-              'Tidak dapat menyinkronkan project ke server. Periksa koneksi Anda lalu coba lagi.'
+              'Gagal menyimpan project ke server. Periksa koneksi Anda lalu coba lagi.'
             );
             if (!disposed) {
-              busy = 'Gagal sinkron server';
+              busy = '';
               setSaveBarLoading(false);
               status();
               toast(errMsg, 'err');
-              safeSetTimeout(() => {
-                if (busy === 'Gagal sinkron server') {
-                  busy = '';
-                  status();
-                }
-              }, 3000);
             }
           }
         } while (trailingSaveRequested && !disposed && proj && proj.id === targetProj.id && proj.canEdit);
@@ -1809,7 +1832,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         activeSavePromise = null;
         setSaveBarLoading(false);
       });
-      return activeSavePromise;
+      return activeSavePromise.then(() => lastSucceeded);
     }
 
     async function hydrateServerDetail(detail: FotoweProjectDetail): Promise<{ project: ProjectData; missingCount: number }> {
@@ -2302,6 +2325,12 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
       }
       const targetProj = proj;
       let selectedVisibility: 'workspace' | 'private' = targetProj.visibility;
+      const uidByEmail = new Map<string, number | null>();
+      (targetProj.permissions || []).forEach((p) => {
+        if (p.user_email) {
+          uidByEmail.set(p.user_email.toLowerCase(), p.user_id ?? null);
+        }
+      });
       const editorEmails = new Set<string>(
         (targetProj.permissions || [])
           .filter((p) => p.permission === 'editor')
@@ -2330,34 +2359,58 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
           }
         },
         ok: () => {
-          const nextPermissions: FotowePermissionEntry[] = [];
           const listEl = ov.querySelector('#permBox');
           if (listEl) {
             listEl.querySelectorAll<HTMLButtonElement>('[data-email]').forEach((btn) => {
               const email = (btn.dataset.email || '').toLowerCase();
               const uidAttr = btn.dataset.uid ? Number(btn.dataset.uid) : null;
-              if (email && editorEmails.has(email)) {
-                nextPermissions.push({
-                  user_id: uidAttr,
-                  user_email: email,
-                  permission: 'editor',
-                });
+              if (email && uidAttr) {
+                uidByEmail.set(email, uidAttr);
               }
             });
           }
 
+          const selectedEditors = Array.from(editorEmails).filter(Boolean);
+          const nextPermissions: FotowePermissionEntry[] = selectedEditors.map((email) => ({
+            user_id: uidByEmail.get(email) ?? null,
+            user_email: email,
+            permission: 'editor',
+          }));
+
+          targetProj.visibility = selectedVisibility;
+          targetProj.permissions = nextPermissions;
+
+          const activeProjectId = getActiveProjectId(targetProj);
           setSaveBarLoading(true);
+
+          if (!activeProjectId) {
+            // Project belum tersimpan ke server: jalankan Save Project terlebih dahulu beserta izin aksesnya
+            saveProject(false, { suppressToast: true })
+              .then((savedOk) => {
+                if (disposed) return;
+                if (savedOk && getActiveProjectId(targetProj)) {
+                  toast('Izin akses workspace berhasil disimpan');
+                }
+              })
+              .finally(() => {
+                setSaveBarLoading(Boolean(activeSavePromise));
+              });
+            return;
+          }
+
           fotoweApi
-            .updateProject({
-              id: targetProj.id,
+            .updatePermissions({
+              id: activeProjectId,
+              name: targetProj.name,
               visibility: selectedVisibility,
+              shared_editors: selectedEditors,
               permissions: nextPermissions,
             })
             .then(() => {
               if (disposed) return;
-              targetProj.visibility = selectedVisibility;
-              targetProj.permissions = nextPermissions;
-              toast('Izin akses project diperbarui.');
+              const mergedSummary = buildSummaryFromProj(targetProj, Date.now());
+              upsertSummary(mergedSummary);
+              toast('Izin akses workspace berhasil disimpan');
             })
             .catch((err: any) => {
               if (!disposed) {
@@ -2390,6 +2443,7 @@ export const FotoweFullscreenView: React.FC<FotoweFullscreenViewProps> = ({
         others.forEach((m) => {
           const emailVal = String(m.email || '').trim();
           const emailLower = emailVal.toLowerCase();
+          if (m.id) uidByEmail.set(emailLower, Number(m.id));
           const row = document.createElement('div');
           row.className = 'perm-item';
           row.innerHTML =
