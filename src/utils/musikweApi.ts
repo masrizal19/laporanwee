@@ -129,6 +129,7 @@ export interface MusikweRadioState {
   duration: number;
   is_playing: boolean;
   position_sec: number;
+  auto_play_queue?: boolean;
   updated_at?: number;
 }
 
@@ -721,14 +722,38 @@ export const musikweApi = {
     const raw =
       json?.radio_state ??
       json?.data?.radio_state ??
-      (json?.data && typeof json.data === 'object' && json.data.title ? json.data : null) ??
-      (json && typeof json === 'object' && json.title ? json : null);
+      (json?.data && typeof json.data === 'object' ? json.data : null) ??
+      (json && typeof json === 'object' ? json : null);
 
     if (!raw || typeof raw !== 'object') return null;
 
+    const rawAutoPlay =
+      raw?.auto_play_queue ?? json?.auto_play_queue ?? json?.data?.auto_play_queue;
+    const auto_play_queue =
+      rawAutoPlay === undefined || rawAutoPlay === null
+        ? true
+        : rawAutoPlay === true ||
+          rawAutoPlay === 1 ||
+          rawAutoPlay === '1' ||
+          rawAutoPlay === 'true';
+
     const title = String(raw?.title ?? raw?.t ?? '').trim();
     if (!title) {
-      return null;
+      if (rawAutoPlay === undefined && rawAutoPlay === null) {
+        return null;
+      }
+      return {
+        track_id: 0,
+        title: '',
+        artist: '',
+        cover_url: '',
+        audio_url: '',
+        youtube_id: '',
+        duration: 200,
+        is_playing: false,
+        position_sec: 0,
+        auto_play_queue,
+      };
     }
 
     const audioUrl = String(raw?.audio_url ?? raw?.url ?? '').trim();
@@ -757,6 +782,7 @@ export const musikweApi = {
         raw?.is_playing === '1' ||
         raw?.is_playing === 'true',
       position_sec,
+      auto_play_queue,
       updated_at: raw?.updated_at ? normalizeTimestamp(raw.updated_at) : undefined,
     };
   },
@@ -765,28 +791,64 @@ export const musikweApi = {
     payload: Omit<MusikweRadioState, 'updated_at'>,
     auth?: { userEmail?: string }
   ): Promise<{ success: boolean; message?: string }> {
+    const body: Record<string, any> = {
+      track_id: payload.track_id || 0,
+      title: payload.title,
+      artist: payload.artist,
+      cover_url: payload.cover_url || '',
+      audio_url: payload.audio_url || '',
+      youtube_id: payload.youtube_id || '',
+      duration: Math.max(15, Math.round(payload.duration || 200)),
+      is_playing: Boolean(payload.is_playing),
+      position_sec: Math.max(0, Number((payload.position_sec || 0).toFixed(2))),
+    };
+    if (typeof payload.auto_play_queue === 'boolean') {
+      body.auto_play_queue = payload.auto_play_queue;
+    }
     const res = await fetchWithTimeout(
       `${MUSIKWE_API_BASE}/radio-state.php`,
       {
         method: 'POST',
         headers: buildHeaders(true, auth),
-        body: JSON.stringify({
-          track_id: payload.track_id || 0,
-          title: payload.title,
-          artist: payload.artist,
-          cover_url: payload.cover_url || '',
-          audio_url: payload.audio_url || '',
-          youtube_id: payload.youtube_id || '',
-          duration: Math.max(15, Math.round(payload.duration || 200)),
-          is_playing: Boolean(payload.is_playing),
-          position_sec: Math.max(0, Number((payload.position_sec || 0).toFixed(2))),
-        }),
+        body: JSON.stringify(body),
       },
       DEFAULT_REQUEST_TIMEOUT_MS
     );
     const json = await parseApiJson(res);
     return {
       success: Boolean(json?.success ?? res.ok),
+      message: json?.message,
+    };
+  },
+
+  async toggleAutoplayQueue(
+    autoPlayQueue: boolean,
+    auth?: { userEmail?: string }
+  ): Promise<{ success: boolean; auto_play_queue: boolean; message?: string }> {
+    const res = await fetchWithTimeout(
+      `${MUSIKWE_API_BASE}/radio-state.php`,
+      {
+        method: 'POST',
+        headers: buildHeaders(true, auth),
+        body: JSON.stringify({
+          action: 'toggle_autoplay',
+          auto_play_queue: Boolean(autoPlayQueue),
+        }),
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+    const json = await parseApiJson(res);
+    const rawVal =
+      json?.auto_play_queue ??
+      json?.data?.auto_play_queue ??
+      json?.radio_state?.auto_play_queue;
+    const resolvedVal =
+      rawVal === undefined || rawVal === null
+        ? Boolean(autoPlayQueue)
+        : rawVal === true || rawVal === 1 || rawVal === '1' || rawVal === 'true';
+    return {
+      success: Boolean(json?.success ?? res.ok),
+      auto_play_queue: resolvedVal,
       message: json?.message,
     };
   },

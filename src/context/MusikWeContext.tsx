@@ -59,6 +59,7 @@ interface PersistedMusikweSnapshot {
   shuffle?: boolean;
   playerActivated?: boolean;
   miniPlayerDismissed?: boolean;
+  autoPlayQueue?: boolean;
   savedAt?: number;
 }
 
@@ -150,12 +151,15 @@ export interface MusikWeContextValue {
   miniPlayerDismissed: boolean;
   setMiniPlayerDismissed: React.Dispatch<React.SetStateAction<boolean>>;
 
-  // Live broadcast sync state
+  // Live broadcast & auto-play queue state
   radioState: MusikweRadioState | null;
   isLiveBroadcastActive: boolean;
   isMuted: boolean;
   autoplayBlocked: boolean;
+  autoPlayQueue: boolean;
+  activeRequestId: number | null;
   toggleMute: () => void;
+  toggleAutoPlayQueue: () => Promise<void>;
   joinLiveAudio: () => void;
   dismissMiniPlayer: () => void;
 
@@ -182,6 +186,7 @@ export interface MusikWeContextValue {
     item: ExternalItunesItem | ExternalYoutubeItem,
     key?: string
   ) => Promise<void>;
+  skipToRequest: (rq: MusikweRequest) => Promise<void>;
   togglePlayPause: () => void;
   nextTrack: () => Promise<void>;
   prevTrack: () => void;
@@ -312,10 +317,16 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     Boolean(initialSnapshot.miniPlayerDismissed)
   );
 
-  // Live broadcast sync states
+  // Live broadcast & auto-play queue states
   const [radioState, setRadioState] = useState<MusikweRadioState | null>(null);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+  const [autoPlayQueue, setAutoPlayQueue] = useState<boolean>(() =>
+    typeof initialSnapshot.autoPlayQueue === 'boolean'
+      ? initialSnapshot.autoPlayQueue
+      : true
+  );
+  const [activeRequestId, setActiveRequestId] = useState<number | null>(null);
 
   const [loadingCount, setLoadingCount] = useState<number>(0);
   const [resolvingExtKey, setResolvingExtKey] = useState<string | null>(null);
@@ -516,6 +527,13 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   catalogTracksRef.current = catalogTracks;
   const tracksRef = useRef<MusikweTrack[]>(tracks);
   tracksRef.current = tracks;
+  const autoPlayQueueRef = useRef<boolean>(autoPlayQueue);
+  autoPlayQueueRef.current = autoPlayQueue;
+  const activeRequestIdRef = useRef<number | null>(activeRequestId);
+  activeRequestIdRef.current = activeRequestId;
+  const sortedRequestsRef = useRef<MusikweRequest[]>(sortedRequests);
+  sortedRequestsRef.current = sortedRequests;
+  const trackEndHandledRef = useRef<boolean>(false);
   const joinLiveAudioRef = useRef<() => void>(() => {});
 
   // Detect any user gesture; if live broadcast was waiting for autoplay permission, unlock & play immediately
@@ -581,6 +599,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
             duration: track.d || 200,
             is_playing: playingState,
             position_sec: Math.max(0, positionSec),
+            auto_play_queue: autoPlayQueueRef.current,
           },
           authOptsRef.current
         )
@@ -704,6 +723,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       albums,
       playlists,
       requests,
+      requestHistory,
       logoUrl,
       currentTrackId,
       adHocTrack,
@@ -713,6 +733,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       shuffle,
       playerActivated,
       miniPlayerDismissed,
+      autoPlayQueue,
       savedAt: Date.now(),
     });
   }, [
@@ -721,6 +742,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     albums,
     playlists,
     requests,
+    requestHistory,
     logoUrl,
     currentTrackId,
     adHocTrack,
@@ -731,6 +753,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     shuffle,
     playerActivated,
     miniPlayerDismissed,
+    autoPlayQueue,
   ]);
 
   // Initialize persistent HTML5 Audio element once at root level
@@ -749,6 +772,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   const nextTrackRef = useRef<() => Promise<void>>(async () => {});
+  const handleTrackEndedRef = useRef<() => void>(() => {});
 
   const scheduleYtAutoplayCheck = useCallback(() => {
     if (ytAutoplayCheckRef.current !== null) {
@@ -894,9 +918,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
               }
               if (ev.data === endedState) {
-                if (isSuperAdminRef.current || !radioStateRef.current) {
-                  nextTrackRef.current();
-                }
+                handleTrackEndedRef.current();
               }
             },
           },
@@ -952,6 +974,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const shouldUnDismiss = options?.unDismiss ?? true;
       const safeStart = Math.max(0, startSec);
 
+      trackEndHandledRef.current = false;
       setPlayerActivated(true);
       if (shouldUnDismiss) {
         setMiniPlayerDismissed(false);
@@ -1196,6 +1219,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const seekInternal = useCallback((sec: number, broadcast: boolean) => {
     const tr = currentTrackRef.current;
     const clamped = Math.max(0, Math.min(tr.d || 200, sec));
+    if (clamped < Math.max(1, (tr.d || 200) - 3)) {
+      trackEndHandledRef.current = false;
+    }
     setProgress(clamped);
     const ytId = tr.youtube_id || extractYoutubeId(tr.url);
     if (ytId && ytPlayerRef.current && ytReadyRef.current) {
@@ -1223,29 +1249,120 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [seekInternal]
   );
 
-  const nextTrack = useCallback(async () => {
-    if (sortedRequests.length > 0) {
-      const topReq = sortedRequests[0];
-      showToast(`Memutar request ${topReq.by}`);
+  const markRequestPlayedById = useCallback(
+    (reqId: number) => {
+      if (!reqId) return;
+      setRequests((prev) => prev.filter((x) => x.id !== reqId));
       musikweApi
-        .postAction('update.php', { action: 'mark_played', id: topReq.id }, authOpts)
+        .postAction('update.php', { action: 'mark_played', id: reqId }, authOptsRef.current)
+        .then((res) => {
+          if (res.success) {
+            window.setTimeout(() => {
+              syncFromBackend('', true);
+            }, 350);
+          }
+        })
         .catch(() => {});
-      setRequests((prev) => prev.filter((x) => x.id !== topReq.id));
-      const resolvedTop = resolveRequestTrack(topReq);
-      if (resolvedTop.id > 0 && (tracks.some((t) => t.id === resolvedTop.id) || catalogTracks.some((t) => t.id === resolvedTop.id))) {
-        loadAndPlayTrack(resolvedTop.id, true);
-      } else {
-        playResolvedTrack(resolvedTop, true);
+    },
+    [syncFromBackend]
+  );
+
+  const playQueueRequestItem = useCallback(
+    async (rq: MusikweRequest): Promise<boolean> => {
+      let resolved = resolveRequestTrack(rq);
+      if (!resolved.url && !resolved.youtube_id) {
+        try {
+          const ytMatch = await musikweApi.searchYoutubeBestMatch(
+            resolved.t,
+            resolved.a,
+            authOptsRef.current
+          );
+          if (ytMatch.youtube_id) {
+            resolved = {
+              ...resolved,
+              youtube_id: ytMatch.youtube_id,
+              img: resolved.img || ytMatch.cover_url,
+              d: resolved.d || ytMatch.duration_sec || 200,
+            };
+          }
+        } catch {
+          // Keep going if YT lookup fails
+        }
       }
-      return;
+
+      if (!resolved.url && !resolved.youtube_id) {
+        showToast(`Sumber audio tidak ditemukan untuk "${resolved.t}".`);
+        return false;
+      }
+
+      activeRequestIdRef.current = rq.id;
+      setActiveRequestId(rq.id);
+      playResolvedTrack(resolved, true);
+      return true;
+    },
+    [resolveRequestTrack, playResolvedTrack, showToast]
+  );
+
+  const findCurrentlyPlayingRequest = useCallback((): MusikweRequest | undefined => {
+    const curList = sortedRequestsRef.current;
+    if (curList.length === 0) return undefined;
+    if (activeRequestIdRef.current) {
+      const byActive = curList.find((r) => r.id === activeRequestIdRef.current);
+      if (byActive) return byActive;
+    }
+    const cur = currentTrackRef.current;
+    if (!cur || cur.id === 0) return undefined;
+    const curYt = cur.youtube_id || extractYoutubeId(cur.url);
+    return curList.find((rq) => {
+      const resolved = resolveRequestTrack(rq);
+      if (cur.id > 0 && resolved.id === cur.id) return true;
+      if (curYt && resolved.youtube_id && resolved.youtube_id === curYt) return true;
+      return (
+        resolved.t.trim().toLowerCase() === cur.t.trim().toLowerCase() &&
+        resolved.a.trim().toLowerCase() === cur.a.trim().toLowerCase()
+      );
+    });
+  }, [resolveRequestTrack]);
+
+  const skipToRequest = useCallback(
+    async (rq: MusikweRequest) => {
+      const activeId = activeRequestIdRef.current;
+      if (activeId && activeId !== rq.id) {
+        markRequestPlayedById(activeId);
+      }
+      const tr = resolveRequestTrack(rq);
+      showToast(`Memutar sekarang: ${tr.t}`);
+      await playQueueRequestItem(rq);
+    },
+    [markRequestPlayedById, resolveRequestTrack, playQueueRequestItem, showToast]
+  );
+
+  const nextTrack = useCallback(async () => {
+    const finishedReq = findCurrentlyPlayingRequest();
+    let remainingRequests = sortedRequestsRef.current;
+    if (finishedReq) {
+      markRequestPlayedById(finishedReq.id);
+      activeRequestIdRef.current = null;
+      setActiveRequestId(null);
+      remainingRequests = remainingRequests.filter((x) => x.id !== finishedReq.id);
     }
 
-    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+    if (remainingRequests.length > 0) {
+      const topReq = remainingRequests[0];
+      const topTrack = resolveRequestTrack(topReq);
+      showToast(`Memutar request ${topReq.by}: ${topTrack.t}`);
+      const ok = await playQueueRequestItem(topReq);
+      if (ok) return;
+    }
+
+    const pool = catalogTracksRef.current.length > 0 ? catalogTracksRef.current : tracksRef.current;
     if (pool.length > 0) {
       const idx = pool.findIndex((t) => t.id === currentTrackId);
       const nextIdx = shuffle
         ? Math.floor(Math.random() * pool.length)
         : (idx + 1) % pool.length;
+      activeRequestIdRef.current = null;
+      setActiveRequestId(null);
       loadAndPlayTrack(pool[nextIdx].id, true);
       return;
     }
@@ -1256,20 +1373,70 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       broadcastRadioState(currentTrackRef.current, false, 0);
     }
   }, [
-    sortedRequests,
-    catalogTracks,
-    tracks,
+    findCurrentlyPlayingRequest,
+    markRequestPlayedById,
+    resolveRequestTrack,
+    playQueueRequestItem,
     currentTrackId,
     shuffle,
-    authOpts,
     loadAndPlayTrack,
-    playResolvedTrack,
-    resolveRequestTrack,
     showToast,
     broadcastRadioState,
   ]);
 
   nextTrackRef.current = nextTrack;
+
+  const handleTrackEnded = useCallback(() => {
+    if (trackEndHandledRef.current) return;
+    if (!isSuperAdminRef.current && radioStateRef.current) return;
+    trackEndHandledRef.current = true;
+
+    if (!autoPlayQueueRef.current) {
+      const finishedReq = findCurrentlyPlayingRequest();
+      if (finishedReq) {
+        markRequestPlayedById(finishedReq.id);
+        activeRequestIdRef.current = null;
+        setActiveRequestId(null);
+      }
+      setIsPlaying(false);
+      setProgress(0);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (ytPlayerRef.current && ytReadyRef.current) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch {
+          // ignore
+        }
+      }
+      if (isSuperAdminRef.current && currentTrackRef.current.id !== 0) {
+        broadcastRadioState(currentTrackRef.current, false, 0);
+        showToast('Auto-Play OFF: menunggu Admin putar lagu berikutnya.');
+      }
+      return;
+    }
+
+    nextTrackRef.current();
+  }, [findCurrentlyPlayingRequest, markRequestPlayedById, broadcastRadioState, showToast]);
+
+  handleTrackEndedRef.current = handleTrackEnded;
+
+  const toggleAutoPlayQueue = useCallback(async () => {
+    const next = !autoPlayQueueRef.current;
+    setAutoPlayQueue(next);
+    autoPlayQueueRef.current = next;
+    showToast(`Auto-Play Antrean: ${next ? 'ON' : 'OFF'}`);
+    try {
+      const res = await musikweApi.toggleAutoplayQueue(next, authOptsRef.current);
+      if (typeof res.auto_play_queue === 'boolean') {
+        setAutoPlayQueue(res.auto_play_queue);
+        autoPlayQueueRef.current = res.auto_play_queue;
+      }
+    } catch {
+      // Keep local toggle state if network is temporarily unreachable
+    }
+  }, [showToast]);
 
   const prevTrack = useCallback(() => {
     const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
@@ -1464,6 +1631,24 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     getAccuratePlaybackSeconds,
   ]);
 
+  // Fetch initial auto_play_queue state from radio-state.php for Admin on login/mount
+  useEffect(() => {
+    if (!isAuthenticated || !isSuperAdmin) return;
+    let cancelled = false;
+    musikweApi
+      .getRadioState(authOptsRef.current)
+      .then((remote) => {
+        if (!cancelled && remote && typeof remote.auto_play_queue === 'boolean') {
+          setAutoPlayQueue(remote.auto_play_queue);
+          autoPlayQueueRef.current = remote.auto_play_queue;
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, isSuperAdmin]);
+
   // Listener live polling every 2 seconds (2000ms) against GET .../radio-state.php?t=...
   const radioPollInFlightRef = useRef<boolean>(false);
   useEffect(() => {
@@ -1485,6 +1670,11 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const remote = await musikweApi.getRadioState(authOptsRef.current);
         if (cancelled) return;
+
+        if (remote && typeof remote.auto_play_queue === 'boolean') {
+          setAutoPlayQueue(remote.auto_play_queue);
+          autoPlayQueueRef.current = remote.auto_play_queue;
+        }
 
         if (!remote || !remote.title.trim()) {
           setRadioState(null);
@@ -1680,9 +1870,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const aud = audioRef.current;
     const onEnded = () => {
-      if (isSuperAdminRef.current || !radioStateRef.current) {
-        nextTrackRef.current();
-      }
+      handleTrackEndedRef.current();
     };
     aud?.addEventListener('ended', onEnded);
     return () => {
@@ -1696,12 +1884,17 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const timer = window.setInterval(() => {
       const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
       let nextPos: number | null = null;
+      let effectiveDur = currentTrack.d || 200;
 
       if (ytId && ytPlayerRef.current && ytReadyRef.current) {
         try {
           const ytTime = ytPlayerRef.current.getCurrentTime?.();
           if (typeof ytTime === 'number' && !Number.isNaN(ytTime)) {
             nextPos = ytTime;
+          }
+          const ytDur = ytPlayerRef.current.getDuration?.();
+          if (typeof ytDur === 'number' && Number.isFinite(ytDur) && ytDur > 5) {
+            effectiveDur = ytDur;
           }
         } catch {
           // fallback below
@@ -1712,17 +1905,19 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         !Number.isNaN(audioRef.current.currentTime)
       ) {
         nextPos = audioRef.current.currentTime;
+        if (Number.isFinite(audioRef.current.duration) && audioRef.current.duration > 5) {
+          effectiveDur = audioRef.current.duration;
+        }
       }
 
       setProgress((prev) => {
         const updated = nextPos !== null && nextPos > 0 ? nextPos : prev + 0.25;
-        const maxDur = currentTrack.d || 200;
-        if (updated >= maxDur) {
+        if (updated >= Math.max(5, effectiveDur - 1)) {
           if (isSuperAdminRef.current || !radioStateRef.current) {
-            window.setTimeout(() => nextTrackRef.current(), 0);
+            window.setTimeout(() => handleTrackEndedRef.current(), 0);
             return 0;
           }
-          return maxDur;
+          return effectiveDur;
         }
         return updated;
       });
@@ -1786,7 +1981,10 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isLiveBroadcastActive,
     isMuted,
     autoplayBlocked,
+    autoPlayQueue,
+    activeRequestId,
     toggleMute,
+    toggleAutoPlayQueue,
     joinLiveAudio,
     dismissMiniPlayer,
 
@@ -1806,6 +2004,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     playResolvedTrack,
     loadAndPlayTrack,
     playExternalItem,
+    skipToRequest,
     togglePlayPause,
     nextTrack,
     prevTrack,

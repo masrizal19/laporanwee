@@ -16,6 +16,7 @@ import {
   Play,
   Plus,
   Radio,
+  Repeat,
   Search,
   ShieldCheck,
   Shuffle,
@@ -141,6 +142,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     setMiniPlayerDismissed,
     isLiveBroadcastActive,
     autoplayBlocked,
+    autoPlayQueue,
+    activeRequestId,
+    toggleAutoPlayQueue,
     joinLiveAudio,
     loadingCount,
     beginLoading,
@@ -157,6 +161,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     playResolvedTrack,
     loadAndPlayTrack,
     playExternalItem: handlePlayExternalItem,
+    skipToRequest,
     togglePlayPause,
     nextTrack,
     prevTrack,
@@ -1901,7 +1906,29 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 </div>
               </div>
 
-              <h2 className="mw-h2">Antrean request</h2>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  marginBottom: 12,
+                }}
+              >
+                <h2 className="mw-h2" style={{ margin: 0 }}>
+                  Antrean request
+                </h2>
+                <button
+                  type="button"
+                  className={`mw-btn sm ${autoPlayQueue ? '' : 'g'}`}
+                  onClick={() => toggleAutoPlayQueue()}
+                  title="Aktifkan/matikan pemutaran otomatis antrean berikutnya"
+                >
+                  <Repeat size={13} />
+                  <span>Auto-Play: {autoPlayQueue ? 'ON' : 'OFF'}</span>
+                </button>
+              </div>
               {sortedRequests.length > 0 ? (
                 <table className="mw-table">
                   <thead>
@@ -1917,13 +1944,26 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     {sortedRequests.map((rq, idx) => {
                       const t = resolveRequestTrack(rq);
                       const hasVoted = rq.v.includes(who());
-                      const canDelete = isOwnRequest(rq.by, rq.user_email);
+                      const canModerate = isOwnRequest(rq.by, rq.user_email);
+                      const isActiveReq = activeRequestId === rq.id;
                       return (
                         <tr key={rq.id}>
                           <td>
                             <b className="mw-num">
                               {idx + 1}. {t.t}
                             </b>
+                            {isActiveReq && (
+                              <span
+                                className="mw-small"
+                                style={{
+                                  marginLeft: 8,
+                                  color: 'var(--mw-ac)',
+                                  fontWeight: 700,
+                                }}
+                              >
+                                Sedang diputar
+                              </span>
+                            )}
                             <div className="mw-mu mw-small">{t.a}</div>
                           </td>
                           <td>{rq.by}</td>
@@ -1939,16 +1979,33 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                             </button>
                           </td>
                           <td>
-                            {canDelete && (
-                              <button
-                                type="button"
-                                className="mw-ib"
-                                aria-label="Hapus request"
-                                title="Hapus request"
-                                onClick={() => handleDeleteRequest(rq.id, canDelete)}
+                            {canModerate && (
+                              <div
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                }}
                               >
-                                <X size={16} />
-                              </button>
+                                <button
+                                  type="button"
+                                  className="mw-ib"
+                                  aria-label="Lompati / Putar Sekarang"
+                                  title="Lompati / Putar Sekarang"
+                                  onClick={() => skipToRequest(rq)}
+                                >
+                                  <Play size={15} />
+                                </button>
+                                <button
+                                  type="button"
+                                  className="mw-ib"
+                                  aria-label="Hapus request"
+                                  title="Hapus request"
+                                  onClick={() => handleDeleteRequest(rq.id, canModerate)}
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
                             )}
                           </td>
                         </tr>
@@ -2559,37 +2616,45 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             </div>
           </div>
 
-          <h3>
-            <span>Antrean request</span>
-            <span className="mw-mu mw-small mw-num">{sortedRequests.length} lagu</span>
-          </h3>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              margin: '16px 0 10px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <h3 style={{ margin: 0 }}>
+              <span>Antrean request</span>
+            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="mw-mu mw-small mw-num">{sortedRequests.length} lagu</span>
+              <button
+                type="button"
+                className={`mw-btn sm ${autoPlayQueue ? '' : 'g'}`}
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => toggleAutoPlayQueue()}
+                title="Sakelar Auto-Play Antrean"
+              >
+                <Repeat size={12} />
+                <span>Auto-Play: {autoPlayQueue ? 'ON' : 'OFF'}</span>
+              </button>
+            </div>
+          </div>
 
           {sortedRequests.length > 0 ? (
             sortedRequests.map((rq) => {
               const tr = resolveRequestTrack(rq);
               const voted = rq.v.includes(who());
+              const canModerate = isOwnRequest(rq.by, rq.user_email);
+              const isActiveReq = activeRequestId === rq.id;
               return (
                 <div
                   key={rq.id}
-                  className="mw-row"
-                  onClick={() => {
-                    if (tr.url || tr.youtube_id) {
-                      playResolvedTrack(tr, true);
-                    } else {
-                      handlePlayExternalItem(
-                        {
-                          source: 'itunes',
-                          title: tr.t,
-                          artist: tr.a,
-                          album: tr.album_name || '',
-                          duration_sec: tr.d || 200,
-                          cover_url: tr.img || '',
-                          preview_url: '',
-                        },
-                        `queue_${rq.id}`
-                      );
-                    }
-                  }}
+                  className={`mw-row ${isActiveReq ? 'on' : ''}`}
+                  onClick={() => skipToRequest(rq)}
                 >
                   <CoverThumb track={tr} />
                   <div className="mw-i">
@@ -2598,18 +2663,44 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       oleh {rq.by} · {fmtAgo(rq.ts)}
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    className={`mw-vote mw-num ${voted ? 'me' : ''}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleVote(rq.id);
-                    }}
-                    aria-label="Beri suara"
+                  <div
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 2, flexShrink: 0 }}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <ThumbsUp size={12} />
-                    <span>{rq.v.length}</span>
-                  </button>
+                    <button
+                      type="button"
+                      className={`mw-vote mw-num ${voted ? 'me' : ''}`}
+                      onClick={() => handleToggleVote(rq.id)}
+                      aria-label="Beri suara"
+                    >
+                      <ThumbsUp size={12} />
+                      <span>{rq.v.length}</span>
+                    </button>
+                    {canModerate && (
+                      <>
+                        <button
+                          type="button"
+                          className="mw-ib"
+                          style={{ width: 26, height: 26 }}
+                          aria-label="Lompati / Putar Sekarang"
+                          title="Lompati / Putar Sekarang"
+                          onClick={() => skipToRequest(rq)}
+                        >
+                          <Play size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="mw-ib"
+                          style={{ width: 26, height: 26 }}
+                          aria-label="Hapus request"
+                          title="Hapus request"
+                          onClick={() => handleDeleteRequest(rq.id, canModerate)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
               );
             })
@@ -2719,6 +2810,17 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 title="Berikutnya"
               >
                 <SkipForward size={18} />
+              </button>
+              <button
+                type="button"
+                className={`mw-btn sm ${autoPlayQueue ? '' : 'g'}`}
+                style={{ padding: '4px 10px', fontSize: 11, marginLeft: 4 }}
+                onClick={() => toggleAutoPlayQueue()}
+                aria-label="Sakelar Auto-Play Antrean"
+                title="Auto-Play Antrean Request"
+              >
+                <Repeat size={12} />
+                <span>Auto-Play: {autoPlayQueue ? 'ON' : 'OFF'}</span>
               </button>
             </div>
           </div>
