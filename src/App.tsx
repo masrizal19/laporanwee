@@ -14,6 +14,8 @@ import {
 } from './types';
 import { Navbar } from './components/Navbar';
 import { ToastContainer } from './components/Toast';
+import { FloatingMusikweMiniPlayer } from './components/FloatingMusikweMiniPlayer';
+import { MusikWeProvider, useMusikWe } from './context/MusikWeContext';
 import { findAppBySlug, RegisteredApp } from './data/appsRegistry';
 import { isUserAdmin } from './utils/userUtils';
 import {
@@ -90,7 +92,9 @@ const ViewLoadingFallback: React.FC = () => (
   </div>
 );
 
-export function App() {
+function AppContent() {
+  const { setAuthContextUser } = useMusikWe();
+
   // 1. Session & Routing state
   const [user, setUser] = useState<AuthUser | null>(() => {
     try {
@@ -108,6 +112,15 @@ export function App() {
       return null;
     }
   });
+
+  // Sync current authenticated user with MusikWe global audio/catalog context
+  useEffect(() => {
+    setAuthContextUser({
+      email: user?.email || '',
+      name: user?.full_name || user?.name || '',
+      isAuthenticated: Boolean(user),
+    });
+  }, [user, setAuthContextUser]);
 
   // Verify active session on load with valid Bearer token
   useEffect(() => {
@@ -2114,16 +2127,27 @@ export function App() {
       }
     };
     return (
-      <Suspense fallback={<ViewLoadingFallback />}>
-        <AplikasiHostView
-          appSlug={slug}
-          currentUser={user}
-          onBackToHub={() => handleNavigate('aplikasi')}
-          onBackToPrevious={handleBackToPrevious}
-          onSessionExpired={handleLogout}
-          onAddToast={addToast}
-        />
-      </Suspense>
+      <>
+        <Suspense fallback={<ViewLoadingFallback />}>
+          <AplikasiHostView
+            appSlug={slug}
+            currentUser={user}
+            onBackToHub={() => handleNavigate('aplikasi')}
+            onBackToPrevious={handleBackToPrevious}
+            onSessionExpired={handleLogout}
+            onAddToast={addToast}
+          />
+        </Suspense>
+        {slug.toLowerCase() !== 'musikwe' && (
+          <FloatingMusikweMiniPlayer
+            onOpenMusikwe={() => {
+              setActiveAppSlug('Musikwe');
+              navigateToPath('/Aplikasi/Musikwe');
+              setCurrentView('aplikasi-detail');
+            }}
+          />
+        )}
+      </>
     );
   }
 
@@ -2395,9 +2419,26 @@ export function App() {
         </Suspense>
       )}
 
+      {/* Floating Mini-Player .MUSIKWE saat lagu berjalan di luar /Aplikasi/Musikwe */}
+      <FloatingMusikweMiniPlayer
+        onOpenMusikwe={() => {
+          setActiveAppSlug('Musikwe');
+          navigateToPath('/Aplikasi/Musikwe');
+          setCurrentView('aplikasi-detail');
+        }}
+      />
+
       {/* Global Toast Stack */}
       <ToastContainer toasts={toasts} />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <MusikWeProvider>
+      <AppContent />
+    </MusikWeProvider>
   );
 }
 

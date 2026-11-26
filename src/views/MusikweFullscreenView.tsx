@@ -31,33 +31,15 @@ import {
 import {
   ExternalItunesItem,
   ExternalYoutubeItem,
-  MusikweAlbum,
-  MusikweComment,
   MusikwePlaylist,
-  MusikweRequest,
   MusikweTrack,
-  MusikweUser,
   extractYoutubeId,
-  isAutoAdminEmail,
   musikweApi,
   parseSyncedLyrics,
 } from '../utils/musikweApi';
 import { getStoredUser } from '../utils/api';
+import { useMusikWe } from '../context/MusikWeContext';
 import '../styles/musikwe.css';
-
-declare global {
-  interface Window {
-    YT?: {
-      Player: any;
-      PlayerState?: {
-        ENDED: number;
-        PLAYING: number;
-        PAUSED: number;
-      };
-    };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
 
 export interface MusikweFullscreenViewProps {
   userId?: string | number;
@@ -115,11 +97,63 @@ const CoverThumb: React.FC<{
 };
 
 export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
-  userId,
   userEmail,
   userName,
   onBackToLaporanWe,
 }) => {
+  const {
+    authEmail,
+    isSuperAdmin: ctxIsSuperAdmin,
+    displayName,
+    setDisplayName,
+    who: ctxWho,
+    authOpts: ctxAuthOpts,
+    tracks,
+    setTracks,
+    catalogTracks,
+    setCatalogTracks,
+    albums,
+    playlists,
+    setPlaylists,
+    requests,
+    sortedRequests,
+    commentsMap,
+    serverUser,
+    logoUrl,
+    hasYoutubeKey,
+    setHasYoutubeKey,
+    currentTrackId,
+    viewTrackId,
+    setViewTrackId,
+    adHocTrack,
+    currentTrack,
+    isPlaying: playing,
+    progress: position,
+    shuffle,
+    setShuffle,
+    volume,
+    setVolume,
+    likedIds,
+    toggleLike,
+    loadingCount,
+    beginLoading,
+    endLoading,
+    toastMsg,
+    toastOpen,
+    showToast,
+    resolvingExtKey,
+    setResolvingExtKey,
+    syncFromBackend,
+    findTrack,
+    findMatchingLocalTrack,
+    loadAndPlayTrack,
+    playExternalItem: handlePlayExternalItem,
+    togglePlayPause,
+    nextTrack,
+    prevTrack,
+    seekTo,
+  } = useMusikWe();
+
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
       const saved = localStorage.getItem('mw_theme');
@@ -130,50 +164,8 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     }
   });
 
-  const [loadingCount, setLoadingCount] = useState(0);
-  const [toastMsg, setToastMsg] = useState('');
-  const [toastOpen, setToastOpen] = useState(false);
-  const toastTimerRef = useRef<number | null>(null);
-
-  const showToast = useCallback((msg: string) => {
-    if (!msg) return;
-    setToastMsg(msg);
-    setToastOpen(true);
-    if (toastTimerRef.current !== null) {
-      window.clearTimeout(toastTimerRef.current);
-    }
-    toastTimerRef.current = window.setTimeout(() => {
-      setToastOpen(false);
-      toastTimerRef.current = null;
-    }, 2600);
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current !== null) {
-        window.clearTimeout(toastTimerRef.current);
-      }
-    };
-  }, []);
-
   const [view, setView] = useState<MusikweNavView>('home');
   const [searchQuery, setSearchQuery] = useState('');
-  const [tracks, setTracks] = useState<MusikweTrack[]>([]);
-  const [catalogTracks, setCatalogTracks] = useState<MusikweTrack[]>([]);
-  const [albums, setAlbums] = useState<MusikweAlbum[]>([]);
-  const [playlists, setPlaylists] = useState<MusikwePlaylist[]>([]);
-  const [requests, setRequests] = useState<MusikweRequest[]>([]);
-  const [commentsMap, setCommentsMap] = useState<Record<string, MusikweComment[]>>({});
-  const [serverUser, setServerUser] = useState<MusikweUser>({
-    id: Number(userId || 0),
-    name: userName || 'Tamu',
-    email: userEmail,
-    is_admin: isAutoAdminEmail(userEmail),
-  });
-  const [logoUrl, setLogoUrl] = useState('');
-  const [hasYoutubeKey, setHasYoutubeKey] = useState(false);
-
-  const [displayName, setDisplayName] = useState<string>(userName || '');
 
   const storedEmail = useMemo(() => {
     try {
@@ -182,21 +174,15 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       return '';
     }
   }, []);
-  const activeEmail = (userEmail || storedEmail || serverUser.email || '').trim().toLowerCase();
-  const isSuperAdmin = activeEmail === 'rizalsaragih498@gmail.com';
+  const activeEmail = (userEmail || authEmail || storedEmail || serverUser.email || '')
+    .trim()
+    .toLowerCase();
+  const isSuperAdmin = ctxIsSuperAdmin || activeEmail === 'rizalsaragih498@gmail.com';
   const isAdmin = isSuperAdmin;
 
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number>(0);
-  const [viewTrackId, setViewTrackId] = useState<number>(0);
-  const [currentTrackId, setCurrentTrackId] = useState<number>(0);
   const [queueDrawerOpen, setQueueDrawerOpen] = useState(false);
 
-  // Player state
-  const [playing, setPlaying] = useState(false);
-  const [position, setPosition] = useState(0);
-  const [shuffle, setShuffle] = useState(false);
-  const [volume, setVolume] = useState(80);
-  const [likedIds, setLikedIds] = useState<Set<number>>(() => new Set());
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [overlayMode, setOverlayMode] = useState<'v' | 'k'>('v');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -210,8 +196,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const [extYoutube, setExtYoutube] = useState<ExternalYoutubeItem[]>([]);
   const [extSearching, setExtSearching] = useState(false);
   const [admExtQuery, setAdmExtQuery] = useState('');
-  const [adHocTrack, setAdHocTrack] = useState<MusikweTrack | null>(null);
-  const [resolvingExtKey, setResolvingExtKey] = useState<string | null>(null);
 
   // Admin forms state
   const [ytApiKeyInput, setYtApiKeyInput] = useState('');
@@ -233,12 +217,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const [trackAudioFile, setTrackAudioFile] = useState<File | null>(null);
   const [trackCoverFile, setTrackCoverFile] = useState<File | null>(null);
 
-  // Refs for audio, YouTube player, synced lyric scrolling, touch gestures
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ytContainerRef = useRef<HTMLDivElement | null>(null);
-  const ytPlayerRef = useRef<any>(null);
-  const ytReadyRef = useRef(false);
-  const activeYtIdRef = useRef<string>('');
+  // Refs for synced lyric scrolling & touch gestures
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
   const lastActiveLyricIdxRef = useRef<number>(-1);
   const touchStartYRef = useRef<number>(0);
@@ -250,141 +229,38 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     }
   }, [isSuperAdmin, view]);
 
+  // Keep selectedPlaylistId synchronized with playlists from context
+  useEffect(() => {
+    if (playlists.length > 0) {
+      setSelectedPlaylistId((prev) =>
+        playlists.some((p) => p.id === prev) ? prev : playlists[0].id
+      );
+    } else {
+      setSelectedPlaylistId(0);
+    }
+  }, [playlists]);
+
   const authOpts = useMemo(
     () => ({
-      userEmail: userEmail || storedEmail || serverUser.email || '',
+      userEmail: userEmail || ctxAuthOpts.userEmail || storedEmail || serverUser.email || '',
     }),
-    [userEmail, storedEmail, serverUser.email]
+    [userEmail, ctxAuthOpts.userEmail, storedEmail, serverUser.email]
   );
 
   const who = useCallback((): string => {
-    return displayName.trim() || userName?.trim() || serverUser.name || 'Tamu';
-  }, [displayName, userName, serverUser.name]);
+    return displayName.trim() || userName?.trim() || ctxWho();
+  }, [displayName, userName, ctxWho]);
 
-  const fallbackTrack: MusikweTrack = useMemo(
-    () => ({
-      id: 0,
-      t: 'Belum ada lagu',
-      a: isAdmin ? 'Tambahkan lewat panel Admin' : 'Menunggu lagu dari Admin',
-      d: 200,
-      h: 210,
-      url: '',
-      ly: '',
-      img: '',
-    }),
-    [isAdmin]
-  );
-
-  const findTrack = useCallback(
-    (id?: number | null): MusikweTrack => {
-      if (adHocTrack && id === adHocTrack.id) return adHocTrack;
-      const hit =
-        tracks.find((t) => t.id === id) || catalogTracks.find((t) => t.id === id);
-      if (hit) return hit;
-      if (tracks.length > 0) return tracks[0];
-      if (catalogTracks.length > 0) return catalogTracks[0];
-      return adHocTrack || fallbackTrack;
-    },
-    [adHocTrack, tracks, catalogTracks, fallbackTrack]
-  );
-
-  const currentTrack = useMemo(
-    () => (adHocTrack && currentTrackId === adHocTrack.id ? adHocTrack : findTrack(currentTrackId)),
-    [adHocTrack, findTrack, currentTrackId]
-  );
   const detailTrack = useMemo(() => {
     const id = viewTrackId || currentTrackId;
     return adHocTrack && id === adHocTrack.id ? adHocTrack : findTrack(id);
   }, [adHocTrack, findTrack, viewTrackId, currentTrackId]);
 
-  const sortedRequests = useMemo(() => {
-    return [...requests].sort((a, b) => b.v.length - a.v.length || a.ts - b.ts);
-  }, [requests]);
-
-  const syncFromBackend = useCallback(
-    async (q: string = '', silent: boolean = false) => {
-      if (!silent) {
-        setLoadingCount((c) => c + 1);
-      }
-      try {
-        const res = await musikweApi.read(q, authOpts);
-        if (!res.success) {
-          if (!silent) showToast(res.message || 'Gagal memuat data .MUSIKWE.');
-          return;
-        }
-        const d = res.data;
-        setServerUser(d.user);
-        setTracks(d.tracks);
-        if (!q.trim()) {
-          setCatalogTracks(d.tracks);
-        } else if (d.tracks.length > 0) {
-          setCatalogTracks((prev) => {
-            const byId = new Map(prev.map((t) => [t.id, t]));
-            d.tracks.forEach((t) => byId.set(t.id, t));
-            return Array.from(byId.values());
-          });
-        }
-        setAlbums(d.albums);
-        setPlaylists(d.playlists);
-        setRequests(d.requests);
-        setCommentsMap(d.comments);
-        if (d.logo_url) setLogoUrl(d.logo_url);
-        if (typeof d.has_youtube_key === 'boolean') {
-          setHasYoutubeKey(d.has_youtube_key);
-        }
-        if (!displayName.trim() && d.user.name && d.user.name !== 'Tamu') {
-          setDisplayName(d.user.name);
-        }
-        if (!q.trim()) {
-          if (d.tracks.length > 0) {
-            setCurrentTrackId((prev) => {
-              if (prev < 0) return prev; // Keep active ad-hoc external playback
-              return d.tracks.some((x) => x.id === prev) ? prev : d.tracks[0].id;
-            });
-            setViewTrackId((prev) => {
-              if (prev < 0) return prev;
-              return d.tracks.some((x) => x.id === prev) ? prev : d.tracks[0].id;
-            });
-          } else {
-            setCurrentTrackId((prev) => (prev < 0 ? prev : 0));
-            setViewTrackId((prev) => (prev < 0 ? prev : 0));
-          }
-        }
-        if (d.playlists.length > 0) {
-          setSelectedPlaylistId((prev) =>
-            d.playlists.some((p) => p.id === prev) ? prev : d.playlists[0].id
-          );
-        } else {
-          setSelectedPlaylistId(0);
-        }
-      } catch (err: any) {
-        if (!silent) {
-          showToast(err?.message || 'Gagal terhubung ke server .MUSIKWE.');
-        }
-      } finally {
-        if (!silent) {
-          setLoadingCount((c) => Math.max(0, c - 1));
-        }
-      }
-    },
-    [authOpts, displayName, showToast]
-  );
-
-  // Initial sync on mount
+  // Refresh latest data silently when entering /Aplikasi/Musikwe without interrupting background audio
   useEffect(() => {
-    syncFromBackend('');
+    syncFromBackend('', catalogTracks.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Periodic background sync so shared request queue stays live across accounts
-  useEffect(() => {
-    const interval = window.setInterval(() => {
-      if (document.visibilityState === 'visible') {
-        syncFromBackend('', true);
-      }
-    }, 15000);
-    return () => window.clearInterval(interval);
-  }, [syncFromBackend]);
 
   // Debounced live search: local memory filter + iTunes Search API only (no YouTube API on keystroke)
   useEffect(() => {
@@ -432,411 +308,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       // ignore
     }
   };
-
-  // HTML5 Audio instance setup
-  useEffect(() => {
-    const aud = new Audio();
-    aud.preload = 'none';
-    aud.volume = volume / 100;
-    audioRef.current = aud;
-    return () => {
-      aud.pause();
-      aud.removeAttribute('src');
-      audioRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Keep YouTube Player ready if track has youtube_id
-  const ensureYoutubePlayer = useCallback(
-    (videoId: string, shouldPlay: boolean) => {
-      const mountPlayer = () => {
-        if (!window.YT?.Player || !ytContainerRef.current) return;
-        if (ytPlayerRef.current && ytReadyRef.current) {
-          if (activeYtIdRef.current !== videoId) {
-            activeYtIdRef.current = videoId;
-            ytPlayerRef.current.loadVideoById(videoId);
-            if (!shouldPlay) {
-              ytPlayerRef.current.pauseVideo();
-            }
-          } else if (shouldPlay) {
-            ytPlayerRef.current.playVideo();
-          } else {
-            ytPlayerRef.current.pauseVideo();
-          }
-          ytPlayerRef.current.setVolume(volume);
-          return;
-        }
-
-        if (ytPlayerRef.current) return;
-        activeYtIdRef.current = videoId;
-        ytPlayerRef.current = new window.YT.Player(ytContainerRef.current, {
-          height: '1',
-          width: '1',
-          videoId,
-          playerVars: {
-            autoplay: shouldPlay ? 1 : 0,
-            controls: 0,
-            disablekb: 1,
-            playsinline: 1,
-            origin: window.location.origin,
-          },
-          events: {
-            onReady: (ev: any) => {
-              ytReadyRef.current = true;
-              ev.target.setVolume(volume);
-              if (shouldPlay) {
-                ev.target.playVideo();
-              }
-            },
-            onStateChange: (ev: any) => {
-              const endedState = window.YT?.PlayerState?.ENDED ?? 0;
-              const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
-              if (ev.data === playingState) {
-                try {
-                  const ytDur = ev.target?.getDuration?.();
-                  if (typeof ytDur === 'number' && ytDur > 5) {
-                    setAdHocTrack((prev) =>
-                      prev && prev.youtube_id === activeYtIdRef.current && Math.abs(prev.d - ytDur) > 2
-                        ? { ...prev, d: Math.round(ytDur) }
-                        : prev
-                    );
-                  }
-                } catch {
-                  // ignore
-                }
-              }
-              if (ev.data === endedState) {
-                nextTrackRef.current();
-              }
-            },
-          },
-        });
-      };
-
-      if (window.YT?.Player) {
-        mountPlayer();
-        return;
-      }
-
-      const prevCb = window.onYouTubeIframeAPIReady;
-      window.onYouTubeIframeAPIReady = () => {
-        prevCb?.();
-        mountPlayer();
-      };
-      if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        tag.async = true;
-        document.head.appendChild(tag);
-      }
-    },
-    [volume]
-  );
-
-  // Clean up YT player on unmount
-  useEffect(() => {
-    return () => {
-      try {
-        ytPlayerRef.current?.destroy?.();
-      } catch {
-        // ignore
-      }
-      ytPlayerRef.current = null;
-      ytReadyRef.current = false;
-    };
-  }, []);
-
-  const playResolvedTrack = useCallback(
-    (target: MusikweTrack, autoPlay: boolean = true) => {
-      if (!target || target.id === 0) return;
-
-      if (target.id < 0) {
-        setAdHocTrack(target);
-      } else {
-        setAdHocTrack(null);
-      }
-
-      setCurrentTrackId(target.id);
-      setViewTrackId(target.id);
-      setPosition(0);
-      setPlaying(autoPlay);
-
-      const aud = audioRef.current;
-      const ytId = target.youtube_id || extractYoutubeId(target.url);
-
-      if (ytId) {
-        if (aud) {
-          aud.pause();
-          aud.removeAttribute('src');
-        }
-        ensureYoutubePlayer(ytId, autoPlay);
-      } else {
-        if (ytPlayerRef.current && ytReadyRef.current) {
-          try {
-            ytPlayerRef.current.pauseVideo();
-          } catch {
-            // ignore
-          }
-        }
-        if (aud) {
-          if (target.url) {
-            aud.src = target.url;
-            aud.currentTime = 0;
-            if (autoPlay) {
-              aud.play().catch(() => {
-                // ignore autoplay rejection
-              });
-            }
-          } else {
-            aud.pause();
-            aud.removeAttribute('src');
-          }
-        }
-      }
-    },
-    [ensureYoutubePlayer]
-  );
-
-  const loadAndPlayTrack = useCallback(
-    (id: number, autoPlay: boolean = true) => {
-      if (adHocTrack && id === adHocTrack.id) {
-        playResolvedTrack(adHocTrack, autoPlay);
-        return;
-      }
-      const target =
-        tracks.find((t) => t.id === id) ||
-        catalogTracks.find((t) => t.id === id) ||
-        tracks[0] ||
-        catalogTracks[0];
-      if (!target) return;
-      playResolvedTrack(target, autoPlay);
-    },
-    [adHocTrack, tracks, catalogTracks, playResolvedTrack]
-  );
-
-  const findMatchingLocalTrack = useCallback(
-    (item: ExternalItunesItem | ExternalYoutubeItem): MusikweTrack | undefined => {
-      const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
-      if (item.source === 'youtube') {
-        const byYt = pool.find((t) => t.youtube_id === item.youtube_id);
-        if (byYt) return byYt;
-      }
-      const normTitle = item.title.trim().toLowerCase();
-      const normArtist = item.artist.trim().toLowerCase();
-      return pool.find(
-        (t) =>
-          t.t.trim().toLowerCase() === normTitle &&
-          t.a.trim().toLowerCase() === normArtist
-      );
-    },
-    [catalogTracks, tracks]
-  );
-
-  const handlePlayExternalItem = useCallback(
-    async (item: ExternalItunesItem | ExternalYoutubeItem, key: string) => {
-      if (item.source === 'itunes') {
-        console.log('[iTUNES SELECT]', {
-          action: 'play',
-          title: item.title,
-          artist: item.artist,
-          cover_url: item.cover_url,
-          duration: item.duration_sec,
-        });
-      }
-
-      const existing = findMatchingLocalTrack(item);
-      if (existing && (existing.youtube_id || existing.url)) {
-        playResolvedTrack(existing, true);
-        return;
-      }
-
-      if (item.source === 'youtube') {
-        const tempTrack: MusikweTrack = {
-          id: -Math.abs(Date.now()),
-          t: item.title,
-          a: item.artist,
-          album_name: item.album || '',
-          d: item.duration_sec || 200,
-          h: 205,
-          url: '',
-          youtube_id: item.youtube_id,
-          ly: '',
-          img: item.cover_url || `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`,
-        };
-        playResolvedTrack(tempTrack, true);
-        return;
-      }
-
-      setResolvingExtKey(key);
-      setLoadingCount((c) => c + 1);
-      try {
-        const ytMatch = await musikweApi.searchYoutubeBestMatch(
-          item.title,
-          item.artist,
-          authOpts
-        );
-        const videoId = ytMatch.youtube_id;
-        if (!videoId) {
-          showToast(`Video YouTube tidak ditemukan untuk "${item.title}".`);
-          return;
-        }
-
-        const tempId = -Math.abs(Number(item.trackId) || Date.now());
-        const ytTrack: MusikweTrack = {
-          id: tempId,
-          t: item.title,
-          a: item.artist,
-          album_name: item.album || '',
-          d: item.duration_sec || ytMatch.duration_sec || 200,
-          h: 210,
-          url: '',
-          youtube_id: videoId,
-          ly: '',
-          img: item.cover_url || ytMatch.cover_url,
-        };
-        playResolvedTrack(ytTrack, true);
-      } catch (err: any) {
-        showToast(err?.message || `Gagal mencocokkan video YouTube untuk "${item.title}".`);
-      } finally {
-        setResolvingExtKey(null);
-        setLoadingCount((c) => Math.max(0, c - 1));
-      }
-    },
-    [findMatchingLocalTrack, playResolvedTrack, authOpts, showToast]
-  );
-
-  const seekTo = useCallback(
-    (sec: number) => {
-      const clamped = Math.max(0, Math.min(currentTrack.d || 200, sec));
-      setPosition(clamped);
-      const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
-      if (ytId && ytPlayerRef.current && ytReadyRef.current) {
-        try {
-          ytPlayerRef.current.seekTo(clamped, true);
-        } catch {
-          // ignore
-        }
-      } else if (audioRef.current && currentTrack.url) {
-        audioRef.current.currentTime = clamped;
-      }
-    },
-    [currentTrack]
-  );
-
-  const nextTrack = useCallback(async () => {
-    if (sortedRequests.length > 0) {
-      const topReq = sortedRequests[0];
-      showToast(`Memutar request ${topReq.by}`);
-      musikweApi
-        .postAction('update.php', { action: 'mark_played', id: topReq.id }, authOpts)
-        .catch(() => {});
-      setRequests((prev) => prev.filter((x) => x.id !== topReq.id));
-      loadAndPlayTrack(topReq.tid, true);
-      return;
-    }
-
-    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
-    if (pool.length > 0) {
-      const idx = pool.findIndex((t) => t.id === currentTrackId);
-      const nextIdx = shuffle
-        ? Math.floor(Math.random() * pool.length)
-        : (idx + 1) % pool.length;
-      loadAndPlayTrack(pool[nextIdx].id, true);
-      return;
-    }
-
-    setPlaying(false);
-    setPosition(0);
-  }, [sortedRequests, catalogTracks, tracks, currentTrackId, shuffle, authOpts, loadAndPlayTrack, showToast]);
-
-  const nextTrackRef = useRef(nextTrack);
-  nextTrackRef.current = nextTrack;
-
-  const prevTrack = useCallback(() => {
-    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
-    if (position > 5 || pool.length === 0) {
-      seekTo(0);
-      return;
-    }
-    const idx = pool.findIndex((t) => t.id === currentTrackId);
-    const prevIdx = (idx - 1 + pool.length) % pool.length;
-    loadAndPlayTrack(pool[prevIdx].id, true);
-  }, [position, catalogTracks, tracks, currentTrackId, loadAndPlayTrack, seekTo]);
-
-  const togglePlayPause = useCallback(() => {
-    if (currentTrack.id === 0) return;
-    const nextState = !playing;
-    setPlaying(nextState);
-    const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
-    if (ytId) {
-      ensureYoutubePlayer(ytId, nextState);
-    } else if (audioRef.current && currentTrack.url) {
-      if (nextState) {
-        audioRef.current.play().catch(() => {});
-      } else {
-        audioRef.current.pause();
-      }
-    }
-  }, [playing, currentTrack, ensureYoutubePlayer]);
-
-  // Volume sync
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.volume = volume / 100;
-    }
-    if (ytPlayerRef.current && ytReadyRef.current) {
-      try {
-        ytPlayerRef.current.setVolume(volume);
-      } catch {
-        // ignore
-      }
-    }
-  }, [volume]);
-
-  // Audio ended listener + playback timer
-  useEffect(() => {
-    const aud = audioRef.current;
-    const onEnded = () => {
-      nextTrackRef.current();
-    };
-    aud?.addEventListener('ended', onEnded);
-    return () => {
-      aud?.removeEventListener('ended', onEnded);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!playing || currentTrack.id === 0) return;
-    const timer = window.setInterval(() => {
-      const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
-      let nextPos: number | null = null;
-
-      if (ytId && ytPlayerRef.current && ytReadyRef.current) {
-        try {
-          const ytTime = ytPlayerRef.current.getCurrentTime?.();
-          if (typeof ytTime === 'number' && !Number.isNaN(ytTime)) {
-            nextPos = ytTime;
-          }
-        } catch {
-          // fallback below
-        }
-      } else if (audioRef.current && currentTrack.url && !Number.isNaN(audioRef.current.currentTime)) {
-        nextPos = audioRef.current.currentTime;
-      }
-
-      setPosition((prev) => {
-        const updated = nextPos !== null && nextPos > 0 ? nextPos : prev + 0.25;
-        if (updated >= (currentTrack.d || 200)) {
-          window.setTimeout(() => nextTrackRef.current(), 0);
-          return 0;
-        }
-        return updated;
-      });
-    }, 250);
-
-    return () => window.clearInterval(timer);
-  }, [playing, currentTrack]);
 
   // Keyboard shortcuts (Escape closes fullscreen overlay or queue drawer)
   useEffect(() => {
@@ -895,13 +366,13 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   // Actions
   const runMutation = async (fn: () => Promise<void>) => {
-    setLoadingCount((c) => c + 1);
+    beginLoading();
     try {
       await fn();
     } catch (err: any) {
       showToast(err?.message || 'Terjadi kesalahan saat menghubungi server.');
     } finally {
-      setLoadingCount((c) => Math.max(0, c - 1));
+      endLoading();
     }
   };
 
@@ -1105,6 +576,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       );
       showToast(res.message || 'Playlist dihapus.');
       if (res.success) {
+        setPlaylists((prev) => prev.filter((p) => p.id !== playlistId));
         setSelectedPlaylistId(0);
         setView('lib');
         await syncFromBackend(searchQuery);
@@ -1401,6 +873,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       showToast(res.message || 'Lagu dihapus dari database.');
       if (res.success) {
         setCatalogTracks((prev) => prev.filter((t) => t.id !== trackId));
+        setTracks((prev) => prev.filter((t) => t.id !== trackId));
         await syncFromBackend(searchQuery);
       }
     });
@@ -1524,23 +997,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   return (
     <div className="musikwe-shell" data-theme={theme}>
-      {/* Hidden 1x1 YouTube Audio Engine */}
-      <div
-        aria-hidden="true"
-        style={{
-          position: 'fixed',
-          left: -9999,
-          top: -9999,
-          width: 1,
-          height: 1,
-          opacity: 0.001,
-          pointerEvents: 'none',
-          overflow: 'hidden',
-        }}
-      >
-        <div ref={ytContainerRef} />
-      </div>
-
       {/* Top Indeterminate Loading Bar */}
       <div className={`mw-ldr-bar ${loadingCount > 0 ? 'on' : ''}`} />
 
@@ -2843,19 +2299,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             <button
               type="button"
               className={`mw-ib ${likedIds.has(currentTrack.id) ? 'on' : ''}`}
-              onClick={() => {
-                setLikedIds((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(currentTrack.id)) {
-                    next.delete(currentTrack.id);
-                    showToast('Suka dibatalkan');
-                  } else {
-                    next.add(currentTrack.id);
-                    showToast('Disukai');
-                  }
-                  return next;
-                });
-              }}
+              onClick={() => toggleLike(currentTrack.id)}
               aria-label="Suka"
               title="Suka"
             >
