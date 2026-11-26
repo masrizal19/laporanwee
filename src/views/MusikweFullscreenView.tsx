@@ -158,6 +158,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const [view, setView] = useState<MusikweNavView>('home');
   const [searchQuery, setSearchQuery] = useState('');
   const [tracks, setTracks] = useState<MusikweTrack[]>([]);
+  const [catalogTracks, setCatalogTracks] = useState<MusikweTrack[]>([]);
   const [albums, setAlbums] = useState<MusikweAlbum[]>([]);
   const [playlists, setPlaylists] = useState<MusikwePlaylist[]>([]);
   const [requests, setRequests] = useState<MusikweRequest[]>([]);
@@ -216,6 +217,8 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const [extYoutube, setExtYoutube] = useState<ExternalYoutubeItem[]>([]);
   const [extSearching, setExtSearching] = useState(false);
   const [admExtQuery, setAdmExtQuery] = useState('');
+  const [adHocTrack, setAdHocTrack] = useState<MusikweTrack | null>(null);
+  const [resolvingExtKey, setResolvingExtKey] = useState<string | null>(null);
 
   // Admin forms state
   const [ytApiKeyInput, setYtApiKeyInput] = useState('');
@@ -275,34 +278,53 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const findTrack = useCallback(
     (id?: number | null): MusikweTrack => {
-      if (!tracks.length) return fallbackTrack;
-      return tracks.find((t) => t.id === id) || tracks[0];
+      if (adHocTrack && id === adHocTrack.id) return adHocTrack;
+      const hit =
+        tracks.find((t) => t.id === id) || catalogTracks.find((t) => t.id === id);
+      if (hit) return hit;
+      if (tracks.length > 0) return tracks[0];
+      if (catalogTracks.length > 0) return catalogTracks[0];
+      return adHocTrack || fallbackTrack;
     },
-    [tracks, fallbackTrack]
+    [adHocTrack, tracks, catalogTracks, fallbackTrack]
   );
 
-  const currentTrack = useMemo(() => findTrack(currentTrackId), [findTrack, currentTrackId]);
-  const detailTrack = useMemo(
-    () => findTrack(viewTrackId || currentTrackId),
-    [findTrack, viewTrackId, currentTrackId]
+  const currentTrack = useMemo(
+    () => (adHocTrack && currentTrackId === adHocTrack.id ? adHocTrack : findTrack(currentTrackId)),
+    [adHocTrack, findTrack, currentTrackId]
   );
+  const detailTrack = useMemo(() => {
+    const id = viewTrackId || currentTrackId;
+    return adHocTrack && id === adHocTrack.id ? adHocTrack : findTrack(id);
+  }, [adHocTrack, findTrack, viewTrackId, currentTrackId]);
 
   const sortedRequests = useMemo(() => {
     return [...requests].sort((a, b) => b.v.length - a.v.length || a.ts - b.ts);
   }, [requests]);
 
   const syncFromBackend = useCallback(
-    async (q: string = '') => {
-      setLoadingCount((c) => c + 1);
+    async (q: string = '', silent: boolean = false) => {
+      if (!silent) {
+        setLoadingCount((c) => c + 1);
+      }
       try {
         const res = await musikweApi.read(q, authOpts);
         if (!res.success) {
-          showToast(res.message || 'Gagal memuat data .MUSIKWE.');
+          if (!silent) showToast(res.message || 'Gagal memuat data .MUSIKWE.');
           return;
         }
         const d = res.data;
         setServerUser(d.user);
         setTracks(d.tracks);
+        if (!q.trim()) {
+          setCatalogTracks(d.tracks);
+        } else if (d.tracks.length > 0) {
+          setCatalogTracks((prev) => {
+            const byId = new Map(prev.map((t) => [t.id, t]));
+            d.tracks.forEach((t) => byId.set(t.id, t));
+            return Array.from(byId.values());
+          });
+        }
         setAlbums(d.albums);
         setPlaylists(d.playlists);
         setRequests(d.requests);
@@ -314,16 +336,20 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         if (!displayName.trim() && d.user.name && d.user.name !== 'Tamu') {
           setDisplayName(d.user.name);
         }
-        if (d.tracks.length > 0) {
-          setCurrentTrackId((prev) =>
-            d.tracks.some((x) => x.id === prev) ? prev : d.tracks[0].id
-          );
-          setViewTrackId((prev) =>
-            d.tracks.some((x) => x.id === prev) ? prev : d.tracks[0].id
-          );
-        } else {
-          setCurrentTrackId(0);
-          setViewTrackId(0);
+        if (!q.trim()) {
+          if (d.tracks.length > 0) {
+            setCurrentTrackId((prev) => {
+              if (prev < 0) return prev; // Keep active ad-hoc external playback
+              return d.tracks.some((x) => x.id === prev) ? prev : d.tracks[0].id;
+            });
+            setViewTrackId((prev) => {
+              if (prev < 0) return prev;
+              return d.tracks.some((x) => x.id === prev) ? prev : d.tracks[0].id;
+            });
+          } else {
+            setCurrentTrackId((prev) => (prev < 0 ? prev : 0));
+            setViewTrackId((prev) => (prev < 0 ? prev : 0));
+          }
         }
         if (d.playlists.length > 0) {
           setSelectedPlaylistId((prev) =>
@@ -333,9 +359,13 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           setSelectedPlaylistId(0);
         }
       } catch (err: any) {
-        showToast(err?.message || 'Gagal terhubung ke server .MUSIKWE.');
+        if (!silent) {
+          showToast(err?.message || 'Gagal terhubung ke server .MUSIKWE.');
+        }
       } finally {
-        setLoadingCount((c) => Math.max(0, c - 1));
+        if (!silent) {
+          setLoadingCount((c) => Math.max(0, c - 1));
+        }
       }
     },
     [authOpts, displayName, showToast]
@@ -346,6 +376,16 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     syncFromBackend('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Periodic background sync so shared request queue stays live across accounts
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        syncFromBackend(searchQuery, true);
+      }
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [syncFromBackend, searchQuery]);
 
   // Debounced live search
   useEffect(() => {
@@ -440,6 +480,21 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             },
             onStateChange: (ev: any) => {
               const endedState = window.YT?.PlayerState?.ENDED ?? 0;
+              const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
+              if (ev.data === playingState) {
+                try {
+                  const ytDur = ev.target?.getDuration?.();
+                  if (typeof ytDur === 'number' && ytDur > 5) {
+                    setAdHocTrack((prev) =>
+                      prev && prev.youtube_id === activeYtIdRef.current && Math.abs(prev.d - ytDur) > 2
+                        ? { ...prev, d: Math.round(ytDur) }
+                        : prev
+                    );
+                  }
+                } catch {
+                  // ignore
+                }
+              }
               if (ev.data === endedState) {
                 nextTrackRef.current();
               }
@@ -481,11 +536,15 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     };
   }, []);
 
-  const loadAndPlayTrack = useCallback(
-    (id: number, autoPlay: boolean = true) => {
-      if (!tracks.length) return;
-      const target = tracks.find((t) => t.id === id) || tracks[0];
-      if (!target) return;
+  const playResolvedTrack = useCallback(
+    (target: MusikweTrack, autoPlay: boolean = true) => {
+      if (!target || target.id === 0) return;
+
+      if (target.id < 0) {
+        setAdHocTrack(target);
+      } else {
+        setAdHocTrack(null);
+      }
 
       setCurrentTrackId(target.id);
       setViewTrackId(target.id);
@@ -515,7 +574,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             aud.currentTime = 0;
             if (autoPlay) {
               aud.play().catch(() => {
-                // ignore browser autoplay policy rejection on non-gesture
+                // ignore autoplay rejection
               });
             }
           } else {
@@ -525,44 +584,117 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         }
       }
     },
-    [tracks, ensureYoutubePlayer]
+    [ensureYoutubePlayer]
   );
 
-  const nextTrack = useCallback(async () => {
-    if (sortedRequests.length > 0) {
-      const topReq = sortedRequests[0];
-      showToast(`Memutar request ${topReq.by}`);
-      musikweApi
-        .postAction('update.php', { action: 'mark_played', id: topReq.id }, authOpts)
-        .catch(() => {});
-      setRequests((prev) => prev.filter((x) => x.id !== topReq.id));
-      loadAndPlayTrack(topReq.tid, true);
-      return;
-    }
+  const loadAndPlayTrack = useCallback(
+    (id: number, autoPlay: boolean = true) => {
+      if (adHocTrack && id === adHocTrack.id) {
+        playResolvedTrack(adHocTrack, autoPlay);
+        return;
+      }
+      const target =
+        tracks.find((t) => t.id === id) ||
+        catalogTracks.find((t) => t.id === id) ||
+        tracks[0] ||
+        catalogTracks[0];
+      if (!target) return;
+      playResolvedTrack(target, autoPlay);
+    },
+    [adHocTrack, tracks, catalogTracks, playResolvedTrack]
+  );
 
-    if (tracks.length > 0) {
-      const idx = tracks.findIndex((t) => t.id === currentTrackId);
-      const nextIdx = shuffle
-        ? Math.floor(Math.random() * tracks.length)
-        : (idx + 1) % tracks.length;
-      loadAndPlayTrack(tracks[nextIdx].id, true);
-    }
-  }, [sortedRequests, tracks, currentTrackId, shuffle, authOpts, loadAndPlayTrack, showToast]);
+  const findMatchingLocalTrack = useCallback(
+    (item: ExternalItunesItem | ExternalYoutubeItem): MusikweTrack | undefined => {
+      if (item.source === 'youtube') {
+        const byYt = tracks.find((t) => t.youtube_id === item.youtube_id);
+        if (byYt) return byYt;
+      }
+      const normTitle = item.title.trim().toLowerCase();
+      const normArtist = item.artist.trim().toLowerCase();
+      return tracks.find(
+        (t) =>
+          t.t.trim().toLowerCase() === normTitle &&
+          t.a.trim().toLowerCase() === normArtist
+      );
+    },
+    [tracks]
+  );
 
-  const nextTrackRef = useRef(nextTrack);
-  nextTrackRef.current = nextTrack;
+  const handlePlayExternalItem = useCallback(
+    async (item: ExternalItunesItem | ExternalYoutubeItem, key: string) => {
+      const existing = findMatchingLocalTrack(item);
+      if (existing && (existing.youtube_id || existing.url)) {
+        playResolvedTrack(existing, true);
+        return;
+      }
 
-  const prevTrack = useCallback(() => {
-    if (position > 5) {
-      seekTo(0);
-      return;
-    }
-    if (tracks.length > 0) {
-      const idx = tracks.findIndex((t) => t.id === currentTrackId);
-      const prevIdx = (idx - 1 + tracks.length) % tracks.length;
-      loadAndPlayTrack(tracks[prevIdx].id, true);
-    }
-  }, [position, tracks, currentTrackId, loadAndPlayTrack]);
+      if (item.source === 'youtube') {
+        const tempTrack: MusikweTrack = {
+          id: -Math.abs(Date.now()),
+          t: item.title,
+          a: item.artist,
+          album_name: item.album || '',
+          d: item.duration_sec || 200,
+          h: 205,
+          url: '',
+          youtube_id: item.youtube_id,
+          ly: '',
+          img: item.cover_url || `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`,
+        };
+        playResolvedTrack(tempTrack, true);
+        return;
+      }
+
+      setResolvingExtKey(key);
+      setLoadingCount((c) => c + 1);
+      try {
+        const ytMatch = await musikweApi.searchYoutubeBestMatch(
+          item.title,
+          item.artist,
+          authOpts
+        );
+        if (ytMatch?.youtube_id) {
+          const ytTrack: MusikweTrack = {
+            id: -Math.abs(Number(item.trackId) || Date.now()),
+            t: item.title,
+            a: item.artist,
+            album_name: item.album || '',
+            d: ytMatch.duration_sec || item.duration_sec || 200,
+            h: 210,
+            url: item.preview_url || '',
+            youtube_id: ytMatch.youtube_id,
+            ly: '',
+            img: item.cover_url || ytMatch.cover_url,
+          };
+          playResolvedTrack(ytTrack, true);
+          return;
+        }
+
+        if (item.preview_url) {
+          const previewTrack: MusikweTrack = {
+            id: -Math.abs(Number(item.trackId) || Date.now()),
+            t: item.title,
+            a: item.artist,
+            album_name: item.album || '',
+            d: 30,
+            h: 210,
+            url: item.preview_url,
+            ly: '',
+            img: item.cover_url,
+          };
+          playResolvedTrack(previewTrack, true);
+          showToast('Video YouTube belum tersedia — memutar pratinjau iTunes.');
+        } else {
+          showToast('Video YouTube tidak ditemukan dan pratinjau audio tidak tersedia.');
+        }
+      } finally {
+        setResolvingExtKey(null);
+        setLoadingCount((c) => Math.max(0, c - 1));
+      }
+    },
+    [findMatchingLocalTrack, playResolvedTrack, authOpts, showToast]
+  );
 
   const seekTo = useCallback(
     (sec: number) => {
@@ -582,8 +714,48 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     [currentTrack]
   );
 
+  const nextTrack = useCallback(async () => {
+    if (sortedRequests.length > 0) {
+      const topReq = sortedRequests[0];
+      showToast(`Memutar request ${topReq.by}`);
+      musikweApi
+        .postAction('update.php', { action: 'mark_played', id: topReq.id }, authOpts)
+        .catch(() => {});
+      setRequests((prev) => prev.filter((x) => x.id !== topReq.id));
+      loadAndPlayTrack(topReq.tid, true);
+      return;
+    }
+
+    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+    if (pool.length > 0) {
+      const idx = pool.findIndex((t) => t.id === currentTrackId);
+      const nextIdx = shuffle
+        ? Math.floor(Math.random() * pool.length)
+        : (idx + 1) % pool.length;
+      loadAndPlayTrack(pool[nextIdx].id, true);
+      return;
+    }
+
+    setPlaying(false);
+    setPosition(0);
+  }, [sortedRequests, catalogTracks, tracks, currentTrackId, shuffle, authOpts, loadAndPlayTrack, showToast]);
+
+  const nextTrackRef = useRef(nextTrack);
+  nextTrackRef.current = nextTrack;
+
+  const prevTrack = useCallback(() => {
+    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+    if (position > 5 || pool.length === 0) {
+      seekTo(0);
+      return;
+    }
+    const idx = pool.findIndex((t) => t.id === currentTrackId);
+    const prevIdx = (idx - 1 + pool.length) % pool.length;
+    loadAndPlayTrack(pool[prevIdx].id, true);
+  }, [position, catalogTracks, tracks, currentTrackId, loadAndPlayTrack, seekTo]);
+
   const togglePlayPause = useCallback(() => {
-    if (!tracks.length) return;
+    if (currentTrack.id === 0) return;
     const nextState = !playing;
     setPlaying(nextState);
     const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
@@ -596,7 +768,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         audioRef.current.pause();
       }
     }
-  }, [tracks.length, playing, currentTrack, ensureYoutubePlayer]);
+  }, [playing, currentTrack, ensureYoutubePlayer]);
 
   // Volume sync
   useEffect(() => {
@@ -625,7 +797,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   }, []);
 
   useEffect(() => {
-    if (!playing || !tracks.length) return;
+    if (!playing || currentTrack.id === 0) return;
     const timer = window.setInterval(() => {
       const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
       let nextPos: number | null = null;
@@ -654,7 +826,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     }, 250);
 
     return () => window.clearInterval(timer);
-  }, [playing, tracks.length, currentTrack]);
+  }, [playing, currentTrack]);
 
   // Keyboard shortcuts (Escape closes fullscreen overlay or queue drawer)
   useEffect(() => {
@@ -723,17 +895,107 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     }
   };
 
-  const handleRequestTrack = async (trackId: number) => {
-    if (!trackId) return;
+  const handleRequestTrack = async (track: MusikweTrack) => {
+    if (!track || track.id === 0) return;
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'create.php',
-        { action: 'request_track', track_id: trackId, requested_by: who() },
+        {
+          action: 'request_track',
+          track_id: track.id > 0 ? track.id : 0,
+          title: track.t,
+          artist: track.a,
+          cover_url: track.img || '',
+          duration: track.d || 200,
+          youtube_id: track.youtube_id || '',
+          audio_url: track.url || '',
+          requested_by: who(),
+        },
         authOpts
       );
       showToast(res.message || 'Lagu ditambahkan ke antrean request.');
       if (res.success) await syncFromBackend(searchQuery);
     });
+  };
+
+  const handleRequestExternalItem = async (
+    item: ExternalItunesItem | ExternalYoutubeItem,
+    key: string
+  ) => {
+    setResolvingExtKey(key);
+    await runMutation(async () => {
+      const existing = findMatchingLocalTrack(item);
+      let ytId = item.source === 'youtube' ? item.youtube_id : existing?.youtube_id || '';
+      let durationSec = existing?.d || item.duration_sec || 200;
+
+      if (!ytId && item.source === 'itunes') {
+        const ytMatch = await musikweApi.searchYoutubeBestMatch(
+          item.title,
+          item.artist,
+          authOpts
+        );
+        if (ytMatch?.youtube_id) {
+          ytId = ytMatch.youtube_id;
+          if (ytMatch.duration_sec > 0) durationSec = ytMatch.duration_sec;
+        }
+      }
+
+      const payload: Record<string, any> = {
+        action: 'request_track',
+        track_id: existing?.id || 0,
+        title: item.title,
+        artist: item.artist,
+        cover_url:
+          item.cover_url ||
+          (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : ''),
+        duration: durationSec,
+        youtube_id: ytId || '',
+        audio_url: item.source === 'itunes' ? item.preview_url || '' : '',
+        requested_by: who(),
+      };
+
+      let res = await musikweApi.postAction('create.php', payload, authOpts);
+
+      // Safety fallback if backend requires registering track separately before requesting
+      if (!res.success && !existing?.id) {
+        const created = await musikweApi.postAction(
+          'create.php',
+          {
+            action: 'create_track',
+            pin: adminPin,
+            title: item.title,
+            artist: item.artist,
+            album_id: 0,
+            album_name: item.album || '',
+            duration: durationSec,
+            audio_url: ytId ? '' : item.source === 'itunes' ? item.preview_url || '' : '',
+            youtube_id: ytId || '',
+            cover_url: payload.cover_url,
+            lyrics: '',
+          },
+          authOpts
+        );
+        const createdId = Number(created.data?.id || 0);
+        if (created.success && createdId > 0) {
+          res = await musikweApi.postAction(
+            'create.php',
+            { ...payload, track_id: createdId },
+            authOpts
+          );
+        }
+      }
+
+      showToast(
+        res.message ||
+          (res.success
+            ? `"${item.title}" masuk ke antrean bersama!`
+            : 'Gagal menambahkan request ke server.')
+      );
+      if (res.success) {
+        await syncFromBackend(searchQuery);
+      }
+    });
+    setResolvingExtKey(null);
   };
 
   const handleToggleVote = async (requestId: number) => {
@@ -1147,7 +1409,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         authOpts
       );
       showToast(res.message || 'Lagu dihapus dari database.');
-      if (res.success) await syncFromBackend(searchQuery);
+      if (res.success) {
+        setCatalogTracks((prev) => prev.filter((t) => t.id !== trackId));
+        await syncFromBackend(searchQuery);
+      }
     });
   };
 
@@ -1160,10 +1425,11 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   }, [tracks, requests]);
 
   const autoNextTracks = useMemo(() => {
-    return tracks
+    const source = catalogTracks.length > 0 ? catalogTracks : tracks;
+    return source
       .filter((t) => t.id !== currentTrack.id && !requests.some((r) => r.tid === t.id))
       .slice(0, 4);
-  }, [tracks, currentTrack.id, requests]);
+  }, [catalogTracks, tracks, currentTrack.id, requests]);
 
   const activePlaylist = useMemo(
     () => playlists.find((p) => p.id === selectedPlaylistId) || playlists[0],
@@ -1212,7 +1478,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             className="mw-ib"
             title="Request lagu"
             aria-label="Request"
-            onClick={() => handleRequestTrack(t.id)}
+            onClick={() => handleRequestTrack(t)}
           >
             <Heart size={16} />
           </button>
@@ -1540,7 +1806,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 <div>{tracks.map((t) => renderTrackRow(t))}</div>
               ) : (
                 <p className="mw-mu">
-                  Tidak ada lagu yang cocok di database untuk kata kunci tersebut.
+                  Tidak ada lagu yang cocok di database lokal untuk kata kunci tersebut.
                 </p>
               )}
 
@@ -1550,69 +1816,160 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               </h2>
 
               {extYoutube.length > 0 && (
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 18 }}>
                   <div className="mw-mu mw-small" style={{ marginBottom: 8, fontWeight: 700 }}>
                     YOUTUBE
                   </div>
-                  {extYoutube.map((yt) => (
-                    <div key={yt.youtube_id} className="mw-row">
-                      <CoverThumb track={{ t: yt.title, img: yt.cover_url, h: 10 }} />
-                      <div className="mw-i">
-                        <div className="mw-tt">{yt.title}</div>
-                        <div className="mw-mu mw-small mw-num">
-                          {yt.artist} · YouTube · {fmtTime(yt.duration_sec)}
+                  {extYoutube.map((yt) => {
+                    const rowKey = `yt_${yt.youtube_id}`;
+                    const isActiveExt = currentTrack.youtube_id === yt.youtube_id;
+                    const isResolving = resolvingExtKey === rowKey;
+                    return (
+                      <div
+                        key={yt.youtube_id}
+                        className={`mw-row ${isActiveExt ? 'on' : ''} ${isActiveExt && playing ? 'pl' : ''}`}
+                        onClick={() => handlePlayExternalItem(yt, rowKey)}
+                      >
+                        <CoverThumb track={{ t: yt.title, img: yt.cover_url, h: 10 }} />
+                        <div className="mw-i">
+                          <div className="mw-tt">
+                            {isActiveExt && playing && (
+                              <span className="mw-eq" aria-hidden="true">
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            )}
+                            {yt.title}
+                          </div>
+                          <div className="mw-mu mw-small mw-num">
+                            {yt.artist} · YouTube · {fmtTime(yt.duration_sec)}
+                          </div>
+                        </div>
+                        <div className="mw-ac" style={{ opacity: 1 }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="mw-btn sm"
+                            disabled={isResolving}
+                            onClick={() => handlePlayExternalItem(yt, rowKey)}
+                            aria-label="Putar"
+                          >
+                            {isResolving ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <Play size={13} />
+                            )}
+                            <span>Putar</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="mw-btn sm g"
+                            disabled={isResolving}
+                            onClick={() => handleRequestExternalItem(yt, rowKey)}
+                            aria-label="Request ke antrean"
+                          >
+                            <Heart size={13} />
+                            <span>Request</span>
+                          </button>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              className="mw-ib"
+                              title="Salin ke Panel Admin"
+                              aria-label="Salin ke Panel Admin"
+                              onClick={() => {
+                                applyExternalResultToForm(yt);
+                                setView('adm');
+                                setSearchQuery('');
+                              }}
+                            >
+                              <Plus size={15} />
+                            </button>
+                          )}
                         </div>
                       </div>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          className="mw-btn sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            applyExternalResultToForm(yt);
-                            setView('adm');
-                            setSearchQuery('');
-                          }}
-                        >
-                          <Plus size={14} /> Tambah
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
               {extItunes.length > 0 ? (
                 <div>
                   <div className="mw-mu mw-small" style={{ marginBottom: 8, fontWeight: 700 }}>
-                    ITUNES MUSIC
+                    ITUNES MUSIC (KLIK UNTUK PUTAR VIA YOUTUBE / REQUEST KE ANTREAN)
                   </div>
-                  {extItunes.map((it, idx) => (
-                    <div key={`${it.trackId || idx}`} className="mw-row">
-                      <CoverThumb track={{ t: it.title, img: it.cover_url, h: 210 }} />
-                      <div className="mw-i">
-                        <div className="mw-tt">{it.title}</div>
-                        <div className="mw-mu mw-small mw-num">
-                          {it.artist}
-                          {it.album ? ` · ${it.album}` : ''} · {fmtTime(it.duration_sec)}
+                  {extItunes.map((it, idx) => {
+                    const rowKey = `it_${it.trackId || idx}`;
+                    const isActiveExt =
+                      adHocTrack?.t === it.title && adHocTrack?.a === it.artist;
+                    const isResolving = resolvingExtKey === rowKey;
+                    return (
+                      <div
+                        key={rowKey}
+                        className={`mw-row ${isActiveExt ? 'on' : ''} ${isActiveExt && playing ? 'pl' : ''}`}
+                        onClick={() => handlePlayExternalItem(it, rowKey)}
+                      >
+                        <CoverThumb track={{ t: it.title, img: it.cover_url, h: 210 }} />
+                        <div className="mw-i">
+                          <div className="mw-tt">
+                            {isActiveExt && playing && (
+                              <span className="mw-eq" aria-hidden="true">
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            )}
+                            {it.title}
+                          </div>
+                          <div className="mw-mu mw-small mw-num">
+                            {it.artist}
+                            {it.album ? ` · ${it.album}` : ''} · {fmtTime(it.duration_sec)}
+                          </div>
+                        </div>
+                        <div className="mw-ac" style={{ opacity: 1 }} onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            className="mw-btn sm"
+                            disabled={isResolving}
+                            onClick={() => handlePlayExternalItem(it, rowKey)}
+                            aria-label="Putar lagu"
+                          >
+                            {isResolving ? (
+                              <Loader2 size={13} className="animate-spin" />
+                            ) : (
+                              <Play size={13} />
+                            )}
+                            <span>Putar</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="mw-btn sm g"
+                            disabled={isResolving}
+                            onClick={() => handleRequestExternalItem(it, rowKey)}
+                            aria-label="Request ke antrean"
+                          >
+                            <Heart size={13} />
+                            <span>Request</span>
+                          </button>
+                          {isAdmin && (
+                            <button
+                              type="button"
+                              className="mw-ib"
+                              title="Salin ke Panel Admin"
+                              aria-label="Salin ke Panel Admin"
+                              onClick={() => {
+                                applyExternalResultToForm(it);
+                                setView('adm');
+                                setSearchQuery('');
+                              }}
+                            >
+                              <Plus size={15} />
+                            </button>
+                          )}
                         </div>
                       </div>
-                      {isAdmin && (
-                        <button
-                          type="button"
-                          className="mw-btn sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            applyExternalResultToForm(it);
-                            setView('adm');
-                            setSearchQuery('');
-                          }}
-                        >
-                          <Plus size={14} /> Tambah
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 !extSearching && (
@@ -1792,7 +2149,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                               type="button"
                               className="mw-ib"
                               aria-label="Request"
-                              onClick={() => handleRequestTrack(tr.id)}
+                              onClick={() => handleRequestTrack(tr)}
                             >
                               <Heart size={15} />
                             </button>
@@ -1913,7 +2270,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     <button
                       type="button"
                       className="mw-btn sm g"
-                      onClick={() => handleRequestTrack(detailTrack.id)}
+                      onClick={() => handleRequestTrack(detailTrack)}
                     >
                       <Heart size={14} /> Request
                     </button>

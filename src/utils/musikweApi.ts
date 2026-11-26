@@ -414,7 +414,7 @@ export const musikweApi = {
         const itRes = await fetchWithTimeout(
           `https://itunes.apple.com/search?term=${encodeURIComponent(
             query
-          )}&media=music&entity=song&limit=15&country=ID`,
+          )}&media=music&entity=song&limit=10&country=ID`,
           { method: 'GET' },
           DEFAULT_REQUEST_TIMEOUT_MS
         );
@@ -438,6 +438,48 @@ export const musikweApi = {
     }
 
     return { itunes, youtube, has_youtube_key: hasYoutubeKey };
+  },
+
+  async searchYoutubeBestMatch(
+    title: string,
+    artist: string,
+    auth?: { userEmail?: string; adminPin?: string }
+  ): Promise<ExternalYoutubeItem | null> {
+    const q = `${title} ${artist}`.trim();
+    if (!q) return null;
+    try {
+      const res = await fetchWithTimeout(
+        `${MUSIKWE_API_BASE}/search-external.php?source=youtube&q=${encodeURIComponent(q)}`,
+        { method: 'GET', headers: buildHeaders(false, auth) },
+        DEFAULT_REQUEST_TIMEOUT_MS
+      );
+      const json = await parseApiJson(res);
+      const ytList = json?.data?.youtube;
+      if (!Array.isArray(ytList) || ytList.length === 0) return null;
+      const first = ytList[0];
+      const ytId =
+        extractYoutubeId(first?.youtube_id) ||
+        extractYoutubeId(first?.videoId) ||
+        extractYoutubeId(first?.id) ||
+        extractYoutubeId(first?.url);
+      if (!ytId) return null;
+      return {
+        source: 'youtube',
+        youtube_id: ytId,
+        title: String(first?.title ?? title),
+        artist: String(first?.artist ?? first?.channel ?? first?.channelTitle ?? artist),
+        album: String(first?.album ?? ''),
+        duration_sec: Math.max(15, Math.round(Number(first?.duration_sec ?? first?.duration ?? 200))),
+        cover_url: String(
+          first?.cover_url ??
+            first?.thumbnail_url ??
+            first?.thumbnail ??
+            `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
+        ),
+      };
+    } catch {
+      return null;
+    }
   },
 
   async postAction(
