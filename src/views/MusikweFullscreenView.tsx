@@ -42,6 +42,7 @@ import {
   musikweApi,
   parseSyncedLyrics,
 } from '../utils/musikweApi';
+import { getStoredUser } from '../utils/api';
 import '../styles/musikwe.css';
 
 declare global {
@@ -173,24 +174,17 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const [hasYoutubeKey, setHasYoutubeKey] = useState(false);
 
   const [displayName, setDisplayName] = useState<string>(userName || '');
-  const [adminPin, setAdminPin] = useState<string>(() => {
+
+  const storedEmail = useMemo(() => {
     try {
-      return sessionStorage.getItem('mw_pin') || '';
+      return getStoredUser()?.email || '';
     } catch {
       return '';
     }
-  });
-  const [pinVerified, setPinVerified] = useState<boolean>(() => {
-    try {
-      return Boolean(sessionStorage.getItem('mw_pin'));
-    } catch {
-      return false;
-    }
-  });
-
-  const activeEmail = (userEmail || serverUser.email || '').trim().toLowerCase();
-  const isAdmin =
-    isAutoAdminEmail(activeEmail) || Boolean(serverUser.is_admin) || pinVerified;
+  }, []);
+  const activeEmail = (userEmail || storedEmail || serverUser.email || '').trim().toLowerCase();
+  const isSuperAdmin = activeEmail === 'rizalsaragih498@gmail.com';
+  const isAdmin = isSuperAdmin;
 
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number>(0);
   const [viewTrackId, setViewTrackId] = useState<number>(0);
@@ -210,7 +204,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   // Sub-forms state
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [commentText, setCommentText] = useState('');
-  const [pinInput, setPinInput] = useState('');
 
   // External search state (for live search view & admin)
   const [extItunes, setExtItunes] = useState<ExternalItunesItem[]>([]);
@@ -250,12 +243,18 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const lastActiveLyricIdxRef = useRef<number>(-1);
   const touchStartYRef = useRef<number>(0);
 
+  // Block Admin tab/view for non-super-admin accounts
+  useEffect(() => {
+    if (!isSuperAdmin && view === 'adm') {
+      setView('home');
+    }
+  }, [isSuperAdmin, view]);
+
   const authOpts = useMemo(
     () => ({
-      userEmail: userEmail || serverUser.email,
-      adminPin,
+      userEmail: userEmail || storedEmail || serverUser.email || '',
     }),
-    [userEmail, serverUser.email, adminPin]
+    [userEmail, storedEmail, serverUser.email]
   );
 
   const who = useCallback((): string => {
@@ -962,7 +961,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           'create.php',
           {
             action: 'create_track',
-            pin: adminPin,
             title: item.title,
             artist: item.artist,
             album_id: 0,
@@ -1011,10 +1009,11 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   };
 
   const handleDeleteRequest = async (requestId: number) => {
+    if (!isSuperAdmin) return;
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'delete.php',
-        { action: 'delete_request', id: requestId, pin: adminPin },
+        { action: 'delete_request', id: requestId },
         authOpts
       );
       showToast(res.message || 'Request dihapus.');
@@ -1164,33 +1163,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     });
   };
 
-  // Admin Handlers
-  const handleVerifyPin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const pin = pinInput.trim();
-    if (!pin) return;
-    await runMutation(async () => {
-      const res = await musikweApi.postAction(
-        'create.php',
-        { action: 'verify_admin', pin },
-        authOpts
-      );
-      showToast(res.message || (res.success ? 'Admin terverifikasi.' : 'PIN salah.'));
-      if (res.success) {
-        setAdminPin(pin);
-        setPinVerified(true);
-        setPinInput('');
-        try {
-          sessionStorage.setItem('mw_pin', pin);
-        } catch {
-          // ignore
-        }
-      }
-    });
-  };
-
+  // Admin Handlers (Super Admin Exclusive)
   const handleSaveYoutubeKey = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSuperAdmin) return;
     const key = ytApiKeyInput.trim();
     if (!key) {
       showToast('Masukkan YouTube Data API v3 Key terlebih dahulu.');
@@ -1203,7 +1179,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           action: 'save_youtube_key',
           youtube_api_key: key,
           api_key: key,
-          pin: adminPin,
         },
         authOpts
       );
@@ -1217,6 +1192,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const handleAdminExternalSearch = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSuperAdmin) return;
     const q = admExtQuery.trim();
     if (!q) return;
     setExtSearching(true);
@@ -1234,6 +1210,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   };
 
   const applyExternalResultToForm = (item: ExternalItunesItem | ExternalYoutubeItem) => {
+    if (!isSuperAdmin) return;
     setEditingTrackId(null);
     setTrackTitle(item.title);
     setTrackArtist(item.artist);
@@ -1251,6 +1228,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const handleCreateAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSuperAdmin) return;
     if (!albumTitle.trim() || !albumArtist.trim()) return;
     await runMutation(async () => {
       let coverUrl = '';
@@ -1267,7 +1245,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         'create.php',
         {
           action: 'create_album',
-          pin: adminPin,
           title: albumTitle.trim(),
           artist: albumArtist.trim(),
           release_year: albumYear.trim() || String(new Date().getFullYear()),
@@ -1287,6 +1264,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const handleUpdateLogo = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSuperAdmin) return;
     if (!logoFile) {
       showToast('Pilih file logo terlebih dahulu.');
       return;
@@ -1300,7 +1278,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       }
       const res = await musikweApi.postAction(
         'update.php',
-        { action: 'update_logo', pin: adminPin, logo_url: up.url },
+        { action: 'update_logo', logo_url: up.url },
         authOpts
       );
       showToast(res.message || 'Logo diperbarui.');
@@ -1313,6 +1291,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const handleSaveTrack = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isSuperAdmin) return;
     if (!trackTitle.trim() || !trackArtist.trim()) return;
     await runMutation(async () => {
       let finalAudioUrl = trackAudioUrl.trim();
@@ -1345,7 +1324,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       const alObj = albums.find((al) => String(al.id) === String(trackAlbumId));
       const payload: Record<string, any> = {
         action: editingTrackId ? 'update_track' : 'create_track',
-        pin: adminPin,
         title: trackTitle.trim(),
         artist: trackArtist.trim(),
         album_id: Number(trackAlbumId || 0),
@@ -1381,6 +1359,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   };
 
   const handleEditTrackFill = (t: MusikweTrack) => {
+    if (!isSuperAdmin) return;
     setEditingTrackId(t.id);
     setTrackTitle(t.t);
     setTrackArtist(t.a);
@@ -1396,6 +1375,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   };
 
   const handleDeleteTrack = async (trackId: number) => {
+    if (!isSuperAdmin) return;
     const confirmKey = `tr_${trackId}`;
     if (confirmDeleteId !== confirmKey) {
       setConfirmDeleteId(confirmKey);
@@ -1405,7 +1385,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'delete.php',
-        { action: 'delete_track', id: trackId, pin: adminPin },
+        { action: 'delete_track', id: trackId },
         authOpts
       );
       showToast(res.message || 'Lagu dihapus dari database.');
@@ -1623,18 +1603,20 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
           <div className="mw-side-sp" />
 
-          <button
-            type="button"
-            className={`mw-nav ${effectiveView === 'adm' ? 'on' : ''}`}
-            onClick={() => {
-              setView('adm');
-              setSearchQuery('');
-              setQueueDrawerOpen(false);
-            }}
-          >
-            <ShieldCheck size={18} />
-            <span>Admin{isAdmin ? ' (Aktif)' : ''}</span>
-          </button>
+          {isSuperAdmin && (
+            <button
+              type="button"
+              className={`mw-nav ${effectiveView === 'adm' ? 'on' : ''}`}
+              onClick={() => {
+                setView('adm');
+                setSearchQuery('');
+                setQueueDrawerOpen(false);
+              }}
+            >
+              <ShieldCheck size={18} />
+              <span>Admin (Aktif)</span>
+            </button>
+          )}
         </aside>
 
         {/* TOP BAR HEADER */}
@@ -2028,18 +2010,20 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     >
                       <Play size={13} /> Putar semua
                     </button>
-                    <button
-                      type="button"
-                      className="mw-btn sm g"
-                      onClick={() => handleDeletePlaylist(activePlaylist.id)}
-                    >
-                      <Trash2 size={13} />
-                      <span>
-                        {confirmDeleteId === `pl_${activePlaylist.id}`
-                          ? 'Konfirmasi Hapus'
-                          : 'Hapus playlist'}
-                      </span>
-                    </button>
+                    {isSuperAdmin && (
+                      <button
+                        type="button"
+                        className="mw-btn sm g"
+                        onClick={() => handleDeletePlaylist(activePlaylist.id)}
+                      >
+                        <Trash2 size={13} />
+                        <span>
+                          {confirmDeleteId === `pl_${activePlaylist.id}`
+                            ? 'Konfirmasi Hapus'
+                            : 'Hapus playlist'}
+                        </span>
+                      </button>
+                    )}
                   </h2>
 
                   {activePlaylist.ids.length > 0 ? (
@@ -2047,15 +2031,17 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       const tr = findTrack(tid);
                       return renderTrackRow(
                         tr,
-                        <button
-                          type="button"
-                          className="mw-ib"
-                          title="Hapus dari playlist"
-                          aria-label="Hapus dari playlist"
-                          onClick={() => handleRemoveFromPlaylist(activePlaylist.id, tr.id)}
-                        >
-                          <X size={16} />
-                        </button>
+                        isSuperAdmin ? (
+                          <button
+                            type="button"
+                            className="mw-ib"
+                            title="Hapus dari playlist"
+                            aria-label="Hapus dari playlist"
+                            onClick={() => handleRemoveFromPlaylist(activePlaylist.id, tr.id)}
+                          >
+                            <X size={16} />
+                          </button>
+                        ) : undefined
                       );
                     })
                   ) : (
@@ -2191,7 +2177,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       <th>Diminta oleh</th>
                       <th>Waktu</th>
                       <th>Suara</th>
-                      <th />
+                      {isSuperAdmin && <th />}
                     </tr>
                   </thead>
                   <tbody>
@@ -2218,16 +2204,18 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                               <span>{rq.v.length}</span>
                             </button>
                           </td>
-                          <td>
-                            <button
-                              type="button"
-                              className="mw-ib"
-                              aria-label="Hapus request"
-                              onClick={() => handleDeleteRequest(rq.id)}
-                            >
-                              <X size={16} />
-                            </button>
-                          </td>
+                          {isSuperAdmin && (
+                            <td>
+                              <button
+                                type="button"
+                                className="mw-ib"
+                                aria-label="Hapus request"
+                                onClick={() => handleDeleteRequest(rq.id)}
+                              >
+                                <X size={16} />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -2336,60 +2324,23 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             </div>
           )}
 
-          {effectiveView === 'adm' && (
+          {effectiveView === 'adm' && isSuperAdmin && (
             <div className="mw-v">
-              {!isAdmin ? (
-                <div>
-                  <h2 className="mw-h2">Masuk Panel Admin</h2>
-                  <p className="mw-mu" style={{ marginBottom: 14 }}>
-                    Hanya admin yang dapat mengelola lagu, album, YouTube API Key, cover, dan logo.
-                  </p>
-                  <form className="mw-fm" onSubmit={handleVerifyPin} style={{ maxWidth: 420 }}>
-                    <input
-                      type="password"
-                      value={pinInput}
-                      onChange={(e) => setPinInput(e.target.value)}
-                      placeholder="Masukkan PIN Admin"
-                      required
-                    />
-                    <button type="submit" className="mw-btn">
-                      Masuk
-                    </button>
-                  </form>
+              <div>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 10,
+                    marginBottom: 16,
+                  }}
+                >
+                  <h2 className="mw-h2" style={{ margin: 0 }}>
+                    Panel Admin (.MUSIKWE CRUD)
+                  </h2>
                 </div>
-              ) : (
-                <div>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: 10,
-                      marginBottom: 16,
-                    }}
-                  >
-                    <h2 className="mw-h2" style={{ margin: 0 }}>
-                      Panel Admin (.MUSIKWE CRUD)
-                    </h2>
-                    {pinVerified && !isAutoAdminEmail(activeEmail) && (
-                      <button
-                        type="button"
-                        className="mw-btn g sm"
-                        onClick={() => {
-                          setPinVerified(false);
-                          setAdminPin('');
-                          try {
-                            sessionStorage.removeItem('mw_pin');
-                          } catch {
-                            // ignore
-                          }
-                        }}
-                      >
-                        Keluar Admin
-                      </button>
-                    )}
-                  </div>
 
                   {/* YouTube API Key & External iTunes/YouTube Search */}
                   <div className="mw-adm-grid">
@@ -2690,7 +2641,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     <div className="mw-empty-box">Belum ada lagu tersimpan di database.</div>
                   )}
                 </div>
-              )}
             </div>
           )}
         </main>

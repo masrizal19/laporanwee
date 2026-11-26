@@ -132,24 +132,19 @@ function resolveUserEmail(overrideEmail?: string): string {
 
 function buildHeaders(
   isJson: boolean,
-  options?: { userEmail?: string; adminPin?: string }
+  options?: { userEmail?: string }
 ): Record<string, string> {
   const token = getActiveToken();
   const email = resolveUserEmail(options?.userEmail);
   const headers: Record<string, string> = {
     Accept: 'application/json',
+    'X-Admin-Email': email || '',
   };
   if (isJson) {
     headers['Content-Type'] = 'application/json';
   }
   if (token) {
     headers.Authorization = `Bearer ${token}`;
-  }
-  if (email) {
-    headers['X-Admin-Email'] = email;
-  }
-  if (options?.adminPin) {
-    headers['X-Admin-Pin'] = options.adminPin;
   }
   return headers;
 }
@@ -324,7 +319,7 @@ export function parseSyncedLyrics(lyrics: string, durationSec: number): SyncedLy
 export const musikweApi = {
   async read(
     q: string = '',
-    auth?: { userEmail?: string; adminPin?: string }
+    auth?: { userEmail?: string }
   ): Promise<{ success: boolean; message?: string; data: MusikweReadResponse }> {
     const query = q.trim();
     const url = query
@@ -345,7 +340,7 @@ export const musikweApi = {
 
   async searchExternal(
     q: string,
-    auth?: { userEmail?: string; adminPin?: string }
+    auth?: { userEmail?: string }
   ): Promise<ExternalSearchResponse> {
     const query = q.trim();
     if (!query) {
@@ -443,7 +438,7 @@ export const musikweApi = {
   async searchYoutubeBestMatch(
     title: string,
     artist: string,
-    auth?: { userEmail?: string; adminPin?: string }
+    auth?: { userEmail?: string }
   ): Promise<ExternalYoutubeItem | null> {
     const q = `${title} ${artist}`.trim();
     if (!q) return null;
@@ -485,7 +480,7 @@ export const musikweApi = {
   async postAction(
     endpoint: 'create.php' | 'update.php' | 'delete.php',
     payload: Record<string, any>,
-    auth?: { userEmail?: string; adminPin?: string }
+    auth?: { userEmail?: string }
   ): Promise<{ success: boolean; message?: string; data?: any }> {
     const res = await fetchWithTimeout(
       `${MUSIKWE_API_BASE}/${endpoint}`,
@@ -506,7 +501,7 @@ export const musikweApi = {
 
   async uploadFile(
     file: File,
-    auth?: { userEmail?: string; adminPin?: string }
+    auth?: { userEmail?: string }
   ): Promise<{ success: boolean; message?: string; url?: string }> {
     const fd = new FormData();
     fd.append('file', file);
