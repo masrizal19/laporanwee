@@ -166,6 +166,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     nextTrack,
     prevTrack,
     seekTo,
+    purgeTrackLocally,
   } = useMusikWe();
 
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -591,12 +592,20 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     });
   };
 
-  const handleDeleteRequest = async (requestId: number, canDelete: boolean = isSuperAdmin) => {
+  const handleDeleteRequest = async (
+    requestId: number,
+    canDelete: boolean = isSuperAdmin,
+    trackId?: number
+  ) => {
     if (!isSuperAdmin && !canDelete) return;
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'delete.php',
-        { action: 'delete_request', id: requestId },
+        {
+          action: 'delete_request',
+          id: requestId,
+          delete_track: isSuperAdmin,
+        },
         authOpts
       );
       if (!res.success) {
@@ -605,6 +614,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
       }
       setRequests((prev) => prev.filter((r) => r.id !== requestId));
       setRequestHistory((prev) => prev.filter((r) => r.id !== requestId));
+      if (isSuperAdmin && trackId && trackId > 0) {
+        purgeTrackLocally(trackId);
+      }
       await syncFromBackend(searchQuery);
       showToast(res.message || 'Request dihapus.');
     });
@@ -988,25 +1000,20 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   };
 
   const handleDeleteTrack = async (trackId: number) => {
-    if (!isSuperAdmin) return;
-    const confirmKey = `tr_${trackId}`;
-    if (confirmDeleteId !== confirmKey) {
-      setConfirmDeleteId(confirmKey);
-      return;
-    }
-    setConfirmDeleteId(null);
+    if (!isSuperAdmin || !trackId) return;
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'delete.php',
         { action: 'delete_track', id: trackId },
         authOpts
       );
-      showToast(res.message || 'Lagu dihapus dari database.');
-      if (res.success) {
-        setCatalogTracks((prev) => prev.filter((t) => t.id !== trackId));
-        setTracks((prev) => prev.filter((t) => t.id !== trackId));
-        await syncFromBackend(searchQuery);
+      if (!res.success) {
+        showToast(res.message || 'Gagal menghapus lagu dari database.');
+        return;
       }
+      purgeTrackLocally(trackId);
+      await syncFromBackend(searchQuery);
+      showToast(res.message || 'Lagu dihapus dari database.');
     });
   };
 
@@ -1111,6 +1118,18 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           >
             <Mic2 size={16} />
           </button>
+          {isSuperAdmin && t.id > 0 && (
+            <button
+              type="button"
+              className="mw-ib"
+              title="Hapus lagu dari database"
+              aria-label="Hapus lagu"
+              style={{ color: '#f87171' }}
+              onClick={() => handleDeleteTrack(t.id)}
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
           {extraAction}
         </div>
       </div>
@@ -2001,9 +2020,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                                   className="mw-ib"
                                   aria-label="Hapus request"
                                   title="Hapus request"
-                                  onClick={() => handleDeleteRequest(rq.id, canModerate)}
+                                  style={{ color: '#f87171' }}
+                                  onClick={() => handleDeleteRequest(rq.id, canModerate, rq.tid)}
                                 >
-                                  <X size={16} />
+                                  <Trash2 size={15} />
                                 </button>
                               </div>
                             )}
@@ -2081,9 +2101,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                               className="mw-ib"
                               aria-label="Hapus item riwayat"
                               title="Hapus item riwayat"
-                              onClick={() => handleDeleteRequest(item.id, canDelete)}
+                              style={{ color: '#f87171' }}
+                              onClick={() => handleDeleteRequest(item.id, canDelete, item.tid)}
                             >
-                              <X size={16} />
+                              <Trash2 size={15} />
                             </button>
                           </div>
                         )}
@@ -2544,9 +2565,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                                 className="mw-ib"
                                 title="Hapus request"
                                 aria-label="Hapus request"
-                                onClick={() => handleDeleteRequest(rq.id, true)}
+                                style={{ color: '#f87171' }}
+                                onClick={() => handleDeleteRequest(rq.id, true, rq.tid)}
                               >
-                                <X size={16} />
+                                <Trash2 size={15} />
                               </button>
                             </div>
                           </div>
@@ -2565,35 +2587,15 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       {tracks.map((t) =>
                         renderTrackRow(
                           t,
-                          <>
-                            <button
-                              type="button"
-                              className="mw-ib"
-                              title="Edit lagu"
-                              aria-label="Edit lagu"
-                              onClick={() => handleEditTrackFill(t)}
-                            >
-                              <Pencil size={15} />
-                            </button>
-                            <button
-                              type="button"
-                              className="mw-ib"
-                              title={
-                                confirmDeleteId === `tr_${t.id}`
-                                  ? 'Klik lagi untuk konfirmasi hapus'
-                                  : 'Hapus lagu'
-                              }
-                              style={
-                                confirmDeleteId === `tr_${t.id}`
-                                  ? { color: '#ef4444' }
-                                  : undefined
-                              }
-                              aria-label="Hapus lagu"
-                              onClick={() => handleDeleteTrack(t.id)}
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="mw-ib"
+                            title="Edit lagu"
+                            aria-label="Edit lagu"
+                            onClick={() => handleEditTrackFill(t)}
+                          >
+                            <Pencil size={15} />
+                          </button>
                         )
                       )}
                     </div>
@@ -2691,12 +2693,12 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                         <button
                           type="button"
                           className="mw-ib"
-                          style={{ width: 26, height: 26 }}
+                          style={{ width: 26, height: 26, color: '#f87171' }}
                           aria-label="Hapus request"
                           title="Hapus request"
-                          onClick={() => handleDeleteRequest(rq.id, canModerate)}
+                          onClick={() => handleDeleteRequest(rq.id, canModerate, rq.tid)}
                         >
-                          <X size={14} />
+                          <Trash2 size={13} />
                         </button>
                       </>
                     )}

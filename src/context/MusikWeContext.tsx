@@ -192,6 +192,7 @@ export interface MusikWeContextValue {
   prevTrack: () => void;
   seekTo: (sec: number) => void;
   stopPlayback: () => void;
+  purgeTrackLocally: (trackId: number) => void;
 }
 
 const MusikWeContext = createContext<MusikWeContextValue | null>(null);
@@ -627,11 +628,11 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const d = res.data;
         setServerUser(d.user);
 
-        if (d.tracks.length > 0) {
+        if (Array.isArray(d.tracks)) {
           setTracks(d.tracks);
           if (!q.trim()) {
             setCatalogTracks(d.tracks);
-          } else {
+          } else if (d.tracks.length > 0) {
             setCatalogTracks((prev) => {
               const byId = new Map(prev.map((t) => [t.id, t]));
               d.tracks.forEach((t) => byId.set(t.id, t));
@@ -640,10 +641,10 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
 
-        if (d.albums.length > 0) {
+        if (Array.isArray(d.albums)) {
           setAlbums(d.albums);
         }
-        if (d.playlists.length > 0) {
+        if (Array.isArray(d.playlists)) {
           setPlaylists(d.playlists);
         }
 
@@ -662,14 +663,16 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!displayName.trim() && d.user.name && d.user.name !== 'Tamu') {
           setDisplayName(d.user.name);
         }
-        if (!q.trim() && d.tracks.length > 0 && (isSuperAdminRef.current || !radioStateRef.current?.title)) {
+        if (!q.trim() && (isSuperAdminRef.current || !radioStateRef.current?.title)) {
           setCurrentTrackId((prev) => {
             if (prev < 0) return prev;
+            if (d.tracks.length === 0) return 0;
             if (prev > 0 && d.tracks.some((x) => x.id === prev)) return prev;
             return d.tracks[0].id;
           });
           setViewTrackId((prev) => {
             if (prev < 0) return prev;
+            if (d.tracks.length === 0) return 0;
             if (prev > 0 && d.tracks.some((x) => x.id === prev)) return prev;
             return d.tracks[0].id;
           });
@@ -1507,6 +1510,64 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [broadcastRadioState]);
 
+  const purgeTrackLocally = useCallback(
+    (trackId: number) => {
+      if (!trackId) return;
+      const nextTracks = tracksRef.current.filter((t) => t.id !== trackId);
+      const nextCatalog = catalogTracksRef.current.filter((t) => t.id !== trackId);
+      const nextRequests = requests.filter((r) => r.tid !== trackId);
+      const nextHistory = requestHistory.filter((h) => h.tid !== trackId);
+
+      setTracks(nextTracks);
+      setCatalogTracks(nextCatalog);
+      setRequests(nextRequests);
+      setRequestHistory(nextHistory);
+
+      const wasCurrent = currentTrackRef.current.id === trackId;
+      if (wasCurrent) {
+        stopPlayback();
+        setAdHocTrack((prev) => (prev && prev.id === trackId ? null : prev));
+        const fallbackId = nextCatalog[0]?.id || nextTracks[0]?.id || 0;
+        setCurrentTrackId(fallbackId);
+        setViewTrackId((prev) => (prev === trackId ? fallbackId : prev));
+        if (isSuperAdminRef.current) {
+          broadcastRadioState(
+            {
+              id: 0,
+              t: '',
+              a: '',
+              d: 200,
+              h: 210,
+              url: '',
+              ly: '',
+              img: '',
+            },
+            false,
+            0
+          );
+        }
+      }
+
+      const existingSnap = readPersistedSnapshot();
+      writePersistedSnapshot({
+        ...existingSnap,
+        tracks: nextTracks,
+        catalogTracks: nextCatalog,
+        requests: nextRequests,
+        requestHistory: nextHistory,
+        currentTrackId: wasCurrent
+          ? nextCatalog[0]?.id || nextTracks[0]?.id || 0
+          : existingSnap.currentTrackId,
+        currentTrack: wasCurrent ? null : existingSnap.currentTrack,
+        adHocTrack:
+          existingSnap.adHocTrack?.id === trackId ? null : existingSnap.adHocTrack,
+        playerActivated: wasCurrent ? false : existingSnap.playerActivated,
+        savedAt: Date.now(),
+      });
+    },
+    [requests, requestHistory, stopPlayback, broadcastRadioState]
+  );
+
   const dismissMiniPlayer = useCallback(() => {
     setMiniPlayerDismissed(true);
     if (isSuperAdminRef.current) {
@@ -2010,6 +2071,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     prevTrack,
     seekTo,
     stopPlayback,
+    purgeTrackLocally,
   };
 
   return (
