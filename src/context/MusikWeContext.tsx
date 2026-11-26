@@ -127,6 +127,7 @@ export interface MusikWeContextValue {
   commentsMap: Record<string, MusikweComment[]>;
   serverUser: MusikweUser;
   logoUrl: string;
+  setLogoUrl: React.Dispatch<React.SetStateAction<string>>;
   hasYoutubeKey: boolean;
   setHasYoutubeKey: React.Dispatch<React.SetStateAction<boolean>>;
 
@@ -665,7 +666,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           d.comments && Object.keys(d.comments).length > 0 ? d.comments : prev
         );
 
-        if (d.logo_url) setLogoUrl(d.logo_url);
+        if (typeof d.logo_url === 'string') setLogoUrl(d.logo_url.trim());
         if (typeof d.has_youtube_key === 'boolean') {
           setHasYoutubeKey((prev) => prev || Boolean(d.has_youtube_key));
         }
@@ -2096,6 +2097,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     commentsMap,
     serverUser,
     logoUrl,
+    setLogoUrl,
     hasYoutubeKey,
     setHasYoutubeKey,
 

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   ArrowLeft,
+  Check,
   ChevronDown,
   Disc3,
   Heart,
@@ -17,6 +19,7 @@ import {
   Plus,
   Radio,
   Repeat,
+  RotateCcw,
   Search,
   ShieldCheck,
   Shuffle,
@@ -32,6 +35,7 @@ import {
 import {
   ExternalItunesItem,
   ExternalYoutubeItem,
+  MusikweAlbum,
   MusikwePlaylist,
   MusikweTrack,
   extractYoutubeId,
@@ -50,6 +54,65 @@ export interface MusikweFullscreenViewProps {
 }
 
 type MusikweNavView = 'home' | 'lib' | 'req' | 'lyr' | 'adm' | 'alb';
+
+interface BulkUploadItem {
+  uid: string;
+  file: File;
+  title: string;
+  artist: string;
+  duration: number;
+  status: 'pending' | 'uploading' | 'saving' | 'done' | 'error';
+  errorMsg?: string;
+}
+
+const parseAudioFilenameMeta = (
+  filename: string,
+  defaultArtist: string
+): { title: string; artist: string } => {
+  const base = filename
+    .replace(/\.[^/.]+$/, '')
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!defaultArtist.trim()) {
+    const dashParts = base.split(/\s+[-–—]\s+/);
+    if (dashParts.length >= 2 && dashParts[0].trim() && dashParts[1].trim()) {
+      return {
+        artist: dashParts[0].trim(),
+        title: dashParts.slice(1).join(' - ').trim(),
+      };
+    }
+  }
+  return {
+    title: base || 'Tanpa Judul',
+    artist: defaultArtist.trim() || 'Artis Tidak Diketahui',
+  };
+};
+
+const readAudioFileDuration = (file: File): Promise<number> =>
+  new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    let settled = false;
+    const finish = (sec: number) => {
+      if (settled) return;
+      settled = true;
+      URL.revokeObjectURL(url);
+      resolve(sec);
+    };
+    const timer = window.setTimeout(() => finish(200), 3500);
+    audio.preload = 'metadata';
+    audio.onloadedmetadata = () => {
+      window.clearTimeout(timer);
+      const d = Number(audio.duration);
+      finish(Number.isFinite(d) && d > 5 ? Math.round(d) : 200);
+    };
+    audio.onerror = () => {
+      window.clearTimeout(timer);
+      finish(200);
+    };
+    audio.src = url;
+  });
 
 const fmtTime = (sec: number): string => {
   const s = Math.max(0, Math.floor(sec || 0));
@@ -114,6 +177,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     catalogTracks,
     setCatalogTracks,
     albums,
+    setAlbums,
     playlists,
     setPlaylists,
     requests,
@@ -124,6 +188,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     commentsMap,
     serverUser,
     logoUrl,
+    setLogoUrl,
     hasYoutubeKey,
     setHasYoutubeKey,
     currentTrackId,
@@ -221,11 +286,16 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   // Admin forms state
   const [ytApiKeyInput, setYtApiKeyInput] = useState('');
+  const [editingAlbumId, setEditingAlbumId] = useState<number | null>(null);
   const [albumTitle, setAlbumTitle] = useState('');
   const [albumArtist, setAlbumArtist] = useState('');
   const [albumYear, setAlbumYear] = useState(String(new Date().getFullYear()));
+  const [albumCoverUrlInput, setAlbumCoverUrlInput] = useState('');
   const [albumCoverFile, setAlbumCoverFile] = useState<File | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoUrlInput, setLogoUrlInput] = useState('');
+  const [logoFilePreviewUrl, setLogoFilePreviewUrl] = useState('');
+  const [logoImgError, setLogoImgError] = useState(false);
 
   const [editingTrackId, setEditingTrackId] = useState<number | null>(null);
   const [trackTitle, setTrackTitle] = useState('');
@@ -239,10 +309,37 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   const [trackAudioFile, setTrackAudioFile] = useState<File | null>(null);
   const [trackCoverFile, setTrackCoverFile] = useState<File | null>(null);
 
-  // Refs for synced lyric scrolling & touch gestures
+  // Admin bulk upload state
+  const [bulkAlbumId, setBulkAlbumId] = useState<string>('0');
+  const [bulkDefaultArtist, setBulkDefaultArtist] = useState('');
+  const [bulkCoverUrl, setBulkCoverUrl] = useState('');
+  const [bulkCoverFile, setBulkCoverFile] = useState<File | null>(null);
+  const [bulkItems, setBulkItems] = useState<BulkUploadItem[]>([]);
+  const [bulkUploading, setBulkUploading] = useState(false);
+
+  // Refs for synced lyric scrolling, admin inputs & touch gestures
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
   const lastActiveLyricIdxRef = useRef<number>(-1);
   const touchStartYRef = useRef<number>(0);
+  const logoFileInputRef = useRef<HTMLInputElement | null>(null);
+  const albumCoverInputRef = useRef<HTMLInputElement | null>(null);
+  const albumFormCardRef = useRef<HTMLDivElement | null>(null);
+  const bulkAudioInputRef = useRef<HTMLInputElement | null>(null);
+  const bulkCoverInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    setLogoImgError(false);
+  }, [logoUrl, logoUrlInput, logoFilePreviewUrl]);
+
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoFilePreviewUrl('');
+      return;
+    }
+    const objUrl = URL.createObjectURL(logoFile);
+    setLogoFilePreviewUrl(objUrl);
+    return () => URL.revokeObjectURL(objUrl);
+  }, [logoFile]);
 
   // Block Admin tab/view for non-super-admin accounts
   useEffect(() => {
@@ -850,12 +947,35 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     showToast(`Data "${item.title}" disalin ke form lagu.`);
   };
 
-  const handleCreateAlbum = async (e: React.FormEvent) => {
+  const handleCancelEditAlbum = () => {
+    setEditingAlbumId(null);
+    setAlbumTitle('');
+    setAlbumArtist('');
+    setAlbumYear(String(new Date().getFullYear()));
+    setAlbumCoverUrlInput('');
+    setAlbumCoverFile(null);
+    if (albumCoverInputRef.current) albumCoverInputRef.current.value = '';
+  };
+
+  const handleEditAlbumFill = (al: MusikweAlbum) => {
+    if (!isSuperAdmin) return;
+    setEditingAlbumId(al.id);
+    setAlbumTitle(al.title);
+    setAlbumArtist(al.artist);
+    setAlbumYear(al.release_year || String(new Date().getFullYear()));
+    setAlbumCoverUrlInput(al.cover_url || '');
+    setAlbumCoverFile(null);
+    if (albumCoverInputRef.current) albumCoverInputRef.current.value = '';
+    albumFormCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    showToast(`Mengedit album "${al.title}".`);
+  };
+
+  const handleSaveAlbum = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSuperAdmin) return;
     if (!albumTitle.trim() || !albumArtist.trim()) return;
     await runMutation(async () => {
-      let coverUrl = '';
+      let coverUrl = albumCoverUrlInput.trim();
       if (albumCoverFile) {
         showToast('Mengunggah cover album...');
         const up = await musikweApi.uploadFile(albumCoverFile, authOpts);
@@ -865,52 +985,327 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         }
         coverUrl = up.url;
       }
+
+      const nextTitle = albumTitle.trim();
+      const nextArtist = albumArtist.trim();
+      const nextYear = albumYear.trim() || String(new Date().getFullYear());
+
+      if (editingAlbumId) {
+        const res = await musikweApi.postAction(
+          'update.php',
+          {
+            action: 'update_album',
+            id: editingAlbumId,
+            title: nextTitle,
+            artist: nextArtist,
+            release_year: nextYear,
+            cover_url: coverUrl,
+          },
+          authOpts
+        );
+        showToast(res.message || 'Album berhasil diperbarui.');
+        if (res.success) {
+          const editedId = editingAlbumId;
+          setAlbums((prev) =>
+            prev.map((al) =>
+              al.id === editedId
+                ? {
+                    ...al,
+                    title: nextTitle,
+                    artist: nextArtist,
+                    release_year: nextYear,
+                    cover_url: coverUrl,
+                  }
+                : al
+            )
+          );
+          setTracks((prev) =>
+            prev.map((t) => (t.album_id === editedId ? { ...t, album_name: nextTitle } : t))
+          );
+          setCatalogTracks((prev) =>
+            prev.map((t) => (t.album_id === editedId ? { ...t, album_name: nextTitle } : t))
+          );
+          handleCancelEditAlbum();
+          await syncFromBackend(searchQuery);
+        }
+        return;
+      }
+
       const res = await musikweApi.postAction(
         'create.php',
         {
           action: 'create_album',
-          title: albumTitle.trim(),
-          artist: albumArtist.trim(),
-          release_year: albumYear.trim() || String(new Date().getFullYear()),
+          title: nextTitle,
+          artist: nextArtist,
+          release_year: nextYear,
           cover_url: coverUrl,
         },
         authOpts
       );
       showToast(res.message || 'Album berhasil dibuat.');
       if (res.success) {
-        setAlbumTitle('');
-        setAlbumArtist('');
-        setAlbumCoverFile(null);
+        handleCancelEditAlbum();
         await syncFromBackend(searchQuery);
       }
+    });
+  };
+
+  const handleDeleteAlbum = async (al: MusikweAlbum) => {
+    if (!isSuperAdmin || !al.id) return;
+    const confirmKey = `alb_${al.id}`;
+    if (confirmDeleteId !== confirmKey) {
+      setConfirmDeleteId(confirmKey);
+      return;
+    }
+    setConfirmDeleteId(null);
+    await runMutation(async () => {
+      const res = await musikweApi.postAction(
+        'delete.php',
+        { action: 'delete_album', id: al.id },
+        authOpts
+      );
+      if (!res.success) {
+        showToast(res.message || 'Gagal menghapus album.');
+        return;
+      }
+      setAlbums((prev) => prev.filter((item) => item.id !== al.id));
+      if (editingAlbumId === al.id) {
+        handleCancelEditAlbum();
+      }
+      showToast(res.message || `Album "${al.title}" dihapus.`);
+      await syncFromBackend(searchQuery);
     });
   };
 
   const handleUpdateLogo = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isSuperAdmin) return;
-    if (!logoFile) {
-      showToast('Pilih file logo terlebih dahulu.');
+    const manualUrl = logoUrlInput.trim();
+    if (!logoFile && !manualUrl) {
+      showToast('Pilih file logo atau masukkan URL logo terlebih dahulu.');
       return;
     }
     await runMutation(async () => {
-      showToast('Mengunggah logo .MUSIKWE...');
-      const up = await musikweApi.uploadFile(logoFile, authOpts);
-      if (!up.success || !up.url) {
-        showToast(up.message || 'Gagal upload logo.');
-        return;
+      let finalLogoUrl = manualUrl;
+      if (logoFile) {
+        showToast('Mengunggah logo .MUSIKWE...');
+        const up = await musikweApi.uploadFile(logoFile, authOpts);
+        if (!up.success || !up.url) {
+          showToast(up.message || 'Gagal upload logo.');
+          return;
+        }
+        finalLogoUrl = up.url;
       }
       const res = await musikweApi.postAction(
         'update.php',
-        { action: 'update_logo', logo_url: up.url },
+        { action: 'update_logo', logo_url: finalLogoUrl },
         authOpts
       );
-      showToast(res.message || 'Logo diperbarui.');
+      showToast(res.message || 'Logo .MUSIKWE berhasil diperbarui.');
       if (res.success) {
+        setLogoUrl(finalLogoUrl);
         setLogoFile(null);
-        await syncFromBackend(searchQuery);
+        setLogoUrlInput('');
+        if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+        await syncFromBackend(searchQuery, true);
       }
     });
+  };
+
+  const handleResetLogo = async () => {
+    if (!isSuperAdmin) return;
+    await runMutation(async () => {
+      const res = await musikweApi.postAction(
+        'update.php',
+        { action: 'update_logo', logo_url: '' },
+        authOpts
+      );
+      showToast(res.message || 'Logo dikembalikan ke default .MUSIKWE.');
+      if (res.success) {
+        setLogoUrl('');
+        setLogoFile(null);
+        setLogoUrlInput('');
+        if (logoFileInputRef.current) logoFileInputRef.current.value = '';
+        await syncFromBackend(searchQuery, true);
+      }
+    });
+  };
+
+  const handleBulkFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!files.length) return;
+
+    const batch: BulkUploadItem[] = files.map((file, idx) => {
+      const meta = parseAudioFilenameMeta(file.name, bulkDefaultArtist);
+      return {
+        uid: `${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 7)}`,
+        file,
+        title: meta.title,
+        artist: meta.artist,
+        duration: 200,
+        status: 'pending',
+      };
+    });
+
+    setBulkItems((prev) => [...prev, ...batch]);
+
+    await Promise.all(
+      batch.map(async (entry) => {
+        const dur = await readAudioFileDuration(entry.file);
+        setBulkItems((prev) =>
+          prev.map((item) => (item.uid === entry.uid ? { ...item, duration: dur } : item))
+        );
+      })
+    );
+  };
+
+  const handleApplyBulkDefaultArtist = () => {
+    const nextArtist = bulkDefaultArtist.trim();
+    if (!nextArtist) return;
+    setBulkItems((prev) =>
+      prev.map((item) => (item.status === 'done' ? item : { ...item, artist: nextArtist }))
+    );
+    showToast(`Artis "${nextArtist}" diterapkan ke semua baris.`);
+  };
+
+  const handleBulkUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isSuperAdmin || bulkUploading) return;
+    const pendingItems = bulkItems.filter((item) => item.status !== 'done');
+    if (pendingItems.length === 0) {
+      showToast('Pilih minimal 1 file audio untuk diunggah.');
+      return;
+    }
+
+    setBulkUploading(true);
+    beginLoading();
+    try {
+      const alObj = albums.find((al) => String(al.id) === String(bulkAlbumId));
+      let sharedCoverUrl = bulkCoverUrl.trim() || alObj?.cover_url || '';
+
+      if (bulkCoverFile) {
+        showToast('Mengunggah cover default bulk upload...');
+        const upCover = await musikweApi.uploadFile(bulkCoverFile, authOpts);
+        if (!upCover.success || !upCover.url) {
+          showToast(upCover.message || 'Gagal mengunggah cover default.');
+          return;
+        }
+        sharedCoverUrl = upCover.url;
+      }
+
+      let successCount = 0;
+      for (const entry of pendingItems) {
+        setBulkItems((prev) =>
+          prev.map((item) =>
+            item.uid === entry.uid ? { ...item, status: 'uploading', errorMsg: undefined } : item
+          )
+        );
+
+        let uploadedUrl = '';
+        try {
+          const upAudio = await musikweApi.uploadFile(entry.file, authOpts);
+          if (!upAudio.success || !upAudio.url) {
+            setBulkItems((prev) =>
+              prev.map((item) =>
+                item.uid === entry.uid
+                  ? {
+                      ...item,
+                      status: 'error',
+                      errorMsg: upAudio.message || 'Gagal upload file audio.',
+                    }
+                  : item
+              )
+            );
+            continue;
+          }
+          uploadedUrl = upAudio.url;
+        } catch (err: any) {
+          setBulkItems((prev) =>
+            prev.map((item) =>
+              item.uid === entry.uid
+                ? {
+                    ...item,
+                    status: 'error',
+                    errorMsg: err?.message || 'Gagal upload file audio.',
+                  }
+                : item
+            )
+          );
+          continue;
+        }
+
+        setBulkItems((prev) =>
+          prev.map((item) => (item.uid === entry.uid ? { ...item, status: 'saving' } : item))
+        );
+
+        try {
+          const res = await musikweApi.postAction(
+            'create.php',
+            {
+              action: 'create_track',
+              title: entry.title.trim() || 'Tanpa Judul',
+              artist:
+                entry.artist.trim() || bulkDefaultArtist.trim() || 'Artis Tidak Diketahui',
+              album_id: Number(bulkAlbumId || 0),
+              album_name: alObj ? alObj.title : '',
+              audio_url: uploadedUrl,
+              cover_url: sharedCoverUrl,
+              duration: Math.max(15, Number(entry.duration) || 200),
+              youtube_id: '',
+              lyrics: '',
+            },
+            authOpts
+          );
+          if (!res.success) {
+            setBulkItems((prev) =>
+              prev.map((item) =>
+                item.uid === entry.uid
+                  ? {
+                      ...item,
+                      status: 'error',
+                      errorMsg: res.message || 'Gagal menyimpan ke database.',
+                    }
+                  : item
+              )
+            );
+            continue;
+          }
+          successCount += 1;
+          setBulkItems((prev) =>
+            prev.map((item) =>
+              item.uid === entry.uid ? { ...item, status: 'done', errorMsg: undefined } : item
+            )
+          );
+        } catch (err: any) {
+          setBulkItems((prev) =>
+            prev.map((item) =>
+              item.uid === entry.uid
+                ? {
+                    ...item,
+                    status: 'error',
+                    errorMsg: err?.message || 'Gagal menyimpan metadata lagu.',
+                  }
+                : item
+            )
+          );
+        }
+      }
+
+      if (successCount > 0) {
+        if (bulkCoverFile) {
+          setBulkCoverFile(null);
+          if (bulkCoverInputRef.current) bulkCoverInputRef.current.value = '';
+        }
+        await syncFromBackend(searchQuery);
+      }
+      showToast(
+        `${successCount} dari ${pendingItems.length} lagu berhasil diunggah dan disimpan.`
+      );
+    } finally {
+      endLoading();
+      setBulkUploading(false);
+    }
   };
 
   const handleSaveTrack = async (e: React.FormEvent) => {
@@ -1160,12 +1555,13 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               setSearchQuery('');
             }}
           >
-            {logoUrl ? (
+            {logoUrl && !logoImgError ? (
               <img
                 src={logoUrl}
                 alt=".MUSIKWE"
                 className="mw-logo-img"
                 referrerPolicy="no-referrer"
+                onError={() => setLogoImgError(true)}
               />
             ) : (
               <span className="mw-brand-mark">
@@ -2331,9 +2727,30 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
                   {/* Album & Logo Cards */}
                   <div className="mw-adm-grid">
-                    <div className="mw-adm-card">
-                      <h3>3. Buat Album Baru</h3>
-                      <form className="mw-fm" onSubmit={handleCreateAlbum}>
+                    <div className="mw-adm-card" ref={albumFormCardRef}>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <h3 style={{ margin: 0 }}>
+                          {editingAlbumId ? '3. Edit Album Terpilih' : '3. Buat Album Baru'}
+                        </h3>
+                        {editingAlbumId && (
+                          <button
+                            type="button"
+                            className="mw-btn sm g"
+                            onClick={handleCancelEditAlbum}
+                          >
+                            Batal Edit
+                          </button>
+                        )}
+                      </div>
+                      <form className="mw-fm" onSubmit={handleSaveAlbum}>
                         <input
                           value={albumTitle}
                           onChange={(e) => setAlbumTitle(e.target.value)}
@@ -2353,30 +2770,219 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                           style={{ maxWidth: 100 }}
                         />
                         <input
+                          value={albumCoverUrlInput}
+                          onChange={(e) => setAlbumCoverUrlInput(e.target.value)}
+                          placeholder="URL cover album (opsional)"
+                        />
+                        <input
+                          ref={albumCoverInputRef}
                           type="file"
                           accept="image/*"
+                          title="Upload file cover album"
                           onChange={(e) => setAlbumCoverFile(e.target.files?.[0] || null)}
                         />
                         <button type="submit" className="mw-btn sm">
-                          <Plus size={14} /> Simpan Album
+                          <Plus size={14} />{' '}
+                          {editingAlbumId ? 'Simpan Perubahan Album' : 'Simpan Album'}
                         </button>
                       </form>
                     </div>
 
                     <div className="mw-adm-card">
-                      <h3>4. Upload &amp; Perbarui Logo .MUSIKWE</h3>
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 12,
+                        }}
+                      >
+                        <h3 style={{ margin: 0 }}>4. Upload &amp; Perbarui Logo .MUSIKWE</h3>
+                        {logoUrl && (
+                          <button
+                            type="button"
+                            className="mw-btn sm g"
+                            onClick={handleResetLogo}
+                            title="Kembalikan ke logo teks default .MUSIKWE"
+                          >
+                            <RotateCcw size={13} /> Reset Default
+                          </button>
+                        )}
+                      </div>
+
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          padding: '10px 12px',
+                          marginBottom: 12,
+                          borderRadius: 12,
+                          border: '1px solid var(--mw-ln)',
+                          background: 'var(--mw-pan)',
+                        }}
+                      >
+                        {logoFilePreviewUrl || logoUrlInput.trim() || logoUrl ? (
+                          <img
+                            src={logoFilePreviewUrl || logoUrlInput.trim() || logoUrl}
+                            alt="Preview Logo .MUSIKWE"
+                            referrerPolicy="no-referrer"
+                            style={{
+                              height: 36,
+                              maxWidth: 150,
+                              objectFit: 'contain',
+                              borderRadius: 6,
+                            }}
+                          />
+                        ) : (
+                          <span className="mw-brand-mark" style={{ fontSize: 16 }}>
+                            <Disc3 size={18} className="mw-brand-dot" />
+                            <span>
+                              <span className="mw-brand-dot">.</span>MUSIKWE
+                            </span>
+                          </span>
+                        )}
+                        <span className="mw-mu mw-small">
+                          {logoFile
+                            ? `File siap diunggah: ${logoFile.name}`
+                            : logoUrlInput.trim()
+                            ? 'Preview dari URL baru'
+                            : logoUrl
+                            ? 'Logo aktif tersimpan di MySQL'
+                            : 'Menggunakan logo default'}
+                        </span>
+                      </div>
+
                       <form className="mw-fm" onSubmit={handleUpdateLogo}>
                         <input
+                          ref={logoFileInputRef}
                           type="file"
-                          accept="image/*"
+                          accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*"
                           onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
-                          required
+                        />
+                        <input
+                          value={logoUrlInput}
+                          onChange={(e) => setLogoUrlInput(e.target.value)}
+                          placeholder="Atau tempel URL logo (PNG/JPG/WEBP/SVG)"
                         />
                         <button type="submit" className="mw-btn sm">
-                          <Upload size={14} /> Upload &amp; Simpan Logo
+                          <Upload size={14} /> Simpan Logo Real-Time
                         </button>
                       </form>
                     </div>
+                  </div>
+
+                  {/* Album List Management */}
+                  <div className="mw-adm-card" style={{ marginBottom: 18 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <h3 style={{ margin: 0 }}>
+                        Daftar Album di Database ({albums.length})
+                      </h3>
+                      <span className="mw-mu mw-small">
+                        Edit judul, artis, tahun, cover, atau hapus album
+                      </span>
+                    </div>
+
+                    {albums.length > 0 ? (
+                      <div className="mw-album-grid">
+                        {albums.map((al) => {
+                          const trackCount = tracks.filter((t) => t.album_id === al.id).length;
+                          const isEditingThis = editingAlbumId === al.id;
+                          const isConfirmDel = confirmDeleteId === `alb_${al.id}`;
+                          return (
+                            <div
+                              key={`adm_alb_${al.id}`}
+                              className="mw-album-card"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                justifyContent: 'space-between',
+                                gap: 10,
+                                borderColor: isEditingThis ? 'var(--mw-ac)' : undefined,
+                                cursor: 'default',
+                              }}
+                            >
+                              <div
+                                style={{ display: 'flex', alignItems: 'center', gap: 12 }}
+                                onClick={() => setView('alb')}
+                              >
+                                <CoverThumb
+                                  track={{ t: al.title, img: al.cover_url || '', h: 260 }}
+                                />
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div className="mw-tt" style={{ fontSize: 13.5 }}>
+                                    {al.title}
+                                  </div>
+                                  <div className="mw-mu mw-small" style={{ marginTop: 2 }}>
+                                    {al.artist} · {al.release_year || 'Baru'}
+                                  </div>
+                                  <div className="mw-mu mw-small mw-num" style={{ marginTop: 2 }}>
+                                    {trackCount} lagu
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  flexWrap: 'wrap',
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  className="mw-btn sm g"
+                                  style={{ flex: 1, justifyContent: 'center' }}
+                                  onClick={() => handleEditAlbumFill(al)}
+                                >
+                                  <Pencil size={13} /> Edit Album
+                                </button>
+                                <button
+                                  type="button"
+                                  className="mw-btn sm g"
+                                  style={{
+                                    color: '#f87171',
+                                    borderColor: isConfirmDel
+                                      ? 'rgba(248, 113, 113, 0.7)'
+                                      : undefined,
+                                    background: isConfirmDel
+                                      ? 'rgba(248, 113, 113, 0.14)'
+                                      : undefined,
+                                  }}
+                                  onClick={() => handleDeleteAlbum(al)}
+                                >
+                                  <Trash2 size={13} />{' '}
+                                  {isConfirmDel ? 'Yakin Hapus?' : 'Hapus Album'}
+                                </button>
+                                {isConfirmDel && (
+                                  <button
+                                    type="button"
+                                    className="mw-btn sm g"
+                                    onClick={() => setConfirmDeleteId(null)}
+                                  >
+                                    Batal
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mw-empty-box">
+                        Belum ada album tersimpan di database.
+                      </div>
+                    )}
                   </div>
 
                   {/* Add / Edit Track Card */}
@@ -2486,6 +3092,260 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                           {editingTrackId ? 'Simpan Perubahan Lagu' : 'Simpan Lagu ke Database'}
                         </span>
                       </button>
+                    </form>
+                  </div>
+
+                  {/* Bulk Upload Multi-Track Card */}
+                  <div className="mw-adm-card" style={{ marginBottom: 22 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: 8,
+                        flexWrap: 'wrap',
+                        marginBottom: 12,
+                      }}
+                    >
+                      <h3 style={{ margin: 0 }}>
+                        6. Upload Banyak Lagu Sekaligus (Bulk Upload)
+                      </h3>
+                      {bulkItems.length > 0 && (
+                        <button
+                          type="button"
+                          className="mw-btn sm g"
+                          disabled={bulkUploading}
+                          onClick={() => setBulkItems([])}
+                        >
+                          Bersihkan Daftar ({bulkItems.length})
+                        </button>
+                      )}
+                    </div>
+
+                    <form className="mw-fm" onSubmit={handleBulkUploadSubmit}>
+                      <select
+                        value={bulkAlbumId}
+                        onChange={(e) => setBulkAlbumId(e.target.value)}
+                        disabled={bulkUploading}
+                      >
+                        <option value="0">Single (Tanpa Album)</option>
+                        {albums.map((al) => (
+                          <option key={`bulk_al_${al.id}`} value={al.id}>
+                            Album: {al.title} ({al.artist})
+                          </option>
+                        ))}
+                      </select>
+
+                      <div style={{ display: 'flex', gap: 6, flex: '1 1 220px' }}>
+                        <input
+                          value={bulkDefaultArtist}
+                          onChange={(e) => setBulkDefaultArtist(e.target.value)}
+                          placeholder="Artis default (opsional)"
+                          disabled={bulkUploading}
+                        />
+                        {bulkItems.length > 0 && bulkDefaultArtist.trim() && (
+                          <button
+                            type="button"
+                            className="mw-btn sm g"
+                            disabled={bulkUploading}
+                            onClick={handleApplyBulkDefaultArtist}
+                          >
+                            Terapkan
+                          </button>
+                        )}
+                      </div>
+
+                      <input
+                        value={bulkCoverUrl}
+                        onChange={(e) => setBulkCoverUrl(e.target.value)}
+                        placeholder="URL cover default (opsional)"
+                        disabled={bulkUploading}
+                      />
+
+                      <input
+                        ref={bulkCoverInputRef}
+                        type="file"
+                        accept="image/*"
+                        title="Upload cover gambar default untuk semua lagu"
+                        disabled={bulkUploading}
+                        onChange={(e) => setBulkCoverFile(e.target.files?.[0] || null)}
+                      />
+
+                      <input
+                        ref={bulkAudioInputRef}
+                        type="file"
+                        multiple
+                        accept="audio/*,.mp3,.wav,.m4a,.ogg"
+                        title="Pilih banyak file audio sekaligus"
+                        disabled={bulkUploading}
+                        onChange={handleBulkFilesSelected}
+                        style={{ flexBasis: '100%' }}
+                      />
+
+                      {bulkItems.length > 0 && (
+                        <div
+                          style={{
+                            flexBasis: '100%',
+                            width: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 8,
+                            maxHeight: 340,
+                            overflowY: 'auto',
+                            padding: 10,
+                            borderRadius: 12,
+                            border: '1px solid var(--mw-ln)',
+                            background: 'var(--mw-pan)',
+                          }}
+                        >
+                          {bulkItems.map((item, idx) => (
+                            <div
+                              key={item.uid}
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 8,
+                                flexWrap: 'wrap',
+                                padding: '8px 10px',
+                                borderRadius: 10,
+                                border: '1px solid var(--mw-ln)',
+                                background: 'var(--mw-pan2)',
+                              }}
+                            >
+                              <span
+                                className="mw-mu mw-small mw-num"
+                                style={{ minWidth: 24, fontWeight: 700 }}
+                              >
+                                {idx + 1}.
+                              </span>
+                              <input
+                                value={item.title}
+                                disabled={bulkUploading || item.status === 'done'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBulkItems((prev) =>
+                                    prev.map((x) =>
+                                      x.uid === item.uid ? { ...x, title: val } : x
+                                    )
+                                  );
+                                }}
+                                placeholder="Judul lagu"
+                                style={{ flex: '1 1 160px', padding: '7px 10px', fontSize: 12.5 }}
+                              />
+                              <input
+                                value={item.artist}
+                                disabled={bulkUploading || item.status === 'done'}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  setBulkItems((prev) =>
+                                    prev.map((x) =>
+                                      x.uid === item.uid ? { ...x, artist: val } : x
+                                    )
+                                  );
+                                }}
+                                placeholder="Artis"
+                                style={{ flex: '1 1 140px', padding: '7px 10px', fontSize: 12.5 }}
+                              />
+                              <span className="mw-mu mw-small mw-num">
+                                {fmtTime(item.duration)} ·{' '}
+                                {(item.file.size / (1024 * 1024)).toFixed(1)} MB
+                              </span>
+                              <span
+                                className="mw-small"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontWeight: 600,
+                                  minWidth: 115,
+                                  color:
+                                    item.status === 'done'
+                                      ? '#4ade80'
+                                      : item.status === 'error'
+                                      ? '#f87171'
+                                      : item.status === 'uploading' || item.status === 'saving'
+                                      ? 'var(--mw-ac)'
+                                      : 'var(--mw-mu)',
+                                }}
+                                title={item.errorMsg || ''}
+                              >
+                                {item.status === 'done' && <Check size={13} />}
+                                {item.status === 'error' && <AlertCircle size={13} />}
+                                {(item.status === 'uploading' || item.status === 'saving') && (
+                                  <Loader2 size={13} className="animate-spin" />
+                                )}
+                                <span>
+                                  {item.status === 'pending'
+                                    ? 'Menunggu'
+                                    : item.status === 'uploading'
+                                    ? 'Upload audio...'
+                                    : item.status === 'saving'
+                                    ? 'Simpan DB...'
+                                    : item.status === 'done'
+                                    ? 'Tersimpan'
+                                    : 'Gagal'}
+                                </span>
+                              </span>
+                              <button
+                                type="button"
+                                className="mw-ib"
+                                disabled={
+                                  item.status === 'uploading' || item.status === 'saving'
+                                }
+                                title="Hapus dari daftar upload"
+                                aria-label="Hapus dari daftar"
+                                onClick={() =>
+                                  setBulkItems((prev) =>
+                                    prev.filter((x) => x.uid !== item.uid)
+                                  )
+                                }
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div
+                        style={{
+                          flexBasis: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          flexWrap: 'wrap',
+                        }}
+                      >
+                        <button
+                          type="submit"
+                          className="mw-btn"
+                          disabled={
+                            bulkUploading ||
+                            bulkItems.filter((item) => item.status !== 'done').length === 0
+                          }
+                        >
+                          {bulkUploading ? (
+                            <Loader2 size={15} className="animate-spin" />
+                          ) : (
+                            <Upload size={15} />
+                          )}
+                          <span>
+                            {bulkUploading
+                              ? 'Mengunggah & Menyimpan Lagu...'
+                              : `Upload & Simpan Semua Lagu (${
+                                  bulkItems.filter((item) => item.status !== 'done').length
+                                })`}
+                          </span>
+                        </button>
+
+                        {bulkItems.length > 0 && (
+                          <span className="mw-mu mw-small mw-num">
+                            Selesai: {bulkItems.filter((i) => i.status === 'done').length}/
+                            {bulkItems.length}
+                          </span>
+                        )}
+                      </div>
                     </form>
                   </div>
 

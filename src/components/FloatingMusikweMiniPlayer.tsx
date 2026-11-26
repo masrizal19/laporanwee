@@ -21,6 +21,7 @@ export const FloatingMusikweMiniPlayer: React.FC<FloatingMusikweMiniPlayerProps>
 }) => {
   const {
     isSuperAdmin,
+    logoUrl,
     currentTrack,
     hasActiveTrack,
     playerActivated,
@@ -39,10 +40,15 @@ export const FloatingMusikweMiniPlayer: React.FC<FloatingMusikweMiniPlayerProps>
   } = useMusikWe();
 
   const [imgError, setImgError] = useState(false);
+  const [logoError, setLogoError] = useState(false);
 
   useEffect(() => {
     setImgError(false);
   }, [currentTrack.img]);
+
+  useEffect(() => {
+    setLogoError(false);
+  }, [logoUrl]);
 
   const shouldRender =
     !miniPlayerDismissed &&
@@ -101,6 +107,14 @@ export const FloatingMusikweMiniPlayer: React.FC<FloatingMusikweMiniPlayerProps>
                 referrerPolicy="no-referrer"
                 onError={() => setImgError(true)}
                 className="h-full w-full object-cover"
+              />
+            ) : logoUrl && !logoError ? (
+              <img
+                src={logoUrl}
+                alt=".MUSIKWE"
+                referrerPolicy="no-referrer"
+                onError={() => setLogoError(true)}
+                className="h-full w-full object-cover bg-black/20 p-1"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center">
