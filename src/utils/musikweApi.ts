@@ -349,83 +349,99 @@ export const musikweApi = {
 
     let itunes: ExternalItunesItem[] = [];
     let youtube: ExternalYoutubeItem[] = [];
-    let hasYoutubeKey = false;
+    let hasYoutubeKey = Boolean(String(import.meta.env.VITE_YOUTUBE_API_KEY || '').trim());
 
+    // 1. Query iTunes Search API directly for fast song list + HD covers (600x600bb)
     try {
-      const res = await fetchWithTimeout(
-        `${MUSIKWE_API_BASE}/search-external.php?q=${encodeURIComponent(query)}`,
-        { method: 'GET', headers: buildHeaders(false, auth) },
+      const itRes = await fetchWithTimeout(
+        `https://itunes.apple.com/search?term=${encodeURIComponent(
+          query
+        )}&media=music&entity=song&limit=15&country=ID`,
+        { method: 'GET' },
         DEFAULT_REQUEST_TIMEOUT_MS
       );
-      const json = await parseApiJson(res);
-      const data = json?.data || {};
-      hasYoutubeKey = Boolean(data?.has_youtube_key);
-
-      if (Array.isArray(data?.itunes)) {
-        itunes = data.itunes.map((item: any) => ({
-          source: 'itunes',
-          trackId: item?.trackId ?? item?.id,
-          title: String(item?.title ?? item?.trackName ?? ''),
-          artist: String(item?.artist ?? item?.artistName ?? ''),
-          album: String(item?.album ?? item?.collectionName ?? ''),
-          duration_sec: Math.max(15, Math.round(Number(item?.duration_sec ?? (item?.trackTimeMillis ? item.trackTimeMillis / 1000 : 200)))),
-          cover_url: String(item?.cover_url ?? item?.artworkUrl100 ?? '').replace('100x100bb', '600x600bb'),
-          preview_url: String(item?.preview_url ?? item?.previewUrl ?? ''),
-          release_date: String(item?.release_date ?? item?.releaseDate ?? ''),
-        }));
-      }
-
-      if (Array.isArray(data?.youtube)) {
-        youtube = data.youtube
-          .map((item: any) => {
-            const ytId =
-              extractYoutubeId(item?.youtube_id) ||
-              extractYoutubeId(item?.videoId) ||
-              extractYoutubeId(item?.id) ||
-              extractYoutubeId(item?.url);
-            return {
-              source: 'youtube' as const,
-              youtube_id: ytId,
-              title: String(item?.title ?? 'Video YouTube'),
-              artist: String(item?.artist ?? item?.channel ?? item?.channelTitle ?? 'YouTube'),
-              album: String(item?.album ?? ''),
-              duration_sec: Math.max(15, Math.round(Number(item?.duration_sec ?? item?.duration ?? 210))),
-              cover_url: String(
-                item?.cover_url ??
-                  item?.thumbnail_url ??
-                  item?.thumbnail ??
-                  (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : '')
-              ),
-            };
-          })
-          .filter((item: ExternalYoutubeItem) => Boolean(item.youtube_id));
-      }
-    } catch {
-      // Fall through to direct iTunes fallback
-    }
-
-    if (itunes.length === 0) {
-      try {
-        const itRes = await fetchWithTimeout(
-          `https://itunes.apple.com/search?term=${encodeURIComponent(
-            query
-          )}&media=music&entity=song&limit=10&country=ID`,
-          { method: 'GET' },
-          DEFAULT_REQUEST_TIMEOUT_MS
-        );
-        const itJson = await parseApiJson(itRes);
-        if (Array.isArray(itJson?.results)) {
-          itunes = itJson.results.map((r: any) => ({
+      const itJson = await parseApiJson(itRes);
+      if (Array.isArray(itJson?.results)) {
+        itunes = itJson.results
+          .filter((r: any) => r?.trackName && r?.artistName)
+          .map((r: any) => ({
             source: 'itunes' as const,
             trackId: r?.trackId,
             title: String(r?.trackName ?? ''),
             artist: String(r?.artistName ?? ''),
             album: String(r?.collectionName ?? ''),
             duration_sec: Math.max(15, Math.round((Number(r?.trackTimeMillis) || 200000) / 1000)),
-            cover_url: String(r?.artworkUrl100 ?? '').replace('100x100bb', '600x600bb'),
+            cover_url: String(r?.artworkUrl100 ?? '')
+              .replace('100x100bb', '600x600bb')
+              .replace('100x100', '600x600'),
             preview_url: String(r?.previewUrl ?? ''),
             release_date: String(r?.releaseDate ?? ''),
           }));
+      }
+    } catch {
+      // Fall through to backend search-external.php fallback
+    }
+
+    // 2. Fallback to backend search-external.php if direct iTunes failed or returned empty
+    if (itunes.length === 0) {
+      try {
+        const res = await fetchWithTimeout(
+          `${MUSIKWE_API_BASE}/search-external.php?q=${encodeURIComponent(query)}`,
+          { method: 'GET', headers: buildHeaders(false, auth) },
+          DEFAULT_REQUEST_TIMEOUT_MS
+        );
+        const json = await parseApiJson(res);
+        const data = json?.data || {};
+        if (data?.has_youtube_key) hasYoutubeKey = true;
+
+        if (Array.isArray(data?.itunes)) {
+          itunes = data.itunes.map((item: any) => ({
+            source: 'itunes',
+            trackId: item?.trackId ?? item?.id,
+            title: String(item?.title ?? item?.trackName ?? ''),
+            artist: String(item?.artist ?? item?.artistName ?? ''),
+            album: String(item?.album ?? item?.collectionName ?? ''),
+            duration_sec: Math.max(
+              15,
+              Math.round(
+                Number(item?.duration_sec ?? (item?.trackTimeMillis ? item.trackTimeMillis / 1000 : 200))
+              )
+            ),
+            cover_url: String(item?.cover_url ?? item?.artworkUrl100 ?? '')
+              .replace('100x100bb', '600x600bb')
+              .replace('100x100', '600x600'),
+            preview_url: String(item?.preview_url ?? item?.previewUrl ?? ''),
+            release_date: String(item?.release_date ?? item?.releaseDate ?? ''),
+          }));
+        }
+
+        if (Array.isArray(data?.youtube)) {
+          youtube = data.youtube
+            .map((item: any) => {
+              const ytId =
+                extractYoutubeId(item?.youtube_id) ||
+                extractYoutubeId(item?.videoId) ||
+                extractYoutubeId(item?.id) ||
+                extractYoutubeId(item?.url);
+              return {
+                source: 'youtube' as const,
+                youtube_id: ytId,
+                title: String(item?.title ?? 'Video YouTube'),
+                artist: String(item?.artist ?? item?.channel ?? item?.channelTitle ?? 'YouTube'),
+                album: String(item?.album ?? ''),
+                duration_sec: Math.max(
+                  15,
+                  Math.round(Number(item?.duration_sec ?? item?.duration ?? 210))
+                ),
+                cover_url: String(
+                  item?.cover_url ??
+                    item?.thumbnail_url ??
+                    item?.thumbnail ??
+                    (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : '')
+                ),
+              };
+            })
+            .filter((item: ExternalYoutubeItem) => Boolean(item.youtube_id));
         }
       } catch {
         // Ignore fallback failure cleanly
@@ -440,41 +456,160 @@ export const musikweApi = {
     artist: string,
     auth?: { userEmail?: string }
   ): Promise<ExternalYoutubeItem | null> {
-    const q = `${title} ${artist}`.trim();
+    const cleanTitle = title.trim();
+    const cleanArtist = artist.trim();
+    const q = `${cleanTitle} ${cleanArtist}`.trim();
     if (!q) return null;
+
+    // 1. Primary: YouTube Data API v3 using import.meta.env.VITE_YOUTUBE_API_KEY
+    const envYtKey = String(import.meta.env.VITE_YOUTUBE_API_KEY || '').trim();
+    if (envYtKey) {
+      try {
+        const ytQuery = `${cleanTitle} ${cleanArtist} official audio`.trim();
+        const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&maxResults=5&q=${encodeURIComponent(
+          ytQuery
+        )}&key=${encodeURIComponent(envYtKey)}`;
+        const res = await fetchWithTimeout(ytUrl, { method: 'GET' }, DEFAULT_REQUEST_TIMEOUT_MS);
+        if (res.ok) {
+          const json = await parseApiJson(res);
+          const items: any[] = Array.isArray(json?.items) ? json.items : [];
+          if (items.length > 0) {
+            const scoreCandidate = (item: any): number => {
+              const snippet = item?.snippet || {};
+              const t = String(snippet.title || '').toLowerCase();
+              const ch = String(snippet.channelTitle || '').toLowerCase();
+              let score = 0;
+              if (t.includes('official audio') || t.includes('audio')) score += 4;
+              if (ch.includes('topic') || t.includes('official')) score += 3;
+              if (t.includes('lyric')) score += 2;
+              if (t.includes('cover') || t.includes('karaoke') || t.includes('reaction') || t.includes('shorts')) {
+                score -= 5;
+              }
+              return score;
+            };
+            const best = [...items]
+              .filter((it) => extractYoutubeId(it?.id?.videoId))
+              .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))[0];
+
+            const ytId = extractYoutubeId(best?.id?.videoId);
+            if (ytId) {
+              const thumbs = best?.snippet?.thumbnails || {};
+              return {
+                source: 'youtube',
+                youtube_id: ytId,
+                title: String(best?.snippet?.title ?? cleanTitle),
+                artist: String(best?.snippet?.channelTitle ?? cleanArtist),
+                album: '',
+                duration_sec: 200,
+                cover_url: String(
+                  thumbs?.high?.url ??
+                    thumbs?.medium?.url ??
+                    thumbs?.default?.url ??
+                    `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
+                ),
+              };
+            }
+          }
+        }
+      } catch {
+        // Fall through to backend fallback
+      }
+    }
+
+    // 2. Fallback 1: /api/musikwe/youtube-match.php
+    try {
+      const matchUrl = `${MUSIKWE_API_BASE}/youtube-match.php?title=${encodeURIComponent(
+        cleanTitle
+      )}&artist=${encodeURIComponent(cleanArtist)}&q=${encodeURIComponent(q)}`;
+      const res = await fetchWithTimeout(
+        matchUrl,
+        { method: 'GET', headers: buildHeaders(false, auth) },
+        DEFAULT_REQUEST_TIMEOUT_MS
+      );
+      if (res.ok) {
+        const json = await parseApiJson(res);
+        const candidate =
+          json?.data?.youtube?.[0] ??
+          json?.data ??
+          json?.youtube?.[0] ??
+          json;
+        const ytId =
+          extractYoutubeId(candidate?.youtube_id) ||
+          extractYoutubeId(candidate?.videoId) ||
+          extractYoutubeId(candidate?.video_id) ||
+          extractYoutubeId(candidate?.id) ||
+          extractYoutubeId(candidate?.url);
+        if (ytId) {
+          return {
+            source: 'youtube',
+            youtube_id: ytId,
+            title: String(candidate?.title ?? cleanTitle),
+            artist: String(
+              candidate?.artist ?? candidate?.channel ?? candidate?.channelTitle ?? cleanArtist
+            ),
+            album: String(candidate?.album ?? ''),
+            duration_sec: Math.max(
+              15,
+              Math.round(Number(candidate?.duration_sec ?? candidate?.duration ?? 200))
+            ),
+            cover_url: String(
+              candidate?.cover_url ??
+                candidate?.thumbnail_url ??
+                candidate?.thumbnail ??
+                `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
+            ),
+          };
+        }
+      }
+    } catch {
+      // Fall through to secondary backend fallback
+    }
+
+    // 3. Fallback 2: /api/musikwe/search-external.php?source=youtube
     try {
       const res = await fetchWithTimeout(
         `${MUSIKWE_API_BASE}/search-external.php?source=youtube&q=${encodeURIComponent(q)}`,
         { method: 'GET', headers: buildHeaders(false, auth) },
         DEFAULT_REQUEST_TIMEOUT_MS
       );
-      const json = await parseApiJson(res);
-      const ytList = json?.data?.youtube;
-      if (!Array.isArray(ytList) || ytList.length === 0) return null;
-      const first = ytList[0];
-      const ytId =
-        extractYoutubeId(first?.youtube_id) ||
-        extractYoutubeId(first?.videoId) ||
-        extractYoutubeId(first?.id) ||
-        extractYoutubeId(first?.url);
-      if (!ytId) return null;
-      return {
-        source: 'youtube',
-        youtube_id: ytId,
-        title: String(first?.title ?? title),
-        artist: String(first?.artist ?? first?.channel ?? first?.channelTitle ?? artist),
-        album: String(first?.album ?? ''),
-        duration_sec: Math.max(15, Math.round(Number(first?.duration_sec ?? first?.duration ?? 200))),
-        cover_url: String(
-          first?.cover_url ??
-            first?.thumbnail_url ??
-            first?.thumbnail ??
-            `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-        ),
-      };
+      if (res.ok) {
+        const json = await parseApiJson(res);
+        const ytList = json?.data?.youtube;
+        if (Array.isArray(ytList) && ytList.length > 0) {
+          const first = ytList[0];
+          const ytId =
+            extractYoutubeId(first?.youtube_id) ||
+            extractYoutubeId(first?.videoId) ||
+            extractYoutubeId(first?.id) ||
+            extractYoutubeId(first?.url);
+          if (ytId) {
+            return {
+              source: 'youtube',
+              youtube_id: ytId,
+              title: String(first?.title ?? cleanTitle),
+              artist: String(
+                first?.artist ?? first?.channel ?? first?.channelTitle ?? cleanArtist
+              ),
+              album: String(first?.album ?? ''),
+              duration_sec: Math.max(
+                15,
+                Math.round(Number(first?.duration_sec ?? first?.duration ?? 200))
+              ),
+              cover_url: String(
+                first?.cover_url ??
+                  first?.thumbnail_url ??
+                  first?.thumbnail ??
+                  `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
+              ),
+            };
+          }
+        }
+      }
     } catch {
-      return null;
+      // Ignore error cleanly
     }
+
+    return null;
   },
 
   async postAction(

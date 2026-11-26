@@ -605,19 +605,20 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const findMatchingLocalTrack = useCallback(
     (item: ExternalItunesItem | ExternalYoutubeItem): MusikweTrack | undefined => {
+      const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
       if (item.source === 'youtube') {
-        const byYt = tracks.find((t) => t.youtube_id === item.youtube_id);
+        const byYt = pool.find((t) => t.youtube_id === item.youtube_id);
         if (byYt) return byYt;
       }
       const normTitle = item.title.trim().toLowerCase();
       const normArtist = item.artist.trim().toLowerCase();
-      return tracks.find(
+      return pool.find(
         (t) =>
           t.t.trim().toLowerCase() === normTitle &&
           t.a.trim().toLowerCase() === normArtist
       );
     },
-    [tracks]
+    [catalogTracks, tracks]
   );
 
   const handlePlayExternalItem = useCallback(
@@ -654,8 +655,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           authOpts
         );
         if (ytMatch?.youtube_id) {
+          const tempId = -Math.abs(Number(item.trackId) || Date.now());
           const ytTrack: MusikweTrack = {
-            id: -Math.abs(Number(item.trackId) || Date.now()),
+            id: tempId,
             t: item.title,
             a: item.artist,
             album_name: item.album || '',
@@ -667,6 +669,40 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             img: item.cover_url || ytMatch.cover_url,
           };
           playResolvedTrack(ytTrack, true);
+
+          // Persist matched iTunes + YouTube track to MySQL (/api/musikwe/create.php)
+          musikweApi
+            .postAction(
+              'create.php',
+              {
+                action: 'create_track',
+                title: item.title,
+                artist: item.artist,
+                album_id: 0,
+                album_name: item.album || '',
+                duration: ytTrack.d,
+                audio_url: '',
+                youtube_id: ytMatch.youtube_id,
+                cover_url: ytTrack.img,
+                lyrics: '',
+              },
+              authOpts
+            )
+            .then((saved) => {
+              const savedId = Number(saved?.data?.id || 0);
+              if (saved?.success && savedId > 0) {
+                const persistedTrack: MusikweTrack = { ...ytTrack, id: savedId };
+                setCatalogTracks((prev) =>
+                  prev.some((x) => x.id === savedId) ? prev : [persistedTrack, ...prev]
+                );
+                setCurrentTrackId((prev) => (prev === tempId ? savedId : prev));
+                setViewTrackId((prev) => (prev === tempId ? savedId : prev));
+                setAdHocTrack((prev) => (prev && prev.id === tempId ? null : prev));
+              }
+            })
+            .catch(() => {
+              // Keep playing seamlessly via adHocTrack if backend restricts create_track
+            });
           return;
         }
 
@@ -1883,7 +1919,8 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                   {extItunes.map((it, idx) => {
                     const rowKey = `it_${it.trackId || idx}`;
                     const isActiveExt =
-                      adHocTrack?.t === it.title && adHocTrack?.a === it.artist;
+                      (adHocTrack?.t === it.title && adHocTrack?.a === it.artist) ||
+                      (currentTrack.t === it.title && currentTrack.a === it.artist);
                     const isResolving = resolvingExtKey === rowKey;
                     return (
                       <div
