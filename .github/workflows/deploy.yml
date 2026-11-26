@@ -30,6 +30,8 @@ jobs:
         run: npm install
 
       - name: Build Project
+        env:
+          VITE_YOUTUBE_API_KEY: ${{ secrets.VITE_YOUTUBE_API_KEY }}
         run: npm run build
 
       - name: Ensure CNAME Exists in Dist

@@ -338,6 +338,46 @@ export const musikweApi = {
     };
   },
 
+  async searchItunes(q: string): Promise<ExternalItunesItem[]> {
+    const query = q.trim();
+    if (!query) return [];
+
+    const itRes = await fetchWithTimeout(
+      `https://itunes.apple.com/search?term=${encodeURIComponent(
+        query
+      )}&media=music&entity=song&limit=15&country=ID`,
+      { method: 'GET' },
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+    if (!itRes.ok) {
+      throw new Error(`iTunes Search API gagal (${itRes.status}).`);
+    }
+    const itJson = await parseApiJson(itRes);
+    const results: ExternalItunesItem[] = Array.isArray(itJson?.results)
+      ? itJson.results
+          .filter((r: any) => r?.trackName && r?.artistName)
+          .map((r: any) => ({
+            source: 'itunes' as const,
+            trackId: r?.trackId,
+            title: String(r?.trackName ?? ''),
+            artist: String(r?.artistName ?? ''),
+            album: String(r?.collectionName ?? ''),
+            duration_sec: Math.max(
+              15,
+              Math.round((Number(r?.trackTimeMillis) || 200000) / 1000)
+            ),
+            cover_url: String(r?.artworkUrl100 ?? '')
+              .replace('100x100bb', '600x600bb')
+              .replace('100x100', '600x600'),
+            preview_url: String(r?.previewUrl ?? ''),
+            release_date: String(r?.releaseDate ?? ''),
+          }))
+      : [];
+
+    console.log('[iTUNES SEARCH]', { query, count: results.length, results });
+    return results;
+  },
+
   async searchExternal(
     q: string,
     auth?: { userEmail?: string }
@@ -351,39 +391,10 @@ export const musikweApi = {
     let youtube: ExternalYoutubeItem[] = [];
     let hasYoutubeKey = Boolean(String(import.meta.env.VITE_YOUTUBE_API_KEY || '').trim());
 
-    // 1. Query iTunes Search API directly for fast song list + HD covers (600x600bb)
     try {
-      const itRes = await fetchWithTimeout(
-        `https://itunes.apple.com/search?term=${encodeURIComponent(
-          query
-        )}&media=music&entity=song&limit=15&country=ID`,
-        { method: 'GET' },
-        DEFAULT_REQUEST_TIMEOUT_MS
-      );
-      const itJson = await parseApiJson(itRes);
-      if (Array.isArray(itJson?.results)) {
-        itunes = itJson.results
-          .filter((r: any) => r?.trackName && r?.artistName)
-          .map((r: any) => ({
-            source: 'itunes' as const,
-            trackId: r?.trackId,
-            title: String(r?.trackName ?? ''),
-            artist: String(r?.artistName ?? ''),
-            album: String(r?.collectionName ?? ''),
-            duration_sec: Math.max(15, Math.round((Number(r?.trackTimeMillis) || 200000) / 1000)),
-            cover_url: String(r?.artworkUrl100 ?? '')
-              .replace('100x100bb', '600x600bb')
-              .replace('100x100', '600x600'),
-            preview_url: String(r?.previewUrl ?? ''),
-            release_date: String(r?.releaseDate ?? ''),
-          }));
-      }
+      itunes = await this.searchItunes(query);
     } catch {
-      // Fall through to backend search-external.php fallback
-    }
-
-    // 2. Fallback to backend search-external.php if direct iTunes failed or returned empty
-    if (itunes.length === 0) {
+      // Optional backend fallback for Admin quick search if direct iTunes fails
       try {
         const res = await fetchWithTimeout(
           `${MUSIKWE_API_BASE}/search-external.php?q=${encodeURIComponent(query)}`,
@@ -455,94 +466,96 @@ export const musikweApi = {
     title: string,
     artist: string,
     auth?: { userEmail?: string }
-  ): Promise<ExternalYoutubeItem | null> {
+  ): Promise<ExternalYoutubeItem> {
     const cleanTitle = title.trim();
     const cleanArtist = artist.trim();
     const q = `${cleanTitle} ${cleanArtist}`.trim();
-    if (!q) return null;
+    if (!q) {
+      throw new Error('Judul dan artis lagu tidak valid.');
+    }
 
-    // 1. Primary: YouTube Data API v3 using import.meta.env.VITE_YOUTUBE_API_KEY
-    const envYtKey = String(import.meta.env.VITE_YOUTUBE_API_KEY || '').trim();
-    if (envYtKey) {
-      try {
-        const ytQuery = `${cleanTitle} ${cleanArtist} official audio`.trim();
-        const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&maxResults=5&q=${encodeURIComponent(
-          ytQuery
-        )}&key=${encodeURIComponent(envYtKey)}`;
-        const res = await fetchWithTimeout(ytUrl, { method: 'GET' }, DEFAULT_REQUEST_TIMEOUT_MS);
-        if (res.ok) {
-          const json = await parseApiJson(res);
-          const items: any[] = Array.isArray(json?.items) ? json.items : [];
-          if (items.length > 0) {
-            const scoreCandidate = (item: any): number => {
-              const snippet = item?.snippet || {};
-              const t = String(snippet.title || '').toLowerCase();
-              const ch = String(snippet.channelTitle || '').toLowerCase();
-              let score = 0;
-              if (t.includes('official audio') || t.includes('audio')) score += 4;
-              if (ch.includes('topic') || t.includes('official')) score += 3;
-              if (t.includes('lyric')) score += 2;
-              if (t.includes('cover') || t.includes('karaoke') || t.includes('reaction') || t.includes('shorts')) {
-                score -= 5;
-              }
-              return score;
-            };
-            const best = [...items]
-              .filter((it) => extractYoutubeId(it?.id?.videoId))
-              .sort((a, b) => scoreCandidate(b) - scoreCandidate(a))[0];
+    const ytApiKey = String(import.meta.env.VITE_YOUTUBE_API_KEY || '').trim();
+    let apiErrorReason = '';
 
-            const ytId = extractYoutubeId(best?.id?.videoId);
-            if (ytId) {
-              const thumbs = best?.snippet?.thumbnails || {};
-              return {
-                source: 'youtube',
-                youtube_id: ytId,
-                title: String(best?.snippet?.title ?? cleanTitle),
-                artist: String(best?.snippet?.channelTitle ?? cleanArtist),
-                album: '',
-                duration_sec: 200,
-                cover_url: String(
-                  thumbs?.high?.url ??
-                    thumbs?.medium?.url ??
-                    thumbs?.default?.url ??
-                    `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-                ),
-              };
-            }
-          }
+    // 1. YouTube Data API v3 via import.meta.env.VITE_YOUTUBE_API_KEY
+    if (ytApiKey) {
+      const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoCategoryId=10&maxResults=3&q=${encodeURIComponent(
+        `${cleanTitle} ${cleanArtist} official audio`
+      )}&key=${encodeURIComponent(ytApiKey)}`;
+
+      const res = await fetchWithTimeout(ytUrl, { method: 'GET' }, DEFAULT_REQUEST_TIMEOUT_MS);
+      const json = await parseApiJson(res);
+
+      if (!res.ok) {
+        apiErrorReason =
+          json?.error?.message || `YouTube Data API v3 gagal (${res.status}).`;
+        console.log('[YOUTUBE MATCH]', {
+          source: 'youtube_v3',
+          error: apiErrorReason,
+          title: cleanTitle,
+          artist: cleanArtist,
+        });
+      } else {
+        const first = Array.isArray(json?.items) ? json.items[0] : null;
+        const videoId = extractYoutubeId(first?.id?.videoId);
+        if (videoId) {
+          const thumbs = first?.snippet?.thumbnails || {};
+          const matched: ExternalYoutubeItem = {
+            source: 'youtube',
+            youtube_id: videoId,
+            title: String(first?.snippet?.title ?? cleanTitle),
+            artist: String(first?.snippet?.channelTitle ?? cleanArtist),
+            album: '',
+            duration_sec: 200,
+            cover_url: String(
+              thumbs?.high?.url ??
+                thumbs?.medium?.url ??
+                thumbs?.default?.url ??
+                `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
+            ),
+          };
+          console.log('[YOUTUBE MATCH]', {
+            source: 'youtube_v3',
+            videoId,
+            ytTitle: matched.title,
+            title: cleanTitle,
+            artist: cleanArtist,
+          });
+          return matched;
         }
-      } catch {
-        // Fall through to backend fallback
+        apiErrorReason = `Video YouTube tidak ditemukan untuk "${cleanTitle} - ${cleanArtist}".`;
       }
     }
 
-    // 2. Fallback 1: /api/musikwe/youtube-match.php
+    // 2. Fallback to POST /api/musikwe/youtube-match.php if VITE_YOUTUBE_API_KEY is empty or failed
     try {
-      const matchUrl = `${MUSIKWE_API_BASE}/youtube-match.php?title=${encodeURIComponent(
-        cleanTitle
-      )}&artist=${encodeURIComponent(cleanArtist)}&q=${encodeURIComponent(q)}`;
       const res = await fetchWithTimeout(
-        matchUrl,
-        { method: 'GET', headers: buildHeaders(false, auth) },
+        `${MUSIKWE_API_BASE}/youtube-match.php`,
+        {
+          method: 'POST',
+          headers: buildHeaders(true, auth),
+          body: JSON.stringify({
+            title: cleanTitle,
+            artist: cleanArtist,
+            q: `${cleanTitle} ${cleanArtist} official audio`,
+          }),
+        },
         DEFAULT_REQUEST_TIMEOUT_MS
       );
       if (res.ok) {
         const json = await parseApiJson(res);
         const candidate =
-          json?.data?.youtube?.[0] ??
-          json?.data ??
-          json?.youtube?.[0] ??
-          json;
-        const ytId =
+          json?.data?.youtube?.[0] ?? json?.data ?? json?.youtube?.[0] ?? json;
+        const videoId =
           extractYoutubeId(candidate?.youtube_id) ||
           extractYoutubeId(candidate?.videoId) ||
           extractYoutubeId(candidate?.video_id) ||
           extractYoutubeId(candidate?.id) ||
           extractYoutubeId(candidate?.url);
-        if (ytId) {
-          return {
+        if (videoId) {
+          const matched: ExternalYoutubeItem = {
             source: 'youtube',
-            youtube_id: ytId,
+            youtube_id: videoId,
             title: String(candidate?.title ?? cleanTitle),
             artist: String(
               candidate?.artist ?? candidate?.channel ?? candidate?.channelTitle ?? cleanArtist
@@ -556,60 +569,31 @@ export const musikweApi = {
               candidate?.cover_url ??
                 candidate?.thumbnail_url ??
                 candidate?.thumbnail ??
-                `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
+                `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
             ),
           };
+          console.log('[YOUTUBE MATCH]', {
+            source: 'youtube-match.php',
+            videoId,
+            ytTitle: matched.title,
+            title: cleanTitle,
+            artist: cleanArtist,
+          });
+          return matched;
         }
+      } else if (!apiErrorReason) {
+        apiErrorReason = `Server pencocokan YouTube gagal (${res.status}).`;
       }
-    } catch {
-      // Fall through to secondary backend fallback
+    } catch (err: any) {
+      if (!apiErrorReason) {
+        apiErrorReason = err?.message || 'Gagal menghubungi server pencocokan YouTube.';
+      }
     }
 
-    // 3. Fallback 2: /api/musikwe/search-external.php?source=youtube
-    try {
-      const res = await fetchWithTimeout(
-        `${MUSIKWE_API_BASE}/search-external.php?source=youtube&q=${encodeURIComponent(q)}`,
-        { method: 'GET', headers: buildHeaders(false, auth) },
-        DEFAULT_REQUEST_TIMEOUT_MS
-      );
-      if (res.ok) {
-        const json = await parseApiJson(res);
-        const ytList = json?.data?.youtube;
-        if (Array.isArray(ytList) && ytList.length > 0) {
-          const first = ytList[0];
-          const ytId =
-            extractYoutubeId(first?.youtube_id) ||
-            extractYoutubeId(first?.videoId) ||
-            extractYoutubeId(first?.id) ||
-            extractYoutubeId(first?.url);
-          if (ytId) {
-            return {
-              source: 'youtube',
-              youtube_id: ytId,
-              title: String(first?.title ?? cleanTitle),
-              artist: String(
-                first?.artist ?? first?.channel ?? first?.channelTitle ?? cleanArtist
-              ),
-              album: String(first?.album ?? ''),
-              duration_sec: Math.max(
-                15,
-                Math.round(Number(first?.duration_sec ?? first?.duration ?? 200))
-              ),
-              cover_url: String(
-                first?.cover_url ??
-                  first?.thumbnail_url ??
-                  first?.thumbnail ??
-                  `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`
-              ),
-            };
-          }
-        }
-      }
-    } catch {
-      // Ignore error cleanly
-    }
-
-    return null;
+    throw new Error(
+      apiErrorReason ||
+        `Video YouTube untuk "${cleanTitle}" tidak ditemukan. Periksa VITE_YOUTUBE_API_KEY.`
+    );
   },
 
   async postAction(

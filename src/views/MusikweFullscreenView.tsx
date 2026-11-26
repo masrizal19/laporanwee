@@ -380,35 +380,47 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   useEffect(() => {
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
-        syncFromBackend(searchQuery, true);
+        syncFromBackend('', true);
       }
     }, 15000);
     return () => window.clearInterval(interval);
-  }, [syncFromBackend, searchQuery]);
+  }, [syncFromBackend]);
 
-  // Debounced live search
+  // Debounced live search: local memory filter + iTunes Search API only (no YouTube API on keystroke)
   useEffect(() => {
     const trimmed = searchQuery.trim();
+    if (trimmed.length < 2) {
+      setExtItunes([]);
+      setExtYoutube([]);
+      setExtSearching(false);
+      return;
+    }
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      syncFromBackend(trimmed);
-      if (trimmed.length >= 2) {
-        setExtSearching(true);
-        musikweApi
-          .searchExternal(trimmed, authOpts)
-          .then((res) => {
-            setExtItunes(res.itunes);
-            setExtYoutube(res.youtube);
-            if (res.has_youtube_key) setHasYoutubeKey(true);
-          })
-          .finally(() => setExtSearching(false));
-      } else {
-        setExtItunes([]);
-        setExtYoutube([]);
-      }
-    }, 280);
-    return () => window.clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery]);
+      setExtSearching(true);
+      setExtYoutube([]);
+      musikweApi
+        .searchItunes(trimmed)
+        .then((results) => {
+          if (!cancelled) {
+            setExtItunes(results);
+          }
+        })
+        .catch((err: any) => {
+          if (!cancelled) {
+            setExtItunes([]);
+            showToast(err?.message || 'Gagal mencari lagu di iTunes.');
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setExtSearching(false);
+        });
+    }, 320);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery, showToast]);
 
   // Persist theme
   const toggleTheme = () => {
@@ -623,6 +635,16 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const handlePlayExternalItem = useCallback(
     async (item: ExternalItunesItem | ExternalYoutubeItem, key: string) => {
+      if (item.source === 'itunes') {
+        console.log('[iTUNES SELECT]', {
+          action: 'play',
+          title: item.title,
+          artist: item.artist,
+          cover_url: item.cover_url,
+          duration: item.duration_sec,
+        });
+      }
+
       const existing = findMatchingLocalTrack(item);
       if (existing && (existing.youtube_id || existing.url)) {
         playResolvedTrack(existing, true);
@@ -654,75 +676,28 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           item.artist,
           authOpts
         );
-        if (ytMatch?.youtube_id) {
-          const tempId = -Math.abs(Number(item.trackId) || Date.now());
-          const ytTrack: MusikweTrack = {
-            id: tempId,
-            t: item.title,
-            a: item.artist,
-            album_name: item.album || '',
-            d: ytMatch.duration_sec || item.duration_sec || 200,
-            h: 210,
-            url: item.preview_url || '',
-            youtube_id: ytMatch.youtube_id,
-            ly: '',
-            img: item.cover_url || ytMatch.cover_url,
-          };
-          playResolvedTrack(ytTrack, true);
-
-          // Persist matched iTunes + YouTube track to MySQL (/api/musikwe/create.php)
-          musikweApi
-            .postAction(
-              'create.php',
-              {
-                action: 'create_track',
-                title: item.title,
-                artist: item.artist,
-                album_id: 0,
-                album_name: item.album || '',
-                duration: ytTrack.d,
-                audio_url: '',
-                youtube_id: ytMatch.youtube_id,
-                cover_url: ytTrack.img,
-                lyrics: '',
-              },
-              authOpts
-            )
-            .then((saved) => {
-              const savedId = Number(saved?.data?.id || 0);
-              if (saved?.success && savedId > 0) {
-                const persistedTrack: MusikweTrack = { ...ytTrack, id: savedId };
-                setCatalogTracks((prev) =>
-                  prev.some((x) => x.id === savedId) ? prev : [persistedTrack, ...prev]
-                );
-                setCurrentTrackId((prev) => (prev === tempId ? savedId : prev));
-                setViewTrackId((prev) => (prev === tempId ? savedId : prev));
-                setAdHocTrack((prev) => (prev && prev.id === tempId ? null : prev));
-              }
-            })
-            .catch(() => {
-              // Keep playing seamlessly via adHocTrack if backend restricts create_track
-            });
+        const videoId = ytMatch.youtube_id;
+        if (!videoId) {
+          showToast(`Video YouTube tidak ditemukan untuk "${item.title}".`);
           return;
         }
 
-        if (item.preview_url) {
-          const previewTrack: MusikweTrack = {
-            id: -Math.abs(Number(item.trackId) || Date.now()),
-            t: item.title,
-            a: item.artist,
-            album_name: item.album || '',
-            d: 30,
-            h: 210,
-            url: item.preview_url,
-            ly: '',
-            img: item.cover_url,
-          };
-          playResolvedTrack(previewTrack, true);
-          showToast('Video YouTube belum tersedia — memutar pratinjau iTunes.');
-        } else {
-          showToast('Video YouTube tidak ditemukan dan pratinjau audio tidak tersedia.');
-        }
+        const tempId = -Math.abs(Number(item.trackId) || Date.now());
+        const ytTrack: MusikweTrack = {
+          id: tempId,
+          t: item.title,
+          a: item.artist,
+          album_name: item.album || '',
+          d: item.duration_sec || ytMatch.duration_sec || 200,
+          h: 210,
+          url: '',
+          youtube_id: videoId,
+          ly: '',
+          img: item.cover_url || ytMatch.cover_url,
+        };
+        playResolvedTrack(ytTrack, true);
+      } catch (err: any) {
+        showToast(err?.message || `Gagal mencocokkan video YouTube untuk "${item.title}".`);
       } finally {
         setResolvingExtKey(null);
         setLoadingCount((c) => Math.max(0, c - 1));
@@ -949,7 +924,16 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         authOpts
       );
       showToast(res.message || 'Lagu ditambahkan ke antrean request.');
-      if (res.success) await syncFromBackend(searchQuery);
+      if (res.success) {
+        console.log('[SONG REQUEST CREATED]', {
+          title: track.t,
+          artist: track.a,
+          youtube_id: track.youtube_id || '',
+          requested_by: who(),
+          response: res,
+        });
+        await syncFromBackend('');
+      }
     });
   };
 
@@ -957,79 +941,69 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     item: ExternalItunesItem | ExternalYoutubeItem,
     key: string
   ) => {
-    setResolvingExtKey(key);
-    await runMutation(async () => {
-      const existing = findMatchingLocalTrack(item);
-      let ytId = item.source === 'youtube' ? item.youtube_id : existing?.youtube_id || '';
-      let durationSec = existing?.d || item.duration_sec || 200;
-
-      if (!ytId && item.source === 'itunes') {
-        const ytMatch = await musikweApi.searchYoutubeBestMatch(
-          item.title,
-          item.artist,
-          authOpts
-        );
-        if (ytMatch?.youtube_id) {
-          ytId = ytMatch.youtube_id;
-          if (ytMatch.duration_sec > 0) durationSec = ytMatch.duration_sec;
-        }
-      }
-
-      const payload: Record<string, any> = {
-        action: 'request_track',
-        track_id: existing?.id || 0,
+    if (item.source === 'itunes') {
+      console.log('[iTUNES SELECT]', {
+        action: 'request',
         title: item.title,
         artist: item.artist,
-        cover_url:
-          item.cover_url ||
-          (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : ''),
-        duration: durationSec,
-        youtube_id: ytId || '',
-        audio_url: item.source === 'itunes' ? item.preview_url || '' : '',
-        requested_by: who(),
-      };
+        cover_url: item.cover_url,
+        duration: item.duration_sec,
+      });
+    }
 
-      let res = await musikweApi.postAction('create.php', payload, authOpts);
+    setResolvingExtKey(key);
+    try {
+      await runMutation(async () => {
+        const existing = findMatchingLocalTrack(item);
+        let ytId = item.source === 'youtube' ? item.youtube_id : existing?.youtube_id || '';
+        const durationSec = item.duration_sec || existing?.d || 200;
 
-      // Safety fallback if backend requires registering track separately before requesting
-      if (!res.success && !existing?.id) {
-        const created = await musikweApi.postAction(
-          'create.php',
-          {
-            action: 'create_track',
-            title: item.title,
-            artist: item.artist,
-            album_id: 0,
-            album_name: item.album || '',
-            duration: durationSec,
-            audio_url: ytId ? '' : item.source === 'itunes' ? item.preview_url || '' : '',
-            youtube_id: ytId || '',
-            cover_url: payload.cover_url,
-            lyrics: '',
-          },
-          authOpts
-        );
-        const createdId = Number(created.data?.id || 0);
-        if (created.success && createdId > 0) {
-          res = await musikweApi.postAction(
-            'create.php',
-            { ...payload, track_id: createdId },
+        if (!ytId && item.source === 'itunes') {
+          const ytMatch = await musikweApi.searchYoutubeBestMatch(
+            item.title,
+            item.artist,
             authOpts
           );
+          ytId = ytMatch.youtube_id;
         }
-      }
 
-      showToast(
-        res.message ||
-          (res.success
-            ? `"${item.title}" masuk ke antrean bersama!`
-            : 'Gagal menambahkan request ke server.')
-      );
-      if (res.success) {
-        await syncFromBackend(searchQuery);
-      }
-    });
-    setResolvingExtKey(null);
+        if (!ytId) {
+          throw new Error(`Video YouTube tidak ditemukan untuk "${item.title}".`);
+        }
+
+        const coverUrl =
+          item.cover_url || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`;
+        const payload: Record<string, any> = {
+          action: 'request_track',
+          ...(existing?.id ? { track_id: existing.id } : {}),
+          title: item.title,
+          artist: item.artist,
+          cover_url: coverUrl,
+          duration: durationSec,
+          youtube_id: ytId,
+          requested_by: who(),
+        };
+
+        const res = await musikweApi.postAction('create.php', payload, authOpts);
+        if (!res.success) {
+          throw new Error(res.message || 'Gagal menyimpan request ke database.');
+        }
+
+        console.log('[SONG REQUEST CREATED]', {
+          title: item.title,
+          artist: item.artist,
+          cover_url: coverUrl,
+          duration: durationSec,
+          youtube_id: ytId,
+          requested_by: who(),
+          response: res,
+        });
+        showToast(res.message || `"${item.title}" masuk ke antrean bersama!`);
+        await syncFromBackend('');
+      });
+    } finally {
+      setResolvingExtKey(null);
+    }
   };
 
   const handleToggleVote = async (requestId: number) => {
@@ -1432,6 +1406,19 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     });
   };
 
+  const localSearchTracks = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    const source = catalogTracks.length > 0 ? catalogTracks : tracks;
+    if (!q) return source;
+    return source.filter(
+      (t) =>
+        t.t.toLowerCase().includes(q) ||
+        t.a.toLowerCase().includes(q) ||
+        (t.album_name || '').toLowerCase().includes(q) ||
+        (t.ly || '').toLowerCase().includes(q)
+    );
+  }, [searchQuery, catalogTracks, tracks]);
+
   const hotTracks = useMemo(() => {
     return [...tracks].sort(
       (a, b) =>
@@ -1820,8 +1807,8 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           {effectiveView === 'search' && (
             <div className="mw-v">
               <h2 className="mw-h2">Hasil di katalog untuk &ldquo;{searchQuery.trim()}&rdquo;</h2>
-              {tracks.length > 0 ? (
-                <div>{tracks.map((t) => renderTrackRow(t))}</div>
+              {localSearchTracks.length > 0 ? (
+                <div>{localSearchTracks.map((t) => renderTrackRow(t))}</div>
               ) : (
                 <p className="mw-mu">
                   Tidak ada lagu yang cocok di database lokal untuk kata kunci tersebut.
@@ -1829,7 +1816,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               )}
 
               <h2 className="mw-h2" style={{ marginTop: 28 }}>
-                Pencarian Katalog iTunes &amp; YouTube
+                Pencarian Katalog iTunes
                 {extSearching && <Loader2 size={16} className="animate-spin" />}
               </h2>
 
@@ -1993,7 +1980,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               ) : (
                 !extSearching && (
                   <p className="mw-mu mw-small">
-                    Ketik minimal 2 karakter untuk mencari katalog iTunes &amp; YouTube.
+                    {searchQuery.trim().length < 2
+                      ? 'Ketik minimal 2 karakter untuk mencari lagu di iTunes.'
+                      : 'Tidak ada lagu yang ditemukan di iTunes untuk kata kunci tersebut.'}
                   </p>
                 )
               )}
