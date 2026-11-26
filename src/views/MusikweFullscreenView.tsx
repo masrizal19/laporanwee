@@ -158,7 +158,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     findTrack,
     resolveRequestTrack,
     findMatchingLocalTrack,
-    playResolvedTrack,
     loadAndPlayTrack,
     playExternalItem: handlePlayExternalItem,
     skipToRequest,
@@ -2501,24 +2500,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                           <div
                             key={`adm_req_${rq.id}`}
                             className="mw-row"
-                            onClick={() => {
-                              if (tr.url || tr.youtube_id) {
-                                playResolvedTrack(tr, true);
-                              } else {
-                                handlePlayExternalItem(
-                                  {
-                                    source: 'itunes',
-                                    title: tr.t,
-                                    artist: tr.a,
-                                    album: tr.album_name || '',
-                                    duration_sec: tr.d || 200,
-                                    cover_url: tr.img || '',
-                                    preview_url: '',
-                                  },
-                                  `adm_req_${rq.id}`
-                                );
-                              }
-                            }}
+                            onClick={() => skipToRequest(rq)}
                           >
                             <CoverThumb track={tr} />
                             <div className="mw-i">
@@ -2539,24 +2521,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                                 className="mw-ib"
                                 title="Putar request"
                                 aria-label="Putar request"
-                                onClick={() => {
-                                  if (tr.url || tr.youtube_id) {
-                                    playResolvedTrack(tr, true);
-                                  } else {
-                                    handlePlayExternalItem(
-                                      {
-                                        source: 'itunes',
-                                        title: tr.t,
-                                        artist: tr.a,
-                                        album: tr.album_name || '',
-                                        duration_sec: tr.d || 200,
-                                        cover_url: tr.img || '',
-                                        preview_url: '',
-                                      },
-                                      `adm_req_${rq.id}`
-                                    );
-                                  }
-                                }}
+                                onClick={() => skipToRequest(rq)}
                               >
                                 <Play size={15} />
                               </button>

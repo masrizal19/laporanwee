@@ -250,31 +250,38 @@ function normalizeReadPayload(data: any): MusikweReadResponse {
       }))
     : [];
 
-  const requests: MusikweRequest[] = Array.isArray(data?.requests)
-    ? data.requests.map((rq: any) => ({
-        id: Number(rq?.id ?? 0),
-        tid: Number(rq?.tid ?? rq?.track_id ?? 0),
-        title: rq?.title ? String(rq.title).trim() : rq?.t ? String(rq.t).trim() : undefined,
-        artist: rq?.artist ? String(rq.artist).trim() : rq?.a ? String(rq.a).trim() : undefined,
-        cover_url: rq?.cover_url ? String(rq.cover_url).trim() : rq?.img ? String(rq.img).trim() : undefined,
-        youtube_id: extractYoutubeId(rq?.youtube_id) || undefined,
-        duration: rq?.duration ? Number(rq.duration) : rq?.d ? Number(rq.d) : undefined,
-        by: String(rq?.by ?? rq?.requested_by ?? 'Tamu'),
-        user_email: rq?.user_email ? String(rq.user_email).trim() : undefined,
-        ts: normalizeTimestamp(rq?.ts ?? rq?.created_at),
-        v: Array.isArray(rq?.v)
-          ? rq.v.map((x: any) => String(x))
-          : Array.isArray(rq?.voters)
-          ? rq.voters.map((x: any) => String(x))
-          : [],
-      }))
-    : [];
+  const rawRequests = Array.isArray(data?.requests) ? data.requests : [];
+  const isPlayedFlag = (rq: any): boolean =>
+    rq?.is_played === 1 ||
+    rq?.is_played === true ||
+    rq?.is_played === '1' ||
+    String(rq?.status ?? '').toLowerCase() === 'played';
+
+  const requests: MusikweRequest[] = rawRequests
+    .filter((rq: any) => !isPlayedFlag(rq))
+    .map((rq: any) => ({
+      id: Number(rq?.id ?? 0),
+      tid: Number(rq?.tid ?? rq?.track_id ?? 0),
+      title: rq?.title ? String(rq.title).trim() : rq?.t ? String(rq.t).trim() : undefined,
+      artist: rq?.artist ? String(rq.artist).trim() : rq?.a ? String(rq.a).trim() : undefined,
+      cover_url: rq?.cover_url ? String(rq.cover_url).trim() : rq?.img ? String(rq.img).trim() : undefined,
+      youtube_id: extractYoutubeId(rq?.youtube_id) || undefined,
+      duration: rq?.duration ? Number(rq.duration) : rq?.d ? Number(rq.d) : undefined,
+      by: String(rq?.by ?? rq?.requested_by ?? 'Tamu'),
+      user_email: rq?.user_email ? String(rq.user_email).trim() : undefined,
+      ts: normalizeTimestamp(rq?.ts ?? rq?.created_at),
+      v: Array.isArray(rq?.v)
+        ? rq.v.map((x: any) => String(x))
+        : Array.isArray(rq?.voters)
+        ? rq.voters.map((x: any) => String(x))
+        : [],
+    }));
 
   const rawHistory = Array.isArray(data?.request_history)
     ? data.request_history
     : Array.isArray(data?.history)
     ? data.history
-    : [];
+    : rawRequests.filter((rq: any) => isPlayedFlag(rq));
 
   const request_history: MusikweRequestHistory[] = rawHistory.map((rq: any) => ({
     id: Number(rq?.id ?? 0),
