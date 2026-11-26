@@ -135,6 +135,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     setVolume,
     likedIds,
     toggleLike,
+    setMiniPlayerDismissed,
+    isLiveBroadcastActive,
+    autoplayBlocked,
+    joinLiveAudio,
     loadingCount,
     beginLoading,
     endLoading,
@@ -258,6 +262,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   // Refresh latest data silently when entering /Aplikasi/Musikwe without interrupting background audio
   useEffect(() => {
+    setMiniPlayerDismissed(false);
     syncFromBackend('', catalogTracks.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -2261,7 +2266,13 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               <button
                 type="button"
                 className="mw-pp"
-                onClick={togglePlayPause}
+                onClick={() => {
+                  if (isLiveBroadcastActive && autoplayBlocked) {
+                    joinLiveAudio();
+                  } else {
+                    togglePlayPause();
+                  }
+                }}
                 aria-label="Putar atau jeda"
                 title="Putar atau jeda"
               >
@@ -2280,6 +2291,17 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           </div>
 
           <div className="mw-pr">
+            {isLiveBroadcastActive && autoplayBlocked && (
+              <button
+                type="button"
+                className="mw-btn sm"
+                onClick={joinLiveAudio}
+                style={{ marginRight: 6 }}
+              >
+                <Radio size={13} />
+                <span>Gabung Dengar Live</span>
+              </button>
+            )}
             <span className="mw-mu mw-small mw-num" style={{ marginRight: 6 }}>
               {fmtTime(position)} / {fmtTime(currentTrack.d)}
             </span>

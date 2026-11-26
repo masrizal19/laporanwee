@@ -13,6 +13,7 @@ import {
   MusikweAlbum,
   MusikweComment,
   MusikwePlaylist,
+  MusikweRadioState,
   MusikweRequest,
   MusikweTrack,
   MusikweUser,
@@ -29,9 +30,12 @@ declare global {
     YT?: {
       Player: any;
       PlayerState?: {
+        UNSTARTED?: number;
         ENDED: number;
         PLAYING: number;
         PAUSED: number;
+        BUFFERING?: number;
+        CUED?: number;
       };
     };
     onYouTubeIframeAPIReady?: () => void;
@@ -54,6 +58,14 @@ interface PersistedMusikweSnapshot {
   playerActivated?: boolean;
   miniPlayerDismissed?: boolean;
   savedAt?: number;
+}
+
+function hashSeedId(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    h = (h * 31 + seed.charCodeAt(i)) | 0;
+  }
+  return -Math.max(1000, Math.abs(h));
 }
 
 function readPersistedSnapshot(): PersistedMusikweSnapshot {
@@ -133,6 +145,15 @@ export interface MusikWeContextValue {
   toggleLike: (id: number) => void;
   miniPlayerDismissed: boolean;
   setMiniPlayerDismissed: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // Live broadcast sync state
+  radioState: MusikweRadioState | null;
+  isLiveBroadcastActive: boolean;
+  isMuted: boolean;
+  autoplayBlocked: boolean;
+  toggleMute: () => void;
+  joinLiveAudio: () => void;
+  dismissMiniPlayer: () => void;
 
   // UI feedback
   loadingCount: number;
@@ -283,6 +304,11 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     Boolean(initialSnapshot.miniPlayerDismissed)
   );
 
+  // Live broadcast sync states
+  const [radioState, setRadioState] = useState<MusikweRadioState | null>(null);
+  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState<boolean>(false);
+
   const [loadingCount, setLoadingCount] = useState<number>(0);
   const [resolvingExtKey, setResolvingExtKey] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string>('');
@@ -358,18 +384,112 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const hasActiveTrack = Boolean(currentTrack && currentTrack.id !== 0);
   const duration = currentTrack.d || 200;
+  const isLiveBroadcastActive = Boolean(
+    !isSuperAdmin && radioState && (radioState.is_playing || Boolean(radioState.title))
+  );
 
   const sortedRequests = useMemo(() => {
     return [...requests].sort((a, b) => b.v.length - a.v.length || a.ts - b.ts);
   }, [requests]);
 
-  // Refs for audio & YouTube engine (persisted at root level across all route switches)
+  // Persistent audio & YouTube engine refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const ytContainerRef = useRef<HTMLDivElement | null>(null);
   const ytPlayerRef = useRef<any>(null);
   const ytReadyRef = useRef<boolean>(false);
   const activeYtIdRef = useRef<string>('');
-  const pendingYtPlayRef = useRef<{ videoId: string; shouldPlay: boolean } | null>(null);
+  const pendingYtPlayRef = useRef<{
+    videoId: string;
+    shouldPlay: boolean;
+    startSeconds: number;
+  } | null>(null);
+  const ytAutoplayCheckRef = useRef<number | null>(null);
+  const hasUserInteractedRef = useRef<boolean>(false);
+
+  // Latest state refs for timers & callbacks
+  const isSuperAdminRef = useRef<boolean>(isSuperAdmin);
+  isSuperAdminRef.current = isSuperAdmin;
+  const authOptsRef = useRef(authOpts);
+  authOptsRef.current = authOpts;
+  const currentTrackRef = useRef<MusikweTrack>(currentTrack);
+  currentTrackRef.current = currentTrack;
+  const isPlayingRef = useRef<boolean>(isPlaying);
+  isPlayingRef.current = isPlaying;
+  const progressRef = useRef<number>(progress);
+  progressRef.current = progress;
+  const volumeRef = useRef<number>(volume);
+  volumeRef.current = volume;
+  const isMutedRef = useRef<boolean>(isMuted);
+  isMutedRef.current = isMuted;
+  const radioStateRef = useRef<MusikweRadioState | null>(radioState);
+  radioStateRef.current = radioState;
+  const miniPlayerDismissedRef = useRef<boolean>(miniPlayerDismissed);
+  miniPlayerDismissedRef.current = miniPlayerDismissed;
+  const catalogTracksRef = useRef<MusikweTrack[]>(catalogTracks);
+  catalogTracksRef.current = catalogTracks;
+  const tracksRef = useRef<MusikweTrack[]>(tracks);
+  tracksRef.current = tracks;
+
+  // Detect any user gesture to know whether browser allows audio autoplay
+  useEffect(() => {
+    const markInteracted = () => {
+      hasUserInteractedRef.current = true;
+    };
+    window.addEventListener('pointerdown', markInteracted, { passive: true });
+    window.addEventListener('keydown', markInteracted, { passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', markInteracted);
+      window.removeEventListener('keydown', markInteracted);
+    };
+  }, []);
+
+  const getAccuratePlaybackSeconds = useCallback((): number => {
+    const tr = currentTrackRef.current;
+    const ytId = tr.youtube_id || extractYoutubeId(tr.url);
+    if (ytId && ytPlayerRef.current && ytReadyRef.current) {
+      try {
+        const ytTime = ytPlayerRef.current.getCurrentTime?.();
+        if (typeof ytTime === 'number' && Number.isFinite(ytTime) && ytTime >= 0) {
+          return ytTime;
+        }
+      } catch {
+        // fallback below
+      }
+    } else if (audioRef.current && tr.url && Number.isFinite(audioRef.current.currentTime)) {
+      return audioRef.current.currentTime;
+    }
+    return progressRef.current;
+  }, []);
+
+  // Broadcast Admin playback state to radio-state.php
+  const broadcastRadioState = useCallback(
+    (track: MusikweTrack, playingState: boolean, positionSec: number) => {
+      if (!isSuperAdminRef.current) return;
+      if (!getStoredToken()) return;
+      if (!track || (track.id === 0 && playingState)) return;
+
+      const ytId = track.youtube_id || extractYoutubeId(track.url) || '';
+      musikweApi
+        .updateRadioState(
+          {
+            track_id: track.id > 0 ? track.id : 0,
+            title: track.t || '',
+            artist: track.a || '',
+            cover_url: track.img || '',
+            audio_url: ytId ? '' : track.url || '',
+            youtube_id: ytId,
+            duration: track.d || 200,
+            is_playing: playingState,
+            position_sec: Math.max(0, positionSec),
+          },
+          authOptsRef.current
+        )
+        .catch(() => {
+          // Keep Admin playback uninterrupted on transient network errors
+        });
+    },
+    []
+  );
 
   const syncFromBackend = useCallback(
     async (q: string = '', silent: boolean = false) => {
@@ -388,20 +508,10 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const d = res.data;
         setServerUser(d.user);
 
-        // Never wipe track catalog to empty if API temporarily returns empty while cache exists
         if (d.tracks.length > 0) {
           setTracks(d.tracks);
           if (!q.trim()) {
-            setCatalogTracks((prev) => {
-              const byId = new Map(d.tracks.map((t) => [t.id, t]));
-              // Preserve any newly saved items if not yet visible in read
-              prev.forEach((t) => {
-                if (t.id > 0 && !byId.has(t.id)) {
-                  // Only keep if read returned fewer than prev? Wait: trust DB when non-empty
-                }
-              });
-              return d.tracks;
-            });
+            setCatalogTracks(d.tracks);
           } else {
             setCatalogTracks((prev) => {
               const byId = new Map(prev.map((t) => [t.id, t]));
@@ -418,7 +528,6 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setPlaylists(d.playlists);
         }
 
-        // Preserve queue if temporarily failed, otherwise sync latest requests
         setRequests((prev) => (Array.isArray(d.requests) ? d.requests : prev));
         setCommentsMap((prev) =>
           d.comments && Object.keys(d.comments).length > 0 ? d.comments : prev
@@ -456,11 +565,12 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [authOpts, displayName, showToast]
   );
 
-  // Sync from backend whenever app loads or user logs in / email changes
+  // Sync catalog/requests from backend on login/mount & 15s polling
   useEffect(() => {
     if (!isAuthenticated) {
-      // Stop playback when logged out, keep catalog snapshot in localStorage
       setIsPlaying(false);
+      setRadioState(null);
+      setAutoplayBlocked(false);
       if (audioRef.current) {
         audioRef.current.pause();
       }
@@ -525,6 +635,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const aud = new Audio();
     aud.preload = 'none';
     aud.volume = volume / 100;
+    aud.muted = isMuted;
     audioRef.current = aud;
     return () => {
       aud.pause();
@@ -536,25 +647,75 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const nextTrackRef = useRef<() => Promise<void>>(async () => {});
 
+  const scheduleYtAutoplayCheck = useCallback(() => {
+    if (ytAutoplayCheckRef.current !== null) {
+      window.clearTimeout(ytAutoplayCheckRef.current);
+      ytAutoplayCheckRef.current = null;
+    }
+    if (isSuperAdminRef.current || isMutedRef.current) return;
+
+    ytAutoplayCheckRef.current = window.setTimeout(() => {
+      ytAutoplayCheckRef.current = null;
+      if (isSuperAdminRef.current || miniPlayerDismissedRef.current) return;
+      if (!radioStateRef.current?.is_playing) return;
+      const yt = ytPlayerRef.current;
+      if (!yt || !ytReadyRef.current) return;
+      try {
+        const state = yt.getPlayerState?.();
+        const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
+        const bufferingState = window.YT?.PlayerState?.BUFFERING ?? 3;
+        if (state !== playingState && state !== bufferingState) {
+          setAutoplayBlocked(true);
+        }
+      } catch {
+        // ignore
+      }
+    }, 1300);
+  }, []);
+
   const ensureYoutubePlayer = useCallback(
-    (videoId: string, shouldPlay: boolean) => {
-      pendingYtPlayRef.current = { videoId, shouldPlay };
+    (videoId: string, shouldPlay: boolean, startSeconds: number = 0) => {
+      const safeStart = Math.max(0, startSeconds);
+      pendingYtPlayRef.current = { videoId, shouldPlay, startSeconds: safeStart };
 
       const mountPlayer = () => {
         if (!window.YT?.Player || !ytContainerRef.current) return;
         if (ytPlayerRef.current && ytReadyRef.current) {
           if (activeYtIdRef.current !== videoId) {
             activeYtIdRef.current = videoId;
-            ytPlayerRef.current.loadVideoById(videoId);
+            ytPlayerRef.current.loadVideoById({
+              videoId,
+              startSeconds: safeStart,
+            });
             if (!shouldPlay) {
               ytPlayerRef.current.pauseVideo();
+            } else {
+              scheduleYtAutoplayCheck();
             }
-          } else if (shouldPlay) {
-            ytPlayerRef.current.playVideo();
           } else {
-            ytPlayerRef.current.pauseVideo();
+            if (safeStart > 0) {
+              try {
+                const cur = ytPlayerRef.current.getCurrentTime?.() ?? 0;
+                if (Math.abs(cur - safeStart) > 2.5) {
+                  ytPlayerRef.current.seekTo(safeStart, true);
+                }
+              } catch {
+                // ignore
+              }
+            }
+            if (shouldPlay) {
+              ytPlayerRef.current.playVideo();
+              scheduleYtAutoplayCheck();
+            } else {
+              ytPlayerRef.current.pauseVideo();
+            }
           }
-          ytPlayerRef.current.setVolume(volume);
+          if (isMutedRef.current) {
+            ytPlayerRef.current.mute();
+          } else {
+            ytPlayerRef.current.unMute();
+            ytPlayerRef.current.setVolume(volumeRef.current);
+          }
           return;
         }
 
@@ -566,6 +727,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           videoId,
           playerVars: {
             autoplay: shouldPlay ? 1 : 0,
+            start: Math.floor(safeStart),
             controls: 0,
             disablekb: 1,
             playsinline: 1,
@@ -574,26 +736,45 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           events: {
             onReady: (ev: any) => {
               ytReadyRef.current = true;
-              ev.target.setVolume(volume);
+              if (isMutedRef.current) {
+                ev.target.mute();
+              } else {
+                ev.target.unMute();
+                ev.target.setVolume(volumeRef.current);
+              }
               const pending = pendingYtPlayRef.current;
               if (pending) {
                 if (pending.videoId !== activeYtIdRef.current) {
                   activeYtIdRef.current = pending.videoId;
-                  ev.target.loadVideoById(pending.videoId);
+                  ev.target.loadVideoById({
+                    videoId: pending.videoId,
+                    startSeconds: pending.startSeconds,
+                  });
+                } else if (pending.startSeconds > 1) {
+                  ev.target.seekTo(pending.startSeconds, true);
                 }
                 if (pending.shouldPlay) {
                   ev.target.playVideo();
+                  scheduleYtAutoplayCheck();
                 } else {
                   ev.target.pauseVideo();
                 }
               } else if (shouldPlay) {
                 ev.target.playVideo();
+                scheduleYtAutoplayCheck();
               }
             },
             onStateChange: (ev: any) => {
               const endedState = window.YT?.PlayerState?.ENDED ?? 0;
               const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
               if (ev.data === playingState) {
+                if (!isMutedRef.current) {
+                  setAutoplayBlocked(false);
+                }
+                if (ytAutoplayCheckRef.current !== null) {
+                  window.clearTimeout(ytAutoplayCheckRef.current);
+                  ytAutoplayCheckRef.current = null;
+                }
                 try {
                   const ytDur = ev.target?.getDuration?.();
                   if (typeof ytDur === 'number' && ytDur > 5) {
@@ -610,7 +791,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
               }
               if (ev.data === endedState) {
-                nextTrackRef.current();
+                if (isSuperAdminRef.current || !radioStateRef.current) {
+                  nextTrackRef.current();
+                }
               }
             },
           },
@@ -634,12 +817,15 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         document.head.appendChild(tag);
       }
     },
-    [volume]
+    [scheduleYtAutoplayCheck]
   );
 
   // Clean up YT player only when entire app root unmounts
   useEffect(() => {
     return () => {
+      if (ytAutoplayCheckRef.current !== null) {
+        window.clearTimeout(ytAutoplayCheckRef.current);
+      }
       try {
         ytPlayerRef.current?.destroy?.();
       } catch {
@@ -650,12 +836,23 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, []);
 
-  const playResolvedTrack = useCallback(
-    (target: MusikweTrack, autoPlay: boolean = true) => {
+  // Internal loader shared by local/Admin playback and Listener live sync
+  const applyTrackToPlayer = useCallback(
+    (
+      target: MusikweTrack,
+      autoPlay: boolean,
+      startSec: number = 0,
+      options?: { broadcast?: boolean; unDismiss?: boolean }
+    ) => {
       if (!target || target.id === 0) return;
+      const shouldBroadcast = options?.broadcast ?? isSuperAdminRef.current;
+      const shouldUnDismiss = options?.unDismiss ?? true;
+      const safeStart = Math.max(0, startSec);
 
       setPlayerActivated(true);
-      setMiniPlayerDismissed(false);
+      if (shouldUnDismiss) {
+        setMiniPlayerDismissed(false);
+      }
       if (target.id < 0) {
         setAdHocTrack(target);
       } else {
@@ -664,7 +861,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setCurrentTrackId(target.id);
       setViewTrackId(target.id);
-      setProgress(0);
+      setProgress(safeStart);
       setIsPlaying(autoPlay);
 
       const aud = audioRef.current;
@@ -675,7 +872,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           aud.pause();
           aud.removeAttribute('src');
         }
-        ensureYoutubePlayer(ytId, autoPlay);
+        ensureYoutubePlayer(ytId, autoPlay, safeStart);
       } else {
         if (ytPlayerRef.current && ytReadyRef.current) {
           try {
@@ -686,10 +883,29 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         if (aud) {
           if (target.url) {
-            aud.src = target.url;
-            aud.currentTime = 0;
+            if (aud.src !== target.url) {
+              aud.src = target.url;
+            }
+            aud.muted = isMutedRef.current;
+            aud.volume = volumeRef.current / 100;
+            try {
+              aud.currentTime = safeStart;
+            } catch {
+              // ignore before metadata load
+            }
             if (autoPlay) {
-              aud.play().catch(() => {});
+              aud
+                .play()
+                .then(() => {
+                  if (!isMutedRef.current) setAutoplayBlocked(false);
+                })
+                .catch(() => {
+                  if (!isSuperAdminRef.current) {
+                    setAutoplayBlocked(true);
+                  }
+                });
+            } else {
+              aud.pause();
             }
           } else {
             aud.pause();
@@ -697,8 +913,22 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
         }
       }
+
+      if (shouldBroadcast && isSuperAdminRef.current) {
+        broadcastRadioState(target, autoPlay, safeStart);
+      }
     },
-    [ensureYoutubePlayer]
+    [ensureYoutubePlayer, broadcastRadioState]
+  );
+
+  const playResolvedTrack = useCallback(
+    (target: MusikweTrack, autoPlay: boolean = true) => {
+      applyTrackToPlayer(target, autoPlay, 0, {
+        broadcast: isSuperAdminRef.current,
+        unDismiss: true,
+      });
+    },
+    [applyTrackToPlayer]
   );
 
   const loadAndPlayTrack = useCallback(
@@ -782,6 +1012,13 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
               setCurrentTrackId((prev) => (prev === resolvedTrack.id ? savedId : prev));
               setViewTrackId((prev) => (prev === resolvedTrack.id ? savedId : prev));
               setAdHocTrack((prev) => (prev && prev.id === resolvedTrack.id ? null : prev));
+              if (isSuperAdminRef.current && currentTrackRef.current.t === persistedTrack.t) {
+                broadcastRadioState(
+                  persistedTrack,
+                  isPlayingRef.current,
+                  getAccuratePlaybackSeconds()
+                );
+              }
             }
           })
           .catch(() => {
@@ -843,25 +1080,44 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setLoadingCount((c) => Math.max(0, c - 1));
       }
     },
-    [findMatchingLocalTrack, playResolvedTrack, authOpts, showToast]
+    [
+      findMatchingLocalTrack,
+      playResolvedTrack,
+      authOpts,
+      showToast,
+      broadcastRadioState,
+      getAccuratePlaybackSeconds,
+    ]
   );
+
+  const seekInternal = useCallback((sec: number, broadcast: boolean) => {
+    const tr = currentTrackRef.current;
+    const clamped = Math.max(0, Math.min(tr.d || 200, sec));
+    setProgress(clamped);
+    const ytId = tr.youtube_id || extractYoutubeId(tr.url);
+    if (ytId && ytPlayerRef.current && ytReadyRef.current) {
+      try {
+        ytPlayerRef.current.seekTo(clamped, true);
+      } catch {
+        // ignore
+      }
+    } else if (audioRef.current && tr.url) {
+      try {
+        audioRef.current.currentTime = clamped;
+      } catch {
+        // ignore
+      }
+    }
+    if (broadcast && isSuperAdminRef.current) {
+      broadcastRadioState(tr, isPlayingRef.current, clamped);
+    }
+  }, [broadcastRadioState]);
 
   const seekTo = useCallback(
     (sec: number) => {
-      const clamped = Math.max(0, Math.min(currentTrack.d || 200, sec));
-      setProgress(clamped);
-      const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
-      if (ytId && ytPlayerRef.current && ytReadyRef.current) {
-        try {
-          ytPlayerRef.current.seekTo(clamped, true);
-        } catch {
-          // ignore
-        }
-      } else if (audioRef.current && currentTrack.url) {
-        audioRef.current.currentTime = clamped;
-      }
+      seekInternal(sec, isSuperAdminRef.current);
     },
-    [currentTrack]
+    [seekInternal]
   );
 
   const nextTrack = useCallback(async () => {
@@ -888,6 +1144,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setIsPlaying(false);
     setProgress(0);
+    if (isSuperAdminRef.current) {
+      broadcastRadioState(currentTrackRef.current, false, 0);
+    }
   }, [
     sortedRequests,
     catalogTracks,
@@ -897,6 +1156,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     authOpts,
     loadAndPlayTrack,
     showToast,
+    broadcastRadioState,
   ]);
 
   nextTrackRef.current = nextTrack;
@@ -919,22 +1179,37 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const nextState = !isPlaying;
     setIsPlaying(nextState);
     const ytId = currentTrack.youtube_id || extractYoutubeId(currentTrack.url);
+    const curSec = getAccuratePlaybackSeconds();
+
     if (ytId) {
-      ensureYoutubePlayer(ytId, nextState);
+      ensureYoutubePlayer(ytId, nextState, curSec);
     } else if (audioRef.current && currentTrack.url) {
       if (nextState) {
-        audioRef.current.play().catch(() => {});
+        audioRef.current.play().catch(() => {
+          if (!isSuperAdminRef.current) setAutoplayBlocked(true);
+        });
       } else {
         audioRef.current.pause();
       }
     }
-  }, [isPlaying, currentTrack, ensureYoutubePlayer]);
+
+    if (isSuperAdminRef.current) {
+      broadcastRadioState(currentTrack, nextState, curSec);
+    }
+  }, [
+    isPlaying,
+    currentTrack,
+    ensureYoutubePlayer,
+    getAccuratePlaybackSeconds,
+    broadcastRadioState,
+  ]);
 
   const stopPlayback = useCallback(() => {
     setIsPlaying(false);
     setProgress(0);
     setPlayerActivated(false);
     setMiniPlayerDismissed(true);
+    setAutoplayBlocked(false);
     if (audioRef.current) {
       audioRef.current.pause();
       try {
@@ -950,7 +1225,279 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // ignore
       }
     }
-  }, []);
+    if (isSuperAdminRef.current && currentTrackRef.current.id !== 0) {
+      broadcastRadioState(currentTrackRef.current, false, 0);
+    }
+  }, [broadcastRadioState]);
+
+  const dismissMiniPlayer = useCallback(() => {
+    setMiniPlayerDismissed(true);
+    if (isSuperAdminRef.current) {
+      stopPlayback();
+      return;
+    }
+    // For listeners: mute/pause local audio cleanly without erasing remote radioState
+    setIsPlaying(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    if (ytPlayerRef.current && ytReadyRef.current) {
+      try {
+        ytPlayerRef.current.pauseVideo();
+      } catch {
+        // ignore
+      }
+    }
+  }, [stopPlayback]);
+
+  const joinLiveAudio = useCallback(() => {
+    hasUserInteractedRef.current = true;
+    setAutoplayBlocked(false);
+    setIsMuted(false);
+    isMutedRef.current = false;
+    setMiniPlayerDismissed(false);
+    setPlayerActivated(true);
+
+    const live = radioStateRef.current;
+    const seekSec = live ? live.position_sec : progressRef.current;
+    const shouldPlay = live ? live.is_playing : true;
+    const tr = currentTrackRef.current;
+    const ytId = tr.youtube_id || extractYoutubeId(tr.url);
+
+    if (ytId) {
+      if (ytPlayerRef.current && ytReadyRef.current) {
+        try {
+          ytPlayerRef.current.unMute();
+          ytPlayerRef.current.setVolume(volumeRef.current);
+          const cur = ytPlayerRef.current.getCurrentTime?.() ?? 0;
+          if (Math.abs(cur - seekSec) > 2.5) {
+            ytPlayerRef.current.seekTo(seekSec, true);
+          }
+          if (shouldPlay) {
+            ytPlayerRef.current.playVideo();
+          }
+        } catch {
+          // ignore
+        }
+      } else {
+        ensureYoutubePlayer(ytId, shouldPlay, seekSec);
+      }
+    } else if (audioRef.current && tr.url) {
+      audioRef.current.muted = false;
+      audioRef.current.volume = volumeRef.current / 100;
+      try {
+        if (Math.abs(audioRef.current.currentTime - seekSec) > 2.5) {
+          audioRef.current.currentTime = seekSec;
+        }
+      } catch {
+        // ignore
+      }
+      if (shouldPlay) {
+        audioRef.current.play().catch(() => {
+          setAutoplayBlocked(true);
+        });
+      }
+    }
+
+    setProgress(seekSec);
+    if (shouldPlay) {
+      setIsPlaying(true);
+    }
+    showToast('Terhubung ke siaran live .MUSIKWE');
+  }, [ensureYoutubePlayer, showToast]);
+
+  const toggleMute = useCallback(() => {
+    hasUserInteractedRef.current = true;
+    const nextMuted = !isMutedRef.current;
+    setIsMuted(nextMuted);
+    isMutedRef.current = nextMuted;
+
+    if (!nextMuted && (autoplayBlocked || (radioStateRef.current?.is_playing && !isPlayingRef.current))) {
+      joinLiveAudio();
+      return;
+    }
+
+    if (audioRef.current) {
+      audioRef.current.muted = nextMuted;
+    }
+    if (ytPlayerRef.current && ytReadyRef.current) {
+      try {
+        if (nextMuted) {
+          ytPlayerRef.current.mute();
+        } else {
+          ytPlayerRef.current.unMute();
+          ytPlayerRef.current.setVolume(volumeRef.current);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [autoplayBlocked, joinLiveAudio]);
+
+  // Admin 4s heartbeat to keep radio-state.php position_sec fresh while broadcasting
+  useEffect(() => {
+    if (!isAuthenticated || !isSuperAdmin || !isPlaying || currentTrack.id === 0) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      broadcastRadioState(currentTrackRef.current, true, getAccuratePlaybackSeconds());
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [
+    isAuthenticated,
+    isSuperAdmin,
+    isPlaying,
+    currentTrack.id,
+    broadcastRadioState,
+    getAccuratePlaybackSeconds,
+  ]);
+
+  // Listener live polling every 2.5 seconds against GET .../radio-state.php
+  const radioPollInFlightRef = useRef<boolean>(false);
+  useEffect(() => {
+    if (!isAuthenticated || isSuperAdmin) {
+      if (isSuperAdmin) {
+        setRadioState(null);
+        setAutoplayBlocked(false);
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollRadio = async () => {
+      if (cancelled || radioPollInFlightRef.current) return;
+      if (!getStoredToken()) return;
+      radioPollInFlightRef.current = true;
+
+      try {
+        const remote = await musikweApi.getRadioState(authOptsRef.current);
+        if (cancelled) return;
+
+        if (!remote) {
+          setRadioState(null);
+          radioStateRef.current = null;
+          return;
+        }
+
+        const prevRemote = radioStateRef.current;
+        setRadioState(remote);
+        radioStateRef.current = remote;
+
+        const remoteChangedSong =
+          Boolean(prevRemote) &&
+          (remote.youtube_id !== prevRemote?.youtube_id ||
+            remote.audio_url !== prevRemote?.audio_url ||
+            remote.title !== prevRemote?.title);
+
+        if (remoteChangedSong && remote.is_playing && miniPlayerDismissedRef.current) {
+          setMiniPlayerDismissed(false);
+          miniPlayerDismissedRef.current = false;
+        }
+
+        const cur = currentTrackRef.current;
+        const incomingYt = remote.youtube_id || extractYoutubeId(remote.audio_url);
+        const currentYt = cur.youtube_id || extractYoutubeId(cur.url);
+
+        const trackChanged =
+          (Boolean(incomingYt) && incomingYt !== currentYt) ||
+          (!incomingYt &&
+            (remote.audio_url !== (cur.url || '') ||
+              remote.title.trim().toLowerCase() !== cur.t.trim().toLowerCase()));
+
+        const shouldPlay = remote.is_playing && !miniPlayerDismissedRef.current;
+
+        if (trackChanged) {
+          const pool = catalogTracksRef.current.length > 0 ? catalogTracksRef.current : tracksRef.current;
+          const matchedLocal = pool.find(
+            (t) =>
+              (remote.track_id > 0 && t.id === remote.track_id) ||
+              (Boolean(incomingYt) && t.youtube_id === incomingYt) ||
+              (t.t.trim().toLowerCase() === remote.title.trim().toLowerCase() &&
+                t.a.trim().toLowerCase() === remote.artist.trim().toLowerCase())
+          );
+
+          const targetTrack: MusikweTrack = {
+            id:
+              matchedLocal?.id ||
+              (remote.track_id > 0
+                ? remote.track_id
+                : hashSeedId(`${incomingYt || remote.audio_url || remote.title}|${remote.artist}`)),
+            t: remote.title,
+            a: remote.artist,
+            album_name: matchedLocal?.album_name || '',
+            d: remote.duration || matchedLocal?.d || 200,
+            h: matchedLocal?.h || 210,
+            url: incomingYt ? '' : remote.audio_url || matchedLocal?.url || '',
+            youtube_id: incomingYt || matchedLocal?.youtube_id || undefined,
+            ly: matchedLocal?.ly || '',
+            img:
+              remote.cover_url ||
+              matchedLocal?.img ||
+              (incomingYt ? `https://i.ytimg.com/vi/${incomingYt}/hqdefault.jpg` : ''),
+          };
+
+          applyTrackToPlayer(targetTrack, shouldPlay, remote.position_sec, {
+            broadcast: false,
+            unDismiss: false,
+          });
+          return;
+        }
+
+        // Sync is_playing status
+        if (shouldPlay && !isPlayingRef.current) {
+          setIsPlaying(true);
+          setPlayerActivated(true);
+          const ytId = cur.youtube_id || extractYoutubeId(cur.url);
+          if (ytId) {
+            ensureYoutubePlayer(ytId, true, remote.position_sec);
+          } else if (audioRef.current && cur.url) {
+            audioRef.current.muted = isMutedRef.current;
+            audioRef.current.play().catch(() => {
+              setAutoplayBlocked(true);
+            });
+          }
+        } else if (!shouldPlay && isPlayingRef.current) {
+          setIsPlaying(false);
+          setAutoplayBlocked(false);
+          const ytId = cur.youtube_id || extractYoutubeId(cur.url);
+          if (ytId && ytPlayerRef.current && ytReadyRef.current) {
+            try {
+              ytPlayerRef.current.pauseVideo();
+            } catch {
+              // ignore
+            }
+          } else if (audioRef.current) {
+            audioRef.current.pause();
+          }
+        }
+
+        // Sync playback position if drift exceeds 2.5 seconds
+        const localPos = getAccuratePlaybackSeconds();
+        if (Math.abs(localPos - remote.position_sec) > 2.5) {
+          seekInternal(remote.position_sec, false);
+        }
+      } catch {
+        // Ignore transient polling failures
+      } finally {
+        radioPollInFlightRef.current = false;
+      }
+    };
+
+    pollRadio();
+    const timer = window.setInterval(pollRadio, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    isAuthenticated,
+    isSuperAdmin,
+    applyTrackToPlayer,
+    ensureYoutubePlayer,
+    getAccuratePlaybackSeconds,
+    seekInternal,
+  ]);
 
   const toggleLike = useCallback(
     (id: number) => {
@@ -988,7 +1535,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     const aud = audioRef.current;
     const onEnded = () => {
-      nextTrackRef.current();
+      if (isSuperAdminRef.current || !radioStateRef.current) {
+        nextTrackRef.current();
+      }
     };
     aud?.addEventListener('ended', onEnded);
     return () => {
@@ -1022,9 +1571,13 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setProgress((prev) => {
         const updated = nextPos !== null && nextPos > 0 ? nextPos : prev + 0.25;
-        if (updated >= (currentTrack.d || 200)) {
-          window.setTimeout(() => nextTrackRef.current(), 0);
-          return 0;
+        const maxDur = currentTrack.d || 200;
+        if (updated >= maxDur) {
+          if (isSuperAdminRef.current || !radioStateRef.current) {
+            window.setTimeout(() => nextTrackRef.current(), 0);
+            return 0;
+          }
+          return maxDur;
         }
         return updated;
       });
@@ -1081,6 +1634,14 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     toggleLike,
     miniPlayerDismissed,
     setMiniPlayerDismissed,
+
+    radioState,
+    isLiveBroadcastActive,
+    isMuted,
+    autoplayBlocked,
+    toggleMute,
+    joinLiveAudio,
+    dismissMiniPlayer,
 
     loadingCount,
     beginLoading,

@@ -98,6 +98,19 @@ export interface ExternalSearchResponse {
   has_youtube_key: boolean;
 }
 
+export interface MusikweRadioState {
+  track_id: number;
+  title: string;
+  artist: string;
+  cover_url: string;
+  audio_url: string;
+  youtube_id: string;
+  duration: number;
+  is_playing: boolean;
+  position_sec: number;
+  updated_at?: number;
+}
+
 export function isAutoAdminEmail(email?: string | null): boolean {
   if (!email) return false;
   return email.trim().toLowerCase() === MUSIKWE_ADMIN_EMAIL;
@@ -638,6 +651,94 @@ export const musikweApi = {
       success: Boolean(json?.success),
       message: json?.message,
       url: String(json?.data?.url ?? json?.url ?? ''),
+    };
+  },
+
+  async getRadioState(
+    auth?: { userEmail?: string }
+  ): Promise<MusikweRadioState | null> {
+    const res = await fetchWithTimeout(
+      `${MUSIKWE_API_BASE}/radio-state.php`,
+      {
+        method: 'GET',
+        headers: buildHeaders(false, auth),
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+    if (!res.ok) {
+      throw new Error(`Gagal memuat radio-state (${res.status}).`);
+    }
+    const json = await parseApiJson(res);
+    const raw =
+      json?.data?.radio_state ??
+      json?.radio_state ??
+      json?.data ??
+      json;
+
+    if (!raw || typeof raw !== 'object') return null;
+
+    const title = String(raw?.title ?? raw?.t ?? '').trim();
+    const audioUrl = String(raw?.audio_url ?? raw?.url ?? '').trim();
+    const ytId =
+      extractYoutubeId(raw?.youtube_id) ||
+      extractYoutubeId(raw?.youtube_url) ||
+      extractYoutubeId(audioUrl);
+
+    if (!title && !ytId && !audioUrl) {
+      return null;
+    }
+
+    const durNum = Number(raw?.duration ?? raw?.d ?? 200);
+    const duration = Number.isFinite(durNum) && durNum > 0 ? Math.round(durNum) : 200;
+    const posNum = Number(raw?.position_sec ?? raw?.position ?? 0);
+    const position_sec =
+      Number.isFinite(posNum) && posNum >= 0 ? Math.min(duration, posNum) : 0;
+
+    return {
+      track_id: Number(raw?.track_id ?? raw?.id ?? 0),
+      title: title || 'Tanpa Judul',
+      artist: String(raw?.artist ?? raw?.a ?? 'Artis Tidak Diketahui').trim(),
+      cover_url: String(raw?.cover_url ?? raw?.img ?? '').trim(),
+      audio_url: ytId && audioUrl.includes(ytId) ? '' : audioUrl,
+      youtube_id: ytId || '',
+      duration,
+      is_playing:
+        raw?.is_playing === true ||
+        raw?.is_playing === 1 ||
+        raw?.is_playing === '1' ||
+        raw?.is_playing === 'true',
+      position_sec,
+      updated_at: raw?.updated_at ? normalizeTimestamp(raw.updated_at) : undefined,
+    };
+  },
+
+  async updateRadioState(
+    payload: Omit<MusikweRadioState, 'updated_at'>,
+    auth?: { userEmail?: string }
+  ): Promise<{ success: boolean; message?: string }> {
+    const res = await fetchWithTimeout(
+      `${MUSIKWE_API_BASE}/radio-state.php`,
+      {
+        method: 'POST',
+        headers: buildHeaders(true, auth),
+        body: JSON.stringify({
+          track_id: payload.track_id || 0,
+          title: payload.title,
+          artist: payload.artist,
+          cover_url: payload.cover_url || '',
+          audio_url: payload.audio_url || '',
+          youtube_id: payload.youtube_id || '',
+          duration: Math.max(15, Math.round(payload.duration || 200)),
+          is_playing: Boolean(payload.is_playing),
+          position_sec: Math.max(0, Number((payload.position_sec || 0).toFixed(2))),
+        }),
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+    const json = await parseApiJson(res);
+    return {
+      success: Boolean(json?.success ?? res.ok),
+      message: json?.message,
     };
   },
 };
