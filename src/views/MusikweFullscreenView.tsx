@@ -116,6 +116,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     playlists,
     setPlaylists,
     requests,
+    setRequests,
+    requestHistory,
+    setRequestHistory,
     sortedRequests,
     commentsMap,
     serverUser,
@@ -149,7 +152,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     setResolvingExtKey,
     syncFromBackend,
     findTrack,
+    resolveRequestTrack,
     findMatchingLocalTrack,
+    playResolvedTrack,
     loadAndPlayTrack,
     playExternalItem: handlePlayExternalItem,
     togglePlayPause,
@@ -194,6 +199,14 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   // Sub-forms state
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [commentText, setCommentText] = useState('');
+
+  // Request & antrean form + quick iTunes search state
+  const [reqFormTitle, setReqFormTitle] = useState('');
+  const [reqFormArtist, setReqFormArtist] = useState('');
+  const [reqFormYoutube, setReqFormYoutube] = useState('');
+  const [reqItunesQuery, setReqItunesQuery] = useState('');
+  const [reqItunesResults, setReqItunesResults] = useState<ExternalItunesItem[]>([]);
+  const [reqItunesSearching, setReqItunesSearching] = useState(false);
 
   // External search state (for live search view & admin)
   const [extItunes, setExtItunes] = useState<ExternalItunesItem[]>([]);
@@ -303,6 +316,35 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     };
   }, [searchQuery, showToast]);
 
+  // Debounced quick iTunes search inside 'Request & antrean'
+  useEffect(() => {
+    const trimmed = reqItunesQuery.trim();
+    if (trimmed.length < 2) {
+      setReqItunesResults([]);
+      setReqItunesSearching(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setReqItunesSearching(true);
+      musikweApi
+        .searchItunes(trimmed)
+        .then((results) => {
+          if (!cancelled) setReqItunesResults(results);
+        })
+        .catch(() => {
+          if (!cancelled) setReqItunesResults([]);
+        })
+        .finally(() => {
+          if (!cancelled) setReqItunesSearching(false);
+        });
+    }, 320);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [reqItunesQuery]);
+
   // Persist theme
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
@@ -381,8 +423,23 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     }
   };
 
+  const isOwnRequest = useCallback(
+    (requestedBy?: string, reqEmail?: string): boolean => {
+      if (isSuperAdmin) return true;
+      if (reqEmail && activeEmail && reqEmail.trim().toLowerCase() === activeEmail) {
+        return true;
+      }
+      const meName = who().trim().toLowerCase();
+      if (requestedBy && meName && requestedBy.trim().toLowerCase() === meName) {
+        return true;
+      }
+      return false;
+    },
+    [isSuperAdmin, activeEmail, who]
+  );
+
   const handleRequestTrack = async (track: MusikweTrack) => {
-    if (!track || track.id === 0) return;
+    if (!track || !track.t.trim()) return;
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'create.php',
@@ -394,22 +451,16 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           cover_url: track.img || '',
           duration: track.d || 200,
           youtube_id: track.youtube_id || '',
-          audio_url: track.url || '',
           requested_by: who(),
         },
         authOpts
       );
-      showToast(res.message || 'Lagu ditambahkan ke antrean request.');
-      if (res.success) {
-        console.log('[SONG REQUEST CREATED]', {
-          title: track.t,
-          artist: track.a,
-          youtube_id: track.youtube_id || '',
-          requested_by: who(),
-          response: res,
-        });
-        await syncFromBackend('');
+      if (!res.success) {
+        showToast(res.message || 'Gagal mengirim request lagu.');
+        return;
       }
+      await syncFromBackend('');
+      showToast(res.message || `"${track.t}" ditambahkan ke antrean request.`);
     });
   };
 
@@ -417,16 +468,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     item: ExternalItunesItem | ExternalYoutubeItem,
     key: string
   ) => {
-    if (item.source === 'itunes') {
-      console.log('[iTUNES SELECT]', {
-        action: 'request',
-        title: item.title,
-        artist: item.artist,
-        cover_url: item.cover_url,
-        duration: item.duration_sec,
-      });
-    }
-
     setResolvingExtKey(key);
     try {
       await runMutation(async () => {
@@ -435,50 +476,101 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         const durationSec = item.duration_sec || existing?.d || 200;
 
         if (!ytId && item.source === 'itunes') {
-          const ytMatch = await musikweApi.searchYoutubeBestMatch(
-            item.title,
-            item.artist,
-            authOpts
-          );
-          ytId = ytMatch.youtube_id;
-        }
-
-        if (!ytId) {
-          throw new Error(`Video YouTube tidak ditemukan untuk "${item.title}".`);
+          try {
+            const ytMatch = await musikweApi.searchYoutubeBestMatch(
+              item.title,
+              item.artist,
+              authOpts
+            );
+            ytId = ytMatch.youtube_id || '';
+          } catch {
+            ytId = '';
+          }
         }
 
         const coverUrl =
-          item.cover_url || `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`;
+          item.cover_url ||
+          (ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : '');
         const payload: Record<string, any> = {
           action: 'request_track',
-          ...(existing?.id ? { track_id: existing.id } : {}),
+          track_id: existing?.id || 0,
           title: item.title,
           artist: item.artist,
           cover_url: coverUrl,
           duration: durationSec,
-          youtube_id: ytId,
+          youtube_id: ytId || '',
           requested_by: who(),
         };
 
         const res = await musikweApi.postAction('create.php', payload, authOpts);
         if (!res.success) {
-          throw new Error(res.message || 'Gagal menyimpan request ke database.');
+          showToast(res.message || 'Gagal menyimpan request ke database.');
+          return;
         }
 
-        console.log('[SONG REQUEST CREATED]', {
-          title: item.title,
-          artist: item.artist,
-          cover_url: coverUrl,
-          duration: durationSec,
-          youtube_id: ytId,
-          requested_by: who(),
-          response: res,
-        });
-        showToast(res.message || `"${item.title}" masuk ke antrean bersama!`);
         await syncFromBackend('');
+        showToast(res.message || `"${item.title}" masuk ke antrean bersama!`);
       });
     } finally {
       setResolvingExtKey(null);
+    }
+  };
+
+  const handleSubmitManualRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const title = reqFormTitle.trim();
+    const artist = reqFormArtist.trim();
+    if (!title || !artist) {
+      showToast('Judul lagu dan nama artis wajib diisi.');
+      return;
+    }
+
+    const ytId = extractYoutubeId(reqFormYoutube);
+    await runMutation(async () => {
+      const res = await musikweApi.postAction(
+        'create.php',
+        {
+          action: 'request_track',
+          track_id: 0,
+          title,
+          artist,
+          cover_url: ytId ? `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg` : '',
+          duration: 200,
+          youtube_id: ytId || '',
+          requested_by: who(),
+        },
+        authOpts
+      );
+      if (!res.success) {
+        showToast(res.message || 'Gagal mengirim request lagu.');
+        return;
+      }
+      setReqFormTitle('');
+      setReqFormArtist('');
+      setReqFormYoutube('');
+      await syncFromBackend('');
+      showToast(res.message || `"${title}" berhasil dikirim ke Admin & antrean!`);
+    });
+  };
+
+  const handleReqItunesSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = reqItunesQuery.trim();
+    if (q.length < 2) {
+      showToast('Ketik minimal 2 karakter untuk mencari lagu.');
+      return;
+    }
+    setReqItunesSearching(true);
+    try {
+      const results = await musikweApi.searchItunes(q);
+      setReqItunesResults(results);
+      if (results.length === 0) {
+        showToast('Lagu tidak ditemukan di iTunes.');
+      }
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal mencari lagu di iTunes.');
+    } finally {
+      setReqItunesSearching(false);
     }
   };
 
@@ -494,16 +586,45 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     });
   };
 
-  const handleDeleteRequest = async (requestId: number) => {
-    if (!isSuperAdmin) return;
+  const handleDeleteRequest = async (requestId: number, canDelete: boolean = isSuperAdmin) => {
+    if (!isSuperAdmin && !canDelete) return;
     await runMutation(async () => {
       const res = await musikweApi.postAction(
         'delete.php',
         { action: 'delete_request', id: requestId },
         authOpts
       );
+      if (!res.success) {
+        showToast(res.message || 'Gagal menghapus request.');
+        return;
+      }
+      setRequests((prev) => prev.filter((r) => r.id !== requestId));
+      setRequestHistory((prev) => prev.filter((r) => r.id !== requestId));
+      await syncFromBackend(searchQuery);
       showToast(res.message || 'Request dihapus.');
-      if (res.success) await syncFromBackend(searchQuery);
+    });
+  };
+
+  const handleClearRequestHistory = async () => {
+    await runMutation(async () => {
+      const res = await musikweApi.postAction(
+        'delete.php',
+        { action: 'clear_request_history', requested_by: who() },
+        authOpts
+      );
+      if (!res.success) {
+        showToast(res.message || 'Gagal menghapus riwayat request.');
+        return;
+      }
+      if (isSuperAdmin) {
+        setRequestHistory([]);
+      } else {
+        setRequestHistory((prev) =>
+          prev.filter((item) => !isOwnRequest(item.by, item.user_email))
+        );
+      }
+      await syncFromBackend(searchQuery);
+      showToast(res.message || 'Riwayat request dibersihkan.');
     });
   };
 
@@ -1655,6 +1776,131 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
           {effectiveView === 'req' && (
             <div className="mw-v">
+              <div className="mw-adm-card" style={{ marginBottom: 22 }}>
+                <h3>Request Lagu ke Admin &amp; Antrean</h3>
+                <form className="mw-fm" onSubmit={handleSubmitManualRequest}>
+                  <input
+                    value={reqFormTitle}
+                    onChange={(e) => setReqFormTitle(e.target.value)}
+                    placeholder="Judul lagu (wajib)"
+                    required
+                  />
+                  <input
+                    value={reqFormArtist}
+                    onChange={(e) => setReqFormArtist(e.target.value)}
+                    placeholder="Nama artis (wajib)"
+                    required
+                  />
+                  <input
+                    value={reqFormYoutube}
+                    onChange={(e) => setReqFormYoutube(e.target.value)}
+                    placeholder="Link YouTube (opsional)"
+                  />
+                  <button type="submit" className="mw-btn">
+                    <Plus size={15} />
+                    <span>Kirim Request Lagu</span>
+                  </button>
+                </form>
+
+                <div
+                  style={{
+                    marginTop: 16,
+                    paddingTop: 14,
+                    borderTop: '1px solid var(--mw-ln)',
+                  }}
+                >
+                  <div className="mw-mu mw-small" style={{ marginBottom: 8, fontWeight: 700 }}>
+                    Pencarian Cepat iTunes
+                  </div>
+                  <form className="mw-fm" onSubmit={handleReqItunesSearch}>
+                    <input
+                      value={reqItunesQuery}
+                      onChange={(e) => setReqItunesQuery(e.target.value)}
+                      placeholder="Cari judul lagu atau artis di iTunes..."
+                    />
+                    {reqItunesQuery && (
+                      <button
+                        type="button"
+                        className="mw-btn sm g"
+                        onClick={() => {
+                          setReqItunesQuery('');
+                          setReqItunesResults([]);
+                        }}
+                      >
+                        Reset
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      className="mw-btn sm"
+                      disabled={reqItunesSearching}
+                    >
+                      {reqItunesSearching ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Search size={14} />
+                      )}
+                      <span>Cari iTunes</span>
+                    </button>
+                  </form>
+
+                  {reqItunesResults.length > 0 && (
+                    <div
+                      style={{
+                        maxHeight: 280,
+                        overflowY: 'auto',
+                        marginTop: 10,
+                        borderTop: '1px solid var(--mw-ln)',
+                        paddingTop: 8,
+                      }}
+                    >
+                      {reqItunesResults.map((it, idx) => {
+                        const rowKey = `req_it_${it.trackId || idx}`;
+                        const isResolving = resolvingExtKey === rowKey;
+                        return (
+                          <div
+                            key={rowKey}
+                            className="mw-row"
+                            style={{ padding: '6px 8px' }}
+                          >
+                            <CoverThumb
+                              track={{ t: it.title, img: it.cover_url, h: 210 }}
+                            />
+                            <div className="mw-i">
+                              <div className="mw-tt">{it.title}</div>
+                              <div className="mw-mu mw-small mw-num">
+                                {it.artist}
+                                {it.album ? ` · ${it.album}` : ''} ·{' '}
+                                {fmtTime(it.duration_sec)}
+                              </div>
+                            </div>
+                            <div
+                              className="mw-ac"
+                              style={{ opacity: 1 }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className="mw-btn sm"
+                                disabled={isResolving}
+                                onClick={() => handleRequestExternalItem(it, rowKey)}
+                              >
+                                {isResolving ? (
+                                  <Loader2 size={13} className="animate-spin" />
+                                ) : (
+                                  <Heart size={13} />
+                                )}
+                                <span>Request ke Antrean</span>
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <h2 className="mw-h2">Antrean request</h2>
               {sortedRequests.length > 0 ? (
                 <table className="mw-table">
@@ -1664,13 +1910,14 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       <th>Diminta oleh</th>
                       <th>Waktu</th>
                       <th>Suara</th>
-                      {isSuperAdmin && <th />}
+                      <th />
                     </tr>
                   </thead>
                   <tbody>
                     {sortedRequests.map((rq, idx) => {
-                      const t = findTrack(rq.tid);
+                      const t = resolveRequestTrack(rq);
                       const hasVoted = rq.v.includes(who());
+                      const canDelete = isOwnRequest(rq.by, rq.user_email);
                       return (
                         <tr key={rq.id}>
                           <td>
@@ -1691,18 +1938,19 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                               <span>{rq.v.length}</span>
                             </button>
                           </td>
-                          {isSuperAdmin && (
-                            <td>
+                          <td>
+                            {canDelete && (
                               <button
                                 type="button"
                                 className="mw-ib"
                                 aria-label="Hapus request"
-                                onClick={() => handleDeleteRequest(rq.id)}
+                                title="Hapus request"
+                                onClick={() => handleDeleteRequest(rq.id, canDelete)}
                               >
                                 <X size={16} />
                               </button>
-                            </td>
-                          )}
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -1710,7 +1958,85 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 </table>
               ) : (
                 <p className="mw-mu">
-                  Belum ada request di antrean database. Pilih lagu di bawah untuk memulai.
+                  Belum ada request di antrean database. Kirim form di atas atau pilih lagu di
+                  bawah.
+                </p>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  marginTop: 26,
+                  marginBottom: 12,
+                }}
+              >
+                <h2 className="mw-h2" style={{ margin: 0 }}>
+                  Riwayat Request
+                </h2>
+                {requestHistory.length > 0 && (
+                  <button
+                    type="button"
+                    className="mw-btn sm g"
+                    onClick={handleClearRequestHistory}
+                  >
+                    <Trash2 size={13} />
+                    <span>Hapus Riwayat</span>
+                  </button>
+                )}
+              </div>
+
+              {requestHistory.length > 0 ? (
+                <div className="mw-adm-card" style={{ marginBottom: 22 }}>
+                  {requestHistory.map((item) => {
+                    const canDelete = isOwnRequest(item.by, item.user_email);
+                    return (
+                      <div
+                        key={`hist_${item.id}`}
+                        className="mw-row"
+                        style={{ cursor: 'default' }}
+                      >
+                        <CoverThumb
+                          track={{
+                            t: item.title,
+                            img:
+                              item.cover_url ||
+                              (item.youtube_id
+                                ? `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`
+                                : ''),
+                            h: 210,
+                          }}
+                        />
+                        <div className="mw-i">
+                          <div className="mw-tt">{item.title}</div>
+                          <div className="mw-mu mw-small mw-num">
+                            {item.artist} · oleh {item.by} · {fmtAgo(item.ts)}
+                            {item.status ? ` · ${item.status}` : ''}
+                          </div>
+                        </div>
+                        {canDelete && (
+                          <div className="mw-ac" style={{ opacity: 1 }}>
+                            <button
+                              type="button"
+                              className="mw-ib"
+                              aria-label="Hapus item riwayat"
+                              title="Hapus item riwayat"
+                              onClick={() => handleDeleteRequest(item.id, canDelete)}
+                            >
+                              <X size={16} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mw-mu mw-small" style={{ marginBottom: 22 }}>
+                  Belum ada riwayat request.
                 </p>
               )}
 
@@ -2086,6 +2412,96 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     </form>
                   </div>
 
+                  <h2 className="mw-h2">
+                    Antrean Request Masuk ({sortedRequests.length})
+                  </h2>
+                  {sortedRequests.length > 0 ? (
+                    <div className="mw-adm-card" style={{ marginBottom: 22 }}>
+                      {sortedRequests.map((rq, idx) => {
+                        const tr = resolveRequestTrack(rq);
+                        return (
+                          <div
+                            key={`adm_req_${rq.id}`}
+                            className="mw-row"
+                            onClick={() => {
+                              if (tr.url || tr.youtube_id) {
+                                playResolvedTrack(tr, true);
+                              } else {
+                                handlePlayExternalItem(
+                                  {
+                                    source: 'itunes',
+                                    title: tr.t,
+                                    artist: tr.a,
+                                    album: tr.album_name || '',
+                                    duration_sec: tr.d || 200,
+                                    cover_url: tr.img || '',
+                                    preview_url: '',
+                                  },
+                                  `adm_req_${rq.id}`
+                                );
+                              }
+                            }}
+                          >
+                            <CoverThumb track={tr} />
+                            <div className="mw-i">
+                              <div className="mw-tt">
+                                {idx + 1}. {tr.t}
+                              </div>
+                              <div className="mw-mu mw-small mw-num">
+                                {tr.a} · oleh {rq.by} · {fmtAgo(rq.ts)} · {rq.v.length} suara
+                              </div>
+                            </div>
+                            <div
+                              className="mw-ac"
+                              style={{ opacity: 1 }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                className="mw-ib"
+                                title="Putar request"
+                                aria-label="Putar request"
+                                onClick={() => {
+                                  if (tr.url || tr.youtube_id) {
+                                    playResolvedTrack(tr, true);
+                                  } else {
+                                    handlePlayExternalItem(
+                                      {
+                                        source: 'itunes',
+                                        title: tr.t,
+                                        artist: tr.a,
+                                        album: tr.album_name || '',
+                                        duration_sec: tr.d || 200,
+                                        cover_url: tr.img || '',
+                                        preview_url: '',
+                                      },
+                                      `adm_req_${rq.id}`
+                                    );
+                                  }
+                                }}
+                              >
+                                <Play size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                className="mw-ib"
+                                title="Hapus request"
+                                aria-label="Hapus request"
+                                onClick={() => handleDeleteRequest(rq.id, true)}
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mw-empty-box" style={{ marginBottom: 22 }}>
+                      Belum ada request lagu masuk dari pengguna.
+                    </div>
+                  )}
+
                   <h2 className="mw-h2">Kelola Lagu di Database ({tracks.length})</h2>
                   {tracks.length > 0 ? (
                     <div>
@@ -2150,13 +2566,30 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
           {sortedRequests.length > 0 ? (
             sortedRequests.map((rq) => {
-              const tr = findTrack(rq.tid);
+              const tr = resolveRequestTrack(rq);
               const voted = rq.v.includes(who());
               return (
                 <div
                   key={rq.id}
                   className="mw-row"
-                  onClick={() => loadAndPlayTrack(tr.id, true)}
+                  onClick={() => {
+                    if (tr.url || tr.youtube_id) {
+                      playResolvedTrack(tr, true);
+                    } else {
+                      handlePlayExternalItem(
+                        {
+                          source: 'itunes',
+                          title: tr.t,
+                          artist: tr.a,
+                          album: tr.album_name || '',
+                          duration_sec: tr.d || 200,
+                          cover_url: tr.img || '',
+                          preview_url: '',
+                        },
+                        `queue_${rq.id}`
+                      );
+                    }
+                  }}
                 >
                   <CoverThumb track={tr} />
                   <div className="mw-i">

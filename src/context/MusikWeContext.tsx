@@ -15,6 +15,7 @@ import {
   MusikwePlaylist,
   MusikweRadioState,
   MusikweRequest,
+  MusikweRequestHistory,
   MusikweTrack,
   MusikweUser,
   extractYoutubeId,
@@ -48,6 +49,7 @@ interface PersistedMusikweSnapshot {
   albums?: MusikweAlbum[];
   playlists?: MusikwePlaylist[];
   requests?: MusikweRequest[];
+  requestHistory?: MusikweRequestHistory[];
   logoUrl?: string;
   currentTrackId?: number;
   adHocTrack?: MusikweTrack | null;
@@ -117,6 +119,8 @@ export interface MusikWeContextValue {
   setPlaylists: React.Dispatch<React.SetStateAction<MusikwePlaylist[]>>;
   requests: MusikweRequest[];
   setRequests: React.Dispatch<React.SetStateAction<MusikweRequest[]>>;
+  requestHistory: MusikweRequestHistory[];
+  setRequestHistory: React.Dispatch<React.SetStateAction<MusikweRequestHistory[]>>;
   sortedRequests: MusikweRequest[];
   queue: MusikweRequest[];
   commentsMap: Record<string, MusikweComment[]>;
@@ -168,6 +172,7 @@ export interface MusikWeContextValue {
   // Playback & sync actions
   syncFromBackend: (q?: string, silent?: boolean) => Promise<void>;
   findTrack: (id?: number | null) => MusikweTrack;
+  resolveRequestTrack: (rq: MusikweRequest) => MusikweTrack;
   findMatchingLocalTrack: (
     item: ExternalItunesItem | ExternalYoutubeItem
   ) => MusikweTrack | undefined;
@@ -241,6 +246,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
   const [requests, setRequests] = useState<MusikweRequest[]>(() =>
     Array.isArray(initialSnapshot.requests) ? initialSnapshot.requests : []
+  );
+  const [requestHistory, setRequestHistory] = useState<MusikweRequestHistory[]>(() =>
+    Array.isArray(initialSnapshot.requestHistory) ? initialSnapshot.requestHistory : []
   );
   const [commentsMap, setCommentsMap] = useState<Record<string, MusikweComment[]>>({});
   const [serverUser, setServerUser] = useState<MusikweUser>({
@@ -421,6 +429,37 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [liveRadioTrack, radioState?.track_id, currentTrackId, adHocTrack, tracks, catalogTracks, fallbackTrack]
   );
 
+  const resolveRequestTrack = useCallback(
+    (rq: MusikweRequest): MusikweTrack => {
+      const hit =
+        (rq.tid > 0 &&
+          (tracks.find((t) => t.id === rq.tid) ||
+            catalogTracks.find((t) => t.id === rq.tid))) ||
+        (rq.youtube_id
+          ? tracks.find((t) => t.youtube_id === rq.youtube_id) ||
+            catalogTracks.find((t) => t.youtube_id === rq.youtube_id)
+          : undefined);
+      if (hit) return hit;
+      if (rq.title) {
+        return {
+          id: rq.tid > 0 ? rq.tid : hashSeedId(`req_${rq.id}_${rq.title}`),
+          t: rq.title,
+          a: rq.artist || 'Artis Tidak Diketahui',
+          d: rq.duration || 200,
+          h: 210,
+          url: '',
+          youtube_id: rq.youtube_id || undefined,
+          ly: '',
+          img:
+            rq.cover_url ||
+            (rq.youtube_id ? `https://i.ytimg.com/vi/${rq.youtube_id}/hqdefault.jpg` : ''),
+        };
+      }
+      return findTrack(rq.tid);
+    },
+    [tracks, catalogTracks, findTrack]
+  );
+
   const currentTrack = useMemo(() => {
     if (liveRadioTrack) return liveRadioTrack;
     return adHocTrack && currentTrackId === adHocTrack.id
@@ -590,6 +629,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
 
         setRequests((prev) => (Array.isArray(d.requests) ? d.requests : prev));
+        setRequestHistory((prev) =>
+          Array.isArray(d.request_history) ? d.request_history : prev
+        );
         setCommentsMap((prev) =>
           d.comments && Object.keys(d.comments).length > 0 ? d.comments : prev
         );
@@ -1189,7 +1231,12 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         .postAction('update.php', { action: 'mark_played', id: topReq.id }, authOpts)
         .catch(() => {});
       setRequests((prev) => prev.filter((x) => x.id !== topReq.id));
-      loadAndPlayTrack(topReq.tid, true);
+      const resolvedTop = resolveRequestTrack(topReq);
+      if (resolvedTop.id > 0 && (tracks.some((t) => t.id === resolvedTop.id) || catalogTracks.some((t) => t.id === resolvedTop.id))) {
+        loadAndPlayTrack(resolvedTop.id, true);
+      } else {
+        playResolvedTrack(resolvedTop, true);
+      }
       return;
     }
 
@@ -1216,6 +1263,8 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     shuffle,
     authOpts,
     loadAndPlayTrack,
+    playResolvedTrack,
+    resolveRequestTrack,
     showToast,
     broadcastRadioState,
   ]);
@@ -1703,6 +1752,8 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPlaylists,
     requests,
     setRequests,
+    requestHistory,
+    setRequestHistory,
     sortedRequests,
     queue: sortedRequests,
     commentsMap,
@@ -1750,6 +1801,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     syncFromBackend,
     findTrack,
+    resolveRequestTrack,
     findMatchingLocalTrack,
     playResolvedTrack,
     loadAndPlayTrack,

@@ -47,9 +47,29 @@ export interface MusikwePlaylist {
 export interface MusikweRequest {
   id: number;
   tid: number;
+  title?: string;
+  artist?: string;
+  cover_url?: string;
+  youtube_id?: string;
+  duration?: number;
   by: string;
+  user_email?: string;
   ts: number; // unix ms
   v: string[]; // voter names
+}
+
+export interface MusikweRequestHistory {
+  id: number;
+  tid: number;
+  title: string;
+  artist: string;
+  cover_url?: string;
+  youtube_id?: string;
+  duration?: number;
+  by: string;
+  user_email?: string;
+  status?: string;
+  ts: number; // unix ms
 }
 
 export interface MusikweComment {
@@ -67,6 +87,7 @@ export interface MusikweReadResponse {
   albums: MusikweAlbum[];
   playlists: MusikwePlaylist[];
   requests: MusikweRequest[];
+  request_history: MusikweRequestHistory[];
   comments: Record<string, MusikweComment[]>;
 }
 
@@ -232,7 +253,13 @@ function normalizeReadPayload(data: any): MusikweReadResponse {
     ? data.requests.map((rq: any) => ({
         id: Number(rq?.id ?? 0),
         tid: Number(rq?.tid ?? rq?.track_id ?? 0),
+        title: rq?.title ? String(rq.title).trim() : rq?.t ? String(rq.t).trim() : undefined,
+        artist: rq?.artist ? String(rq.artist).trim() : rq?.a ? String(rq.a).trim() : undefined,
+        cover_url: rq?.cover_url ? String(rq.cover_url).trim() : rq?.img ? String(rq.img).trim() : undefined,
+        youtube_id: extractYoutubeId(rq?.youtube_id) || undefined,
+        duration: rq?.duration ? Number(rq.duration) : rq?.d ? Number(rq.d) : undefined,
         by: String(rq?.by ?? rq?.requested_by ?? 'Tamu'),
+        user_email: rq?.user_email ? String(rq.user_email).trim() : undefined,
         ts: normalizeTimestamp(rq?.ts ?? rq?.created_at),
         v: Array.isArray(rq?.v)
           ? rq.v.map((x: any) => String(x))
@@ -241,6 +268,26 @@ function normalizeReadPayload(data: any): MusikweReadResponse {
           : [],
       }))
     : [];
+
+  const rawHistory = Array.isArray(data?.request_history)
+    ? data.request_history
+    : Array.isArray(data?.history)
+    ? data.history
+    : [];
+
+  const request_history: MusikweRequestHistory[] = rawHistory.map((rq: any) => ({
+    id: Number(rq?.id ?? 0),
+    tid: Number(rq?.tid ?? rq?.track_id ?? 0),
+    title: String(rq?.title ?? rq?.t ?? 'Lagu Request').trim(),
+    artist: String(rq?.artist ?? rq?.a ?? 'Artis Tidak Diketahui').trim(),
+    cover_url: rq?.cover_url ? String(rq.cover_url).trim() : rq?.img ? String(rq.img).trim() : undefined,
+    youtube_id: extractYoutubeId(rq?.youtube_id) || undefined,
+    duration: rq?.duration ? Number(rq.duration) : rq?.d ? Number(rq.d) : undefined,
+    by: String(rq?.by ?? rq?.requested_by ?? 'Tamu'),
+    user_email: rq?.user_email ? String(rq.user_email).trim() : undefined,
+    status: rq?.status ? String(rq.status) : undefined,
+    ts: normalizeTimestamp(rq?.played_at ?? rq?.updated_at ?? rq?.ts ?? rq?.created_at),
+  }));
 
   const comments: Record<string, MusikweComment[]> = {};
   if (data?.comments && typeof data.comments === 'object') {
@@ -269,6 +316,7 @@ function normalizeReadPayload(data: any): MusikweReadResponse {
     albums,
     playlists,
     requests,
+    request_history,
     comments,
   };
 }
@@ -336,11 +384,11 @@ export const musikweApi = {
   ): Promise<{ success: boolean; message?: string; data: MusikweReadResponse }> {
     const query = q.trim();
     const url = query
-      ? `${MUSIKWE_API_BASE}/read.php?q=${encodeURIComponent(query)}`
-      : `${MUSIKWE_API_BASE}/read.php`;
+      ? `${MUSIKWE_API_BASE}/read.php?q=${encodeURIComponent(query)}&t=${Date.now()}`
+      : `${MUSIKWE_API_BASE}/read.php?t=${Date.now()}`;
     const res = await fetchWithTimeout(
       url,
-      { method: 'GET', headers: buildHeaders(false, auth) },
+      { method: 'GET', cache: 'no-store', headers: buildHeaders(false, auth) },
       DEFAULT_REQUEST_TIMEOUT_MS
     );
     const json = await parseApiJson(res);
