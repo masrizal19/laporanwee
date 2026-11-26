@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, CheckCircle2, ArrowRight, Grid2X2, Loader2 } from 'lucide-react';
+import { Camera, CheckCircle2, ArrowRight, Grid2X2, Loader2, Disc3 } from 'lucide-react';
 import { REGISTERED_APPS, RegisteredApp } from '../data/appsRegistry';
 
 export interface AplikasiViewProps {
@@ -120,24 +120,41 @@ export const AplikasiView: React.FC<AplikasiViewProps> = ({
                 className="group relative flex flex-col justify-between rounded-[28px] border border-[var(--line)] bg-[var(--glass)] dark:bg-white/[0.05] backdrop-blur-2xl p-5 sm:p-6 shadow-[var(--shadow-card)] transition-all duration-200 hover:-translate-y-1 hover:bg-[var(--glass-solid)] dark:hover:bg-white/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--lav-deep)] cursor-pointer text-left"
               >
                 <div>
-                  {/* Thumbnail Pastel Glassmorphism + Identitas Visual FOTOWE */}
-                  <div className="relative mb-5 flex h-44 w-full items-center justify-center overflow-hidden rounded-[20px] bg-gradient-to-br from-[#f6e6cf] via-[#f1d8e4] to-[#d9d3f5] dark:from-[#322846] dark:via-[#2c2238] dark:to-[#22243a] border border-white/60 dark:border-white/10">
-                    {/* Viewfinder Corner Framing */}
-                    <div
-                      aria-hidden="true"
-                      className="pointer-events-none absolute inset-4 rounded-xl border border-dashed border-[#1f1d2b]/15 dark:border-white/15"
-                    />
-
-                    {/* Central Photography Icon Tile */}
-                    <div className="relative z-10 flex flex-col items-center gap-2.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 group-active:scale-95">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/90 dark:bg-[#1e1c2b]/90 text-[#1f1d2b] dark:text-white shadow-sm border border-black/5 dark:border-white/10">
-                        <Camera className="h-7 w-7 stroke-[1.8]" aria-hidden="true" />
+                  {/* Thumbnail Visual Identitas Aplikasi */}
+                  {app.iconType === 'music' ? (
+                    <div className="relative mb-5 flex h-44 w-full items-center justify-center overflow-hidden rounded-[20px] bg-gradient-to-br from-[#0f172a] via-[#132f54] to-[#0a84ff] border border-white/20">
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-4 rounded-xl border border-dashed border-white/20"
+                      />
+                      <div className="relative z-10 flex flex-col items-center gap-2.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 group-active:scale-95">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/95 text-[#0a1e3d] shadow-sm border border-white/40">
+                          <Disc3 className="h-7 w-7 stroke-[1.9] text-[#0072e8]" aria-hidden="true" />
+                        </div>
+                        <span className="text-xs font-extrabold tracking-tight text-white">
+                          <span className="text-[#7fe0ff]">.</span>MUSIKWE
+                        </span>
                       </div>
-                      <span className="text-xs font-extrabold tracking-tight text-[#1a1446] dark:text-white/90">
-                        fotowe<span className="text-[#ff3d6e]">.</span>
-                      </span>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="relative mb-5 flex h-44 w-full items-center justify-center overflow-hidden rounded-[20px] bg-gradient-to-br from-[#f6e6cf] via-[#f1d8e4] to-[#d9d3f5] dark:from-[#322846] dark:via-[#2c2238] dark:to-[#22243a] border border-white/60 dark:border-white/10">
+                      {/* Viewfinder Corner Framing */}
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-4 rounded-xl border border-dashed border-[#1f1d2b]/15 dark:border-white/15"
+                      />
+
+                      {/* Central Photography Icon Tile */}
+                      <div className="relative z-10 flex flex-col items-center gap-2.5 transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 group-active:scale-95">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/90 dark:bg-[#1e1c2b]/90 text-[#1f1d2b] dark:text-white shadow-sm border border-black/5 dark:border-white/10">
+                          <Camera className="h-7 w-7 stroke-[1.8]" aria-hidden="true" />
+                        </div>
+                        <span className="text-xs font-extrabold tracking-tight text-[#1a1446] dark:text-white/90">
+                          fotowe<span className="text-[#ff3d6e]">.</span>
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Metadata Kategori & Status (Clean unboxed typography) */}
                   <div className="flex items-center justify-between gap-2 text-xs font-medium text-[var(--muted)]">

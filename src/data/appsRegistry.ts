@@ -7,7 +7,7 @@ export interface RegisteredApp {
   status: 'available' | 'maintenance';
   statusLabel: string;
   sourceUrl: string;
-  iconType: 'camera';
+  iconType: 'camera' | 'music';
 }
 
 export const REGISTERED_APPS: RegisteredApp[] = [
@@ -22,6 +22,18 @@ export const REGISTERED_APPS: RegisteredApp[] = [
     statusLabel: 'Tersedia',
     sourceUrl: '/Aplikasi/Fotowe',
     iconType: 'camera',
+  },
+  {
+    id: 'musikwe',
+    slug: 'Musikwe',
+    name: 'MusikWe (.MUSIKWE)',
+    category: 'Musik & Hiburan Tim',
+    description:
+      'Pemutar musik kolaboratif dengan antrean request, voting lagu, lirik sinkron, playlist, serta pemutaran YouTube dan audio.',
+    status: 'available',
+    statusLabel: 'Tersedia',
+    sourceUrl: '/Aplikasi/Musikwe',
+    iconType: 'music',
   },
 ];
 

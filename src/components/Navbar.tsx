@@ -16,6 +16,7 @@ export interface NavbarProps {
   signoutIconUrl?: string | null;
   isAdmin?: boolean;
   onOpenWhatsNew?: () => void;
+  onOpenAppPath?: (path: string) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = React.memo(({
@@ -29,6 +30,7 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
   logoUrl,
   isAdmin: isAdminProp,
   onOpenWhatsNew,
+  onOpenAppPath,
 }) => {
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
@@ -145,18 +147,41 @@ export const Navbar: React.FC<NavbarProps> = React.memo(({
               (item.view === 'aplikasi' && currentView === 'aplikasi-detail') ||
               (item.view === 'reports' && (currentView === 'report-detail' || currentView === 'create-report'));
 
+            const isAplikasiGroup = item.view === 'aplikasi';
+
             return (
-              <button
-                key={item.view}
-                type="button"
-                className={isActive ? 'on' : ''}
-                onMouseEnter={() => handleHoverPrefetch(item.view)}
-                onClick={() => onNavigate(item.view)}
-                title={item.label}
-              >
-                <Icon name={item.icon} />
-                <span>{item.label}</span>
-              </button>
+              <React.Fragment key={item.view}>
+                <button
+                  type="button"
+                  className={isActive ? 'on' : ''}
+                  onMouseEnter={() => handleHoverPrefetch(item.view)}
+                  onClick={() => onNavigate(item.view)}
+                  title={item.label}
+                >
+                  <Icon name={item.icon} />
+                  <span>{item.label}</span>
+                </button>
+                {isAplikasiGroup && (
+                  <div className="nav-app-sub" role="group" aria-label="Menu Aplikasi">
+                    <button
+                      type="button"
+                      className="nav-sub-btn"
+                      onClick={() => {
+                        if (onOpenAppPath) {
+                          onOpenAppPath('/Aplikasi/Musikwe');
+                        } else {
+                          window.history.pushState({}, '', '/Aplikasi/Musikwe');
+                          window.dispatchEvent(new PopStateEvent('popstate'));
+                        }
+                      }}
+                      title="MusikWe (.MUSIKWE)"
+                    >
+                      <Icon name="music" />
+                      <span>MusikWe (.MUSIKWE)</span>
+                    </button>
+                  </div>
+                )}
+              </React.Fragment>
             );
           })}
         </nav>

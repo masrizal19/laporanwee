@@ -5,12 +5,14 @@ import { profileService } from '../utils/api';
 import { getActiveToken } from '../utils/fotoweApi';
 import { AuthUser } from '../types';
 import { FotoweFullscreenView } from './FotoweFullscreenView';
+import { MusikweFullscreenView } from './MusikweFullscreenView';
 import '../styles/fotowe.css';
 
 export interface AplikasiHostViewProps {
   appSlug: string;
   currentUser?: AuthUser | null;
   onBackToHub: () => void;
+  onBackToPrevious?: () => void;
   onSessionExpired: () => void;
   onAddToast?: (text: string) => void;
 }
@@ -19,6 +21,7 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
   appSlug,
   currentUser,
   onBackToHub,
+  onBackToPrevious,
   onSessionExpired,
   onAddToast,
 }) => {
@@ -26,9 +29,14 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
   const [verifiedAccount, setVerifiedAccount] = useState<{
     id?: string | number;
     email?: string;
+    name?: string;
   } | null>(() =>
     currentUser
-      ? { id: currentUser.id, email: currentUser.email }
+      ? {
+          id: currentUser.id,
+          email: currentUser.email,
+          name: currentUser.full_name || currentUser.name,
+        }
       : null
   );
 
@@ -51,6 +59,7 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
           setVerifiedAccount({
             id: res.data.id ?? currentUser?.id,
             email: res.data.email ?? currentUser?.email,
+            name: res.data.full_name ?? res.data.name ?? currentUser?.full_name ?? currentUser?.name,
           });
         }
       })
@@ -98,7 +107,20 @@ export const AplikasiHostView: React.FC<AplikasiHostViewProps> = ({
 
   const activeUserId = verifiedAccount?.id ?? currentUser?.id;
   const activeUserEmail = verifiedAccount?.email ?? currentUser?.email;
+  const activeUserName = verifiedAccount?.name ?? currentUser?.full_name ?? currentUser?.name;
   const accountKey = String(activeUserId ?? activeUserEmail ?? 'anon');
+
+  if (app.id === 'musikwe') {
+    return (
+      <MusikweFullscreenView
+        key={`musikwe-${accountKey}`}
+        userId={activeUserId}
+        userEmail={activeUserEmail}
+        userName={activeUserName}
+        onBackToLaporanWe={onBackToPrevious || onBackToHub}
+      />
+    );
+  }
 
   return (
     <FotoweFullscreenView

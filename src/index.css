@@ -8343,6 +8343,31 @@ svg {
   transition-delay: 0.06s;
 }
 
+.rail .nav-app-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding-left: 10px;
+  transition: max-height 0.25s var(--ease), opacity 0.2s var(--ease);
+}
+
+.rail:hover .nav-app-sub,
+.rail:focus-within .nav-app-sub {
+  max-height: 52px;
+  opacity: 1;
+}
+
+.rail .nav .nav-sub-btn {
+  height: 32px;
+  min-height: 32px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
 .rail-foot {
   display: flex;
   flex-direction: column;
@@ -9388,6 +9413,7 @@ svg {
   .rail .logo,
   .rail-foot,
   .rail .nav span,
+  .rail .nav-app-sub,
   .rail .pill {
     display: none;
   }

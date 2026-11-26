@@ -434,6 +434,24 @@ export function App() {
     };
   }, [user?.email]);
 
+  const previousLaporanWePathRef = useRef<string>(
+    !/^\/aplikasi(\/[^/]+)?$/i.test(currentPath) &&
+      currentPath !== '/login' &&
+      currentPath !== '/register'
+      ? currentPath
+      : '/dashboard'
+  );
+
+  useEffect(() => {
+    if (
+      !/^\/aplikasi(\/[^/]+)?$/i.test(currentPath) &&
+      currentPath !== '/login' &&
+      currentPath !== '/register'
+    ) {
+      previousLaporanWePathRef.current = currentPath;
+    }
+  }, [currentPath]);
+
   const navigateToPath = (path: string) => {
     window.history.pushState({}, '', path);
     setCurrentPath(path.split('?')[0]);
@@ -2087,12 +2105,21 @@ export function App() {
   // Standalone full-screen application view (zero LaporanWe sidebar, header, or dashboard chrome)
   if (currentView === 'aplikasi-detail' || /^\/aplikasi\/[^/]+$/i.test(currentPath)) {
     const slug = activeAppSlug || extractAppSlugFromPath(currentPath) || 'Fotowe';
+    const handleBackToPrevious = () => {
+      const targetFallback = previousLaporanWePathRef.current || '/dashboard';
+      if (window.history.length > 1 && document.referrer.startsWith(window.location.origin)) {
+        window.history.back();
+      } else {
+        navigateToPath(targetFallback);
+      }
+    };
     return (
       <Suspense fallback={<ViewLoadingFallback />}>
         <AplikasiHostView
           appSlug={slug}
           currentUser={user}
           onBackToHub={() => handleNavigate('aplikasi')}
+          onBackToPrevious={handleBackToPrevious}
           onSessionExpired={handleLogout}
           onAddToast={addToast}
         />
@@ -2121,6 +2148,12 @@ export function App() {
         signoutIconUrl={uiSettings?.signout_icon_url}
         isAdmin={isAdmin}
         onOpenWhatsNew={handleOpenWhatsNew}
+        onOpenAppPath={(path) => {
+          const slug = extractAppSlugFromPath(path);
+          if (slug) setActiveAppSlug(slug);
+          navigateToPath(path);
+          setCurrentView('aplikasi-detail');
+        }}
       />
 
       {/* Main Content Viewport */}
