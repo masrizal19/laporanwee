@@ -78,9 +78,9 @@ export const FloatingMusikweMiniPlayer: React.FC<FloatingMusikweMiniPlayerProps>
           <button
             type="button"
             onClick={joinLiveAudio}
-            className="shrink-0 rounded-full bg-[#ff2a55] px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
+            className="shrink-0 rounded-full bg-[#ff2a55] px-3 py-1 text-[11px] font-bold text-white shadow-sm transition-transform hover:scale-105 active:scale-95"
           >
-            Gabung Dengar Live
+            Dengarkan Live
           </button>
         </div>
       )}
@@ -141,6 +141,7 @@ export const FloatingMusikweMiniPlayer: React.FC<FloatingMusikweMiniPlayerProps>
             <>
               <button
                 type="button"
+                data-musikwe-no-autounlock="true"
                 onClick={toggleMute}
                 aria-label={isMuted ? 'Bunyikan suara' : 'Bisukan suara'}
                 title={isMuted ? 'Unmute' : 'Mute'}
@@ -200,6 +201,7 @@ export const FloatingMusikweMiniPlayer: React.FC<FloatingMusikweMiniPlayerProps>
 
           <button
             type="button"
+            data-musikwe-no-autounlock="true"
             onClick={dismissMiniPlayer}
             aria-label="Tutup pemutar mini"
             title={isSuperAdmin ? 'Hentikan & Tutup' : 'Tutup mini-player'}

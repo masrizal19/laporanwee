@@ -364,28 +364,74 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [isSuperAdmin]
   );
 
+  const liveRadioTrack: MusikweTrack | null = useMemo(() => {
+    if (isSuperAdmin || !radioState || !radioState.title.trim()) return null;
+    const incomingYt = radioState.youtube_id || extractYoutubeId(radioState.audio_url);
+    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+    const matchedLocal = pool.find(
+      (t) =>
+        (radioState.track_id > 0 && t.id === radioState.track_id) ||
+        (Boolean(incomingYt) && t.youtube_id === incomingYt) ||
+        (t.t.trim().toLowerCase() === radioState.title.trim().toLowerCase() &&
+          t.a.trim().toLowerCase() === radioState.artist.trim().toLowerCase())
+    );
+    const stableId =
+      matchedLocal?.id ||
+      hashSeedId(
+        `${radioState.track_id || 0}|${incomingYt || radioState.audio_url || radioState.title}|${radioState.artist}`
+      );
+    return {
+      id: stableId,
+      t: radioState.title,
+      a: radioState.artist || 'Admin .MUSIKWE',
+      album_name: matchedLocal?.album_name || '',
+      d: radioState.duration || matchedLocal?.d || 200,
+      h: matchedLocal?.h || 210,
+      url: incomingYt ? '' : radioState.audio_url || matchedLocal?.url || '',
+      youtube_id: incomingYt || matchedLocal?.youtube_id || undefined,
+      ly: matchedLocal?.ly || '',
+      img:
+        radioState.cover_url ||
+        matchedLocal?.img ||
+        (incomingYt ? `https://i.ytimg.com/vi/${incomingYt}/hqdefault.jpg` : ''),
+    };
+  }, [isSuperAdmin, radioState, catalogTracks, tracks]);
+
   const findTrack = useCallback(
     (id?: number | null): MusikweTrack => {
+      if (
+        liveRadioTrack &&
+        (id === undefined ||
+          id === null ||
+          id === 0 ||
+          id === liveRadioTrack.id ||
+          id === radioState?.track_id ||
+          id === currentTrackId)
+      ) {
+        return liveRadioTrack;
+      }
       if (adHocTrack && id === adHocTrack.id) return adHocTrack;
       const hit =
         tracks.find((t) => t.id === id) || catalogTracks.find((t) => t.id === id);
       if (hit) return hit;
       if (tracks.length > 0) return tracks[0];
       if (catalogTracks.length > 0) return catalogTracks[0];
-      return adHocTrack || fallbackTrack;
+      return liveRadioTrack || adHocTrack || fallbackTrack;
     },
-    [adHocTrack, tracks, catalogTracks, fallbackTrack]
+    [liveRadioTrack, radioState?.track_id, currentTrackId, adHocTrack, tracks, catalogTracks, fallbackTrack]
   );
 
-  const currentTrack = useMemo(
-    () => (adHocTrack && currentTrackId === adHocTrack.id ? adHocTrack : findTrack(currentTrackId)),
-    [adHocTrack, findTrack, currentTrackId]
-  );
+  const currentTrack = useMemo(() => {
+    if (liveRadioTrack) return liveRadioTrack;
+    return adHocTrack && currentTrackId === adHocTrack.id
+      ? adHocTrack
+      : findTrack(currentTrackId);
+  }, [liveRadioTrack, adHocTrack, findTrack, currentTrackId]);
 
   const hasActiveTrack = Boolean(currentTrack && currentTrack.id !== 0);
   const duration = currentTrack.d || 200;
   const isLiveBroadcastActive = Boolean(
-    !isSuperAdmin && radioState && (radioState.is_playing || Boolean(radioState.title))
+    !isSuperAdmin && radioState && radioState.title.trim()
   );
 
   const sortedRequests = useMemo(() => {
@@ -421,6 +467,8 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   volumeRef.current = volume;
   const isMutedRef = useRef<boolean>(isMuted);
   isMutedRef.current = isMuted;
+  const autoplayBlockedRef = useRef<boolean>(autoplayBlocked);
+  autoplayBlockedRef.current = autoplayBlocked;
   const radioStateRef = useRef<MusikweRadioState | null>(radioState);
   radioStateRef.current = radioState;
   const miniPlayerDismissedRef = useRef<boolean>(miniPlayerDismissed);
@@ -429,17 +477,30 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   catalogTracksRef.current = catalogTracks;
   const tracksRef = useRef<MusikweTrack[]>(tracks);
   tracksRef.current = tracks;
+  const joinLiveAudioRef = useRef<() => void>(() => {});
 
-  // Detect any user gesture to know whether browser allows audio autoplay
+  // Detect any user gesture; if live broadcast was waiting for autoplay permission, unlock & play immediately
   useEffect(() => {
-    const markInteracted = () => {
+    const handleFirstOrUnlockInteraction = (ev: Event) => {
       hasUserInteractedRef.current = true;
+      const target = ev.target as HTMLElement | null;
+      if (target && target.closest('[data-musikwe-no-autounlock]')) {
+        return;
+      }
+      if (
+        !isSuperAdminRef.current &&
+        autoplayBlockedRef.current &&
+        radioStateRef.current?.is_playing &&
+        !miniPlayerDismissedRef.current
+      ) {
+        joinLiveAudioRef.current();
+      }
     };
-    window.addEventListener('pointerdown', markInteracted, { passive: true });
-    window.addEventListener('keydown', markInteracted, { passive: true });
+    window.addEventListener('pointerdown', handleFirstOrUnlockInteraction, { passive: true });
+    window.addEventListener('keydown', handleFirstOrUnlockInteraction, { passive: true });
     return () => {
-      window.removeEventListener('pointerdown', markInteracted);
-      window.removeEventListener('keydown', markInteracted);
+      window.removeEventListener('pointerdown', handleFirstOrUnlockInteraction);
+      window.removeEventListener('keydown', handleFirstOrUnlockInteraction);
     };
   }, []);
 
@@ -540,7 +601,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!displayName.trim() && d.user.name && d.user.name !== 'Tamu') {
           setDisplayName(d.user.name);
         }
-        if (!q.trim() && d.tracks.length > 0) {
+        if (!q.trim() && d.tracks.length > 0 && (isSuperAdminRef.current || !radioStateRef.current?.title)) {
           setCurrentTrackId((prev) => {
             if (prev < 0) return prev;
             if (prev > 0 && d.tracks.some((x) => x.id === prev)) return prev;
@@ -1306,6 +1367,8 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     showToast('Terhubung ke siaran live .MUSIKWE');
   }, [ensureYoutubePlayer, showToast]);
 
+  joinLiveAudioRef.current = joinLiveAudio;
+
   const toggleMute = useCallback(() => {
     hasUserInteractedRef.current = true;
     const nextMuted = !isMutedRef.current;
@@ -1334,14 +1397,14 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [autoplayBlocked, joinLiveAudio]);
 
-  // Admin 4s heartbeat to keep radio-state.php position_sec fresh while broadcasting
+  // Admin 5s heartbeat to keep radio-state.php position_sec fresh while broadcasting
   useEffect(() => {
     if (!isAuthenticated || !isSuperAdmin || !isPlaying || currentTrack.id === 0) {
       return;
     }
     const timer = window.setInterval(() => {
       broadcastRadioState(currentTrackRef.current, true, getAccuratePlaybackSeconds());
-    }, 4000);
+    }, 5000);
     return () => window.clearInterval(timer);
   }, [
     isAuthenticated,
@@ -1352,7 +1415,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     getAccuratePlaybackSeconds,
   ]);
 
-  // Listener live polling every 2.5 seconds against GET .../radio-state.php
+  // Listener live polling every 2 seconds (2000ms) against GET .../radio-state.php?t=...
   const radioPollInFlightRef = useRef<boolean>(false);
   useEffect(() => {
     if (!isAuthenticated || isSuperAdmin) {
@@ -1374,7 +1437,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const remote = await musikweApi.getRadioState(authOptsRef.current);
         if (cancelled) return;
 
-        if (!remote) {
+        if (!remote || !remote.title.trim()) {
           setRadioState(null);
           radioStateRef.current = null;
           return;
@@ -1388,7 +1451,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           Boolean(prevRemote) &&
           (remote.youtube_id !== prevRemote?.youtube_id ||
             remote.audio_url !== prevRemote?.audio_url ||
-            remote.title !== prevRemote?.title);
+            remote.title.trim().toLowerCase() !== (prevRemote?.title || '').trim().toLowerCase());
 
         if (remoteChangedSong && remote.is_playing && miniPlayerDismissedRef.current) {
           setMiniPlayerDismissed(false);
@@ -1400,6 +1463,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const currentYt = cur.youtube_id || extractYoutubeId(cur.url);
 
         const trackChanged =
+          cur.id === 0 ||
           (Boolean(incomingYt) && incomingYt !== currentYt) ||
           (!incomingYt &&
             (remote.audio_url !== (cur.url || '') ||
@@ -1417,14 +1481,16 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 t.a.trim().toLowerCase() === remote.artist.trim().toLowerCase())
           );
 
+          const stableId =
+            matchedLocal?.id ||
+            hashSeedId(
+              `${remote.track_id || 0}|${incomingYt || remote.audio_url || remote.title}|${remote.artist}`
+            );
+
           const targetTrack: MusikweTrack = {
-            id:
-              matchedLocal?.id ||
-              (remote.track_id > 0
-                ? remote.track_id
-                : hashSeedId(`${incomingYt || remote.audio_url || remote.title}|${remote.artist}`)),
+            id: stableId,
             t: remote.title,
-            a: remote.artist,
+            a: remote.artist || 'Admin .MUSIKWE',
             album_name: matchedLocal?.album_name || '',
             d: remote.duration || matchedLocal?.d || 200,
             h: matchedLocal?.h || 210,
@@ -1437,6 +1503,10 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
               (incomingYt ? `https://i.ytimg.com/vi/${incomingYt}/hqdefault.jpg` : ''),
           };
 
+          if (shouldPlay && !hasUserInteractedRef.current) {
+            setAutoplayBlocked(true);
+          }
+
           applyTrackToPlayer(targetTrack, shouldPlay, remote.position_sec, {
             broadcast: false,
             unDismiss: false,
@@ -1448,11 +1518,37 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (shouldPlay && !isPlayingRef.current) {
           setIsPlaying(true);
           setPlayerActivated(true);
+          if (!hasUserInteractedRef.current) {
+            setAutoplayBlocked(true);
+          }
           const ytId = cur.youtube_id || extractYoutubeId(cur.url);
           if (ytId) {
             ensureYoutubePlayer(ytId, true, remote.position_sec);
           } else if (audioRef.current && cur.url) {
             audioRef.current.muted = isMutedRef.current;
+            audioRef.current.play().catch(() => {
+              setAutoplayBlocked(true);
+            });
+          }
+        } else if (shouldPlay && isPlayingRef.current) {
+          // Ensure browser didn't silently stay paused while shouldPlay is true
+          const ytId = cur.youtube_id || extractYoutubeId(cur.url);
+          if (ytId && ytPlayerRef.current && ytReadyRef.current) {
+            try {
+              const ytState = ytPlayerRef.current.getPlayerState?.();
+              const playingState = window.YT?.PlayerState?.PLAYING ?? 1;
+              const bufferingState = window.YT?.PlayerState?.BUFFERING ?? 3;
+              if (ytState !== playingState && ytState !== bufferingState) {
+                if (hasUserInteractedRef.current) {
+                  ytPlayerRef.current.playVideo();
+                } else {
+                  setAutoplayBlocked(true);
+                }
+              }
+            } catch {
+              // ignore
+            }
+          } else if (audioRef.current && cur.url && audioRef.current.paused) {
             audioRef.current.play().catch(() => {
               setAutoplayBlocked(true);
             });
@@ -1485,7 +1581,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     pollRadio();
-    const timer = window.setInterval(pollRadio, 2500);
+    const timer = window.setInterval(pollRadio, 2000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);

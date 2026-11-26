@@ -1,4 +1,4 @@
-import { getStoredUser } from './api';
+import { getStoredToken, getStoredUser } from './api';
 import {
   fetchWithTimeout,
   DEFAULT_REQUEST_TIMEOUT_MS,
@@ -147,7 +147,7 @@ function buildHeaders(
   isJson: boolean,
   options?: { userEmail?: string }
 ): Record<string, string> {
-  const token = getActiveToken();
+  const token = getActiveToken() || getStoredToken();
   const email = resolveUserEmail(options?.userEmail);
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -658,9 +658,10 @@ export const musikweApi = {
     auth?: { userEmail?: string }
   ): Promise<MusikweRadioState | null> {
     const res = await fetchWithTimeout(
-      `${MUSIKWE_API_BASE}/radio-state.php`,
+      `${MUSIKWE_API_BASE}/radio-state.php?t=${Date.now()}`,
       {
         method: 'GET',
+        cache: 'no-store',
         headers: buildHeaders(false, auth),
       },
       DEFAULT_REQUEST_TIMEOUT_MS
@@ -670,23 +671,23 @@ export const musikweApi = {
     }
     const json = await parseApiJson(res);
     const raw =
-      json?.data?.radio_state ??
       json?.radio_state ??
-      json?.data ??
-      json;
+      json?.data?.radio_state ??
+      (json?.data && typeof json.data === 'object' && json.data.title ? json.data : null) ??
+      (json && typeof json === 'object' && json.title ? json : null);
 
     if (!raw || typeof raw !== 'object') return null;
 
     const title = String(raw?.title ?? raw?.t ?? '').trim();
+    if (!title) {
+      return null;
+    }
+
     const audioUrl = String(raw?.audio_url ?? raw?.url ?? '').trim();
     const ytId =
       extractYoutubeId(raw?.youtube_id) ||
       extractYoutubeId(raw?.youtube_url) ||
       extractYoutubeId(audioUrl);
-
-    if (!title && !ytId && !audioUrl) {
-      return null;
-    }
 
     const durNum = Number(raw?.duration ?? raw?.d ?? 200);
     const duration = Number.isFinite(durNum) && durNum > 0 ? Math.round(durNum) : 200;

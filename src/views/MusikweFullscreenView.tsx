@@ -2299,7 +2299,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 style={{ marginRight: 6 }}
               >
                 <Radio size={13} />
-                <span>Gabung Dengar Live</span>
+                <span>Dengarkan Live</span>
               </button>
             )}
             <span className="mw-mu mw-small mw-num" style={{ marginRight: 6 }}>
@@ -2460,7 +2460,13 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               <button
                 type="button"
                 className="mw-pp"
-                onClick={togglePlayPause}
+                onClick={() => {
+                  if (isLiveBroadcastActive && autoplayBlocked) {
+                    joinLiveAudio();
+                  } else {
+                    togglePlayPause();
+                  }
+                }}
                 aria-label="Putar atau jeda"
               >
                 {playing ? <Pause size={22} /> : <Play size={22} />}
