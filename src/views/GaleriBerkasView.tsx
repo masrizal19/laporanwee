@@ -1,14 +1,30 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { fetchWithTimeout, DEFAULT_REQUEST_TIMEOUT_MS, UPLOAD_REQUEST_TIMEOUT_MS } from '../utils/apiCache';
+import { fetchWithTimeout, DEFAULT_REQUEST_TIMEOUT_MS } from '../utils/apiCache';
 import { getStoredToken } from '../utils/api';
 
 export interface FileItem {
-  n: string;          // file name
-  s: string;          // formatted file size
+  n: string;                  // resolved display name
+  original_name?: string;     // original uploaded filename
+  title?: string;             // optional title from API
+  name?: string;              // optional name from API
+  s: string;                  // formatted file size
   t: 'Gambar' | 'Video' | 'Dokumen'; // category
-  src: string;        // full file URL
-  c: [string, string]; // gradient colors fallback
+  src: string;                // full file URL
+  c: [string, string];        // gradient colors fallback
 }
+
+interface UploadProgressState {
+  fileName: string;
+  sizeBytes: number;
+  percent: number;
+  chunkIndex?: number;
+  totalChunks?: number;
+  isChunked: boolean;
+}
+
+const GALERI_UPLOAD_ENDPOINT =
+  'https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?action=upload';
+const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB
 
 const PALETTE: [string, string][] = [
   ["#14502e", "#0a2a1a"],
@@ -24,6 +40,85 @@ const PALETTE: [string, string][] = [
 
 const INITIAL_GRID_PAGE_SIZE = 24;
 
+function formatFileSizeMb(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0.00 MB';
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+function getDisplayFileName(item: Partial<FileItem>): string {
+  return String(item.original_name || item.title || item.name || item.n || 'Berkas').trim() || 'Berkas';
+}
+
+function sendUploadXhr(
+  url: string,
+  formData: FormData,
+  token: string | null,
+  onProgress: (loaded: number, total: number) => void,
+  registerXhr: (xhr: XMLHttpRequest | null) => void
+): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    registerXhr(xhr);
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Accept', 'application/json');
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        onProgress(ev.loaded, ev.total);
+      }
+    };
+
+    xhr.onload = () => {
+      registerXhr(null);
+      const rawText = (xhr.responseText || '').trim();
+      let parsed: any = null;
+      if (rawText) {
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          parsed = null;
+        }
+      }
+
+      if (xhr.status < 200 || xhr.status >= 300) {
+        const serverDetail =
+          parsed?.message ||
+          parsed?.error ||
+          (rawText && !rawText.startsWith('<') ? rawText.slice(0, 220) : '') ||
+          xhr.statusText ||
+          'Server menolak unggahan.';
+        reject(new Error(`Error HTTP ${xhr.status}: ${serverDetail}`));
+        return;
+      }
+
+      if (parsed && parsed.success === false) {
+        reject(new Error(parsed.message || parsed.error || 'Gagal mengunggah berkas ke server.'));
+        return;
+      }
+
+      resolve(parsed || { success: true });
+    };
+
+    xhr.onerror = () => {
+      registerXhr(null);
+      reject(new Error('Terjadi kesalahan jaringan saat mengunggah berkas.'));
+    };
+
+    xhr.onabort = () => {
+      registerXhr(null);
+      reject(new Error('Unggahan berkas dibatalkan.'));
+    };
+
+    xhr.send(formData);
+  });
+}
+
 export const GaleriBerkasView: React.FC = () => {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -33,8 +128,11 @@ export const GaleriBerkasView: React.FC = () => {
   const [visibleGridCount, setVisibleGridCount] = useState<number>(INITIAL_GRID_PAGE_SIZE);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeUploadXhrRef = useRef<XMLHttpRequest | null>(null);
+  const uploadCancelledRef = useRef<boolean>(false);
 
   // 1. Fetch data berkas asli dari endpoint JSON LaporanWe dengan timeout & auth
   const loadFiles = useCallback(async () => {
@@ -62,8 +160,15 @@ export const GaleriBerkasView: React.FC = () => {
       const json = await res.json();
       if (json && Array.isArray(json.data)) {
         const formatted: FileItem[] = json.data.map((f: any, idx: number) => {
-          const fileName = f.n || f.name || 'Berkas';
-          const ext = (fileName.split('.').pop() || '').toLowerCase();
+          const originalName = f.original_name ? String(f.original_name).trim() : undefined;
+          const titleVal = f.title ? String(f.title).trim() : undefined;
+          const nameVal = f.name ? String(f.name).trim() : undefined;
+          const rawN = f.n ? String(f.n).trim() : undefined;
+          const displayName = originalName || titleVal || nameVal || rawN || 'Berkas';
+
+          const extSource = String(originalName || nameVal || rawN || f.src || f.url || displayName)
+            .split('?')[0];
+          const ext = (extSource.split('.').pop() || '').toLowerCase();
           let type: 'Gambar' | 'Video' | 'Dokumen' = 'Dokumen';
           if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(ext)) {
             type = 'Gambar';
@@ -74,8 +179,18 @@ export const GaleriBerkasView: React.FC = () => {
           }
 
           return {
-            n: fileName,
-            s: f.s || f.size_formatted || (f.size ? (f.size > 1048576 ? `${(f.size / 1048576).toFixed(1)} MB` : `${Math.round(f.size / 1024)} KB`) : '1.0 MB'),
+            n: displayName,
+            original_name: originalName,
+            title: titleVal,
+            name: nameVal,
+            s:
+              f.s ||
+              f.size_formatted ||
+              (f.size
+                ? f.size > 1048576
+                  ? `${(f.size / 1048576).toFixed(1)} MB`
+                  : `${Math.round(f.size / 1024)} KB`
+                : '1.0 MB'),
             t: type,
             src: f.src || f.url || '',
             c: f.c && Array.isArray(f.c) ? f.c : PALETTE[idx % PALETTE.length]
@@ -97,6 +212,8 @@ export const GaleriBerkasView: React.FC = () => {
     loadFiles();
     return () => {
       abortControllerRef.current?.abort();
+      uploadCancelledRef.current = true;
+      activeUploadXhrRef.current?.abort();
     };
   }, [loadFiles]);
 
@@ -120,39 +237,107 @@ export const GaleriBerkasView: React.FC = () => {
     return files.filter(f => f.t === activeTab);
   }, [files, activeTab]);
 
-  // 3. Upload Berkas Baru
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || !e.target.files[0]) return;
-    const file = e.target.files[0];
-    const fd = new FormData();
-    fd.append('file', file);
+  const handleCancelUpload = () => {
+    uploadCancelledRef.current = true;
+    activeUploadXhrRef.current?.abort();
+  };
 
+  // 3. Upload Berkas Baru (Direct XHR <= 2 MB, Chunked Upload 2 MB untuk > 2 MB)
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const token = getStoredToken();
+    const isChunked = file.size > CHUNK_SIZE;
+    const totalChunks = isChunked ? Math.ceil(file.size / CHUNK_SIZE) : 1;
+
+    uploadCancelledRef.current = false;
     setIsUploading(true);
     setActionNotice(null);
-    try {
-      const token = getStoredToken();
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+    setUploadProgress({
+      fileName: file.name,
+      sizeBytes: file.size,
+      percent: 0,
+      chunkIndex: isChunked ? 0 : undefined,
+      totalChunks: isChunked ? totalChunks : undefined,
+      isChunked,
+    });
 
-      const res = await fetchWithTimeout(
-        'https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?action=upload',
-        {
-          method: 'POST',
-          headers,
-          body: fd
-        },
-        UPLOAD_REQUEST_TIMEOUT_MS
-      );
-      const data = await res.json();
-      if (data.success) {
-        await loadFiles();
+    try {
+      if (!isChunked) {
+        const fd = new FormData();
+        fd.append('file', file, file.name);
+        fd.append('original_name', file.name);
+
+        await sendUploadXhr(
+          GALERI_UPLOAD_ENDPOINT,
+          fd,
+          token,
+          (loaded, total) => {
+            const denom = total > 0 ? total : file.size || 1;
+            const pct = Math.min(100, Math.max(0, Math.round((loaded / denom) * 100)));
+            setUploadProgress((prev) => (prev ? { ...prev, percent: pct } : prev));
+          },
+          (xhr) => {
+            activeUploadXhrRef.current = xhr;
+          }
+        );
+
+        setUploadProgress((prev) => (prev ? { ...prev, percent: 100 } : prev));
       } else {
-        setActionNotice(data.message || 'Gagal mengunggah berkas.');
+        const uploadId = `gb_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+        for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+          if (uploadCancelledRef.current) {
+            throw new Error('Unggahan berkas dibatalkan.');
+          }
+
+          const start = chunkIndex * CHUNK_SIZE;
+          const end = Math.min(file.size, start + CHUNK_SIZE);
+          const chunkBlob = file.slice(start, end);
+
+          setUploadProgress((prev) =>
+            prev ? { ...prev, chunkIndex, totalChunks } : prev
+          );
+
+          const fd = new FormData();
+          fd.append('file', chunkBlob, file.name);
+          fd.append('original_name', file.name);
+          fd.append('upload_id', uploadId);
+          fd.append('chunk_index', String(chunkIndex));
+          fd.append('total_chunks', String(totalChunks));
+
+          await sendUploadXhr(
+            GALERI_UPLOAD_ENDPOINT,
+            fd,
+            token,
+            (loaded, total) => {
+              const chunkFraction = total > 0 ? Math.min(1, Math.max(0, loaded / total)) : 0;
+              const bytesSent = Math.min(file.size, start + chunkFraction * chunkBlob.size);
+              const pct = Math.min(100, Math.max(0, Math.round((bytesSent / file.size) * 100)));
+              setUploadProgress((prev) =>
+                prev ? { ...prev, percent: pct, chunkIndex, totalChunks } : prev
+              );
+            },
+            (xhr) => {
+              activeUploadXhrRef.current = xhr;
+            }
+          );
+
+          const chunkDonePct = Math.min(100, Math.round((end / file.size) * 100));
+          setUploadProgress((prev) =>
+            prev ? { ...prev, percent: chunkDonePct, chunkIndex, totalChunks } : prev
+          );
+        }
       }
+
+      await loadFiles();
     } catch (err: any) {
-      setActionNotice(err?.message || 'Terjadi kesalahan jaringan saat mengunggah berkas.');
+      setActionNotice(err?.message || 'Terjadi kesalahan saat mengunggah berkas.');
     } finally {
+      activeUploadXhrRef.current = null;
       setIsUploading(false);
+      setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -541,9 +726,58 @@ export const GaleriBerkasView: React.FC = () => {
             onClick={() => fileInputRef.current?.click()}
             disabled={isUploading}
           >
-            {isUploading ? '⏳ Mengunggah...' : '+ Tambah File'}
+            {isUploading
+              ? `Mengunggah... ${uploadProgress?.percent ?? 0}%`
+              : '+ Tambah File'}
           </button>
         </div>
+
+        {/* REAL-TIME UPLOAD PROGRESS PANEL */}
+        {uploadProgress && (
+          <section
+            aria-label="Progres unggahan berkas"
+            className="mb-5 p-4 md:p-5 rounded-3xl bg-[var(--card)] border border-black/10 dark:border-white/10 shadow-[var(--sh)]"
+          >
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm md:text-base font-bold text-[var(--ink)] truncate">
+                  Mengunggah {uploadProgress.fileName}...
+                </div>
+                <div className="mt-1 flex items-center gap-2 flex-wrap text-xs text-[var(--mute)] font-medium">
+                  <span>{formatFileSizeMb(uploadProgress.sizeBytes)}</span>
+                  {uploadProgress.isChunked && uploadProgress.totalChunks ? (
+                    <span>
+                      • Chunked Upload (potongan {(uploadProgress.chunkIndex ?? 0) + 1} dari{' '}
+                      {uploadProgress.totalChunks})
+                    </span>
+                  ) : (
+                    <span>• Unggahan langsung</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="text-2xl md:text-3xl font-extrabold tabular-nums tracking-tight text-[var(--ink)]">
+                  {uploadProgress.percent}%
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCancelUpload}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold bg-black/5 dark:bg-white/10 hover:bg-red-500/15 hover:text-red-600 dark:hover:text-red-400 transition-colors cursor-pointer"
+                >
+                  Batal
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 h-3 w-full rounded-full bg-black/10 dark:bg-white/10 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[#0d0d0d] dark:bg-[#f2f0fa] transition-[width] duration-150 ease-out"
+                style={{ width: `${uploadProgress.percent}%` }}
+              />
+            </div>
+          </section>
+        )}
 
         {actionNotice && (
           <div className="mb-4 px-4 py-3 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-xs font-medium flex items-center justify-between gap-3">
@@ -644,7 +878,7 @@ export const GaleriBerkasView: React.FC = () => {
                   <div className="gb-body">
                     <div>
                       <span className="gb-tag">{featItem.t}</span>
-                      <h2>{featItem.n}</h2>
+                      <h2>{getDisplayFileName(featItem)}</h2>
                       <p>File terbaru di galeri proyek. Klik untuk melihat, mengunduh, atau menambahkannya ke laporan.</p>
                     </div>
 
@@ -659,50 +893,53 @@ export const GaleriBerkasView: React.FC = () => {
               {/* GRID CARDS (RESPONSIF 1-4 KOLOM DENGAN PAGINATION PROGRESIF) */}
               {visibleGridItems.length > 0 && (
                 <section className="gb-grid">
-                  {visibleGridItems.map((item, idx) => (
-                    <article
-                      key={`${item.n}-${idx}`}
-                      className="gb-tile gb-card"
-                      onClick={() => setSelectedFile(item)}
-                    >
-                      <div
-                        className="gb-thumb"
-                        style={{
-                          background: item.c
-                            ? `linear-gradient(145deg, ${item.c[0]}, ${item.c[1]})`
-                            : '#14502e',
-                        }}
+                  {visibleGridItems.map((item, idx) => {
+                    const cardTitle = getDisplayFileName(item);
+                    return (
+                      <article
+                        key={`${cardTitle}-${idx}`}
+                        className="gb-tile gb-card"
+                        onClick={() => setSelectedFile(item)}
                       >
-                        {item.src && item.t === 'Gambar' && (
-                          <img src={item.src} alt={item.n} loading="lazy" decoding="async" />
-                        )}
-                        {item.t === 'Video' && (
-                          <div className="absolute inset-0 grid place-items-center bg-black/15">
-                            <span className="w-10 h-10 rounded-full bg-white/90 text-black flex items-center justify-center font-bold text-xs shadow">
-                              ▶
-                            </span>
-                          </div>
-                        )}
-                        {!item.src && item.t === 'Gambar' && (
-                          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                            <rect x="3" y="4" width="18" height="16" rx="3" />
-                            <circle cx="9" cy="10" r="1.6" />
-                            <path d="M21 16l-5-5-8 8" />
-                          </svg>
-                        )}
-                        {item.t === 'Dokumen' && (
-                          <div className="text-white text-4xl font-extrabold select-none">📄</div>
-                        )}
+                        <div
+                          className="gb-thumb"
+                          style={{
+                            background: item.c
+                              ? `linear-gradient(145deg, ${item.c[0]}, ${item.c[1]})`
+                              : '#14502e',
+                          }}
+                        >
+                          {item.src && item.t === 'Gambar' && (
+                            <img src={item.src} alt={cardTitle} loading="lazy" decoding="async" />
+                          )}
+                          {item.t === 'Video' && (
+                            <div className="absolute inset-0 grid place-items-center bg-black/15">
+                              <span className="w-10 h-10 rounded-full bg-white/90 text-black flex items-center justify-center font-bold text-xs shadow">
+                                ▶
+                              </span>
+                            </div>
+                          )}
+                          {!item.src && item.t === 'Gambar' && (
+                            <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                              <rect x="3" y="4" width="18" height="16" rx="3" />
+                              <circle cx="9" cy="10" r="1.6" />
+                              <path d="M21 16l-5-5-8 8" />
+                            </svg>
+                          )}
+                          {item.t === 'Dokumen' && (
+                            <div className="text-white text-4xl font-extrabold select-none">📄</div>
+                          )}
 
-                        <span className="gb-tag">{item.t}</span>
-                      </div>
+                          <span className="gb-tag">{item.t}</span>
+                        </div>
 
-                      <div className="gb-body">
-                        <h3>{item.n}</h3>
-                        <p>{item.s} • {item.t}</p>
-                      </div>
-                    </article>
-                  ))}
+                        <div className="gb-body">
+                          <h3>{cardTitle}</h3>
+                          <p>{item.s} • {item.t}</p>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </section>
               )}
 
@@ -746,7 +983,7 @@ export const GaleriBerkasView: React.FC = () => {
             {selectedFile.src && selectedFile.t === 'Gambar' && (
               <img
                 src={selectedFile.src}
-                alt={selectedFile.n}
+                alt={getDisplayFileName(selectedFile)}
                 className="max-w-full max-h-[75vh] rounded-2xl object-contain shadow-2xl"
               />
             )}
@@ -789,7 +1026,7 @@ export const GaleriBerkasView: React.FC = () => {
               <div className="p-8 bg-white dark:bg-[#1f1d2b] rounded-3xl text-center flex flex-col items-center gap-3 shadow-2xl max-w-md border border-black/10 dark:border-white/10">
                 <span className="text-6xl">📄</span>
                 <p className="text-base font-bold text-gray-900 dark:text-white break-words max-w-xs">
-                  {selectedFile.n}
+                  {getDisplayFileName(selectedFile)}
                 </p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {selectedFile.s} • Dokumen
@@ -812,7 +1049,7 @@ export const GaleriBerkasView: React.FC = () => {
                   </a>
                   <a
                     href={selectedFile.src}
-                    download={selectedFile.n}
+                    download={getDisplayFileName(selectedFile)}
                     className="px-5 py-2.5 bg-white/20 hover:bg-white/30 text-white font-semibold rounded-full text-xs backdrop-blur-md transition-all inline-flex items-center gap-1.5"
                   >
                     <span>Unduh</span>
@@ -820,7 +1057,9 @@ export const GaleriBerkasView: React.FC = () => {
                   </a>
                 </>
               ) : (
-                <span className="text-xs text-white/70">{selectedFile.n} ({selectedFile.s})</span>
+                <span className="text-xs text-white/70">
+                  {getDisplayFileName(selectedFile)} ({selectedFile.s})
+                </span>
               )}
             </div>
           </div>
