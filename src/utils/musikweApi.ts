@@ -72,6 +72,20 @@ export interface MusikweRequestHistory {
   ts: number; // unix ms
 }
 
+export interface MusikweTodayHistory {
+  id: number;
+  track_id: number;
+  title: string;
+  artist: string;
+  cover_url?: string;
+  youtube_id?: string;
+  audio_url?: string;
+  duration?: number;
+  requested_by?: string;
+  played_at: number; // unix ms
+  played_time?: string;
+}
+
 export interface MusikweComment {
   id?: number;
   by: string;
@@ -88,6 +102,7 @@ export interface MusikweReadResponse {
   playlists: MusikwePlaylist[];
   requests: MusikweRequest[];
   request_history: MusikweRequestHistory[];
+  today_history: MusikweTodayHistory[];
   comments: Record<string, MusikweComment[]>;
 }
 
@@ -297,6 +312,33 @@ function normalizeReadPayload(data: any): MusikweReadResponse {
     ts: normalizeTimestamp(rq?.played_at ?? rq?.updated_at ?? rq?.ts ?? rq?.created_at),
   }));
 
+  const rawTodayHistory = Array.isArray(data?.today_history) ? data.today_history : [];
+  const today_history: MusikweTodayHistory[] = rawTodayHistory.map((item: any, idx: number) => ({
+    id: Number(item?.id ?? idx + 1),
+    track_id: Number(item?.track_id ?? item?.tid ?? 0),
+    title: String(item?.title ?? item?.t ?? 'Tanpa Judul').trim(),
+    artist: String(item?.artist ?? item?.a ?? 'Artis Tidak Diketahui').trim(),
+    cover_url: item?.cover_url
+      ? String(item.cover_url).trim()
+      : item?.img
+      ? String(item.img).trim()
+      : undefined,
+    youtube_id: extractYoutubeId(item?.youtube_id) || undefined,
+    audio_url: item?.audio_url
+      ? String(item.audio_url).trim()
+      : item?.url
+      ? String(item.url).trim()
+      : undefined,
+    duration: item?.duration ? Number(item.duration) : item?.d ? Number(item.d) : undefined,
+    requested_by: item?.requested_by
+      ? String(item.requested_by).trim()
+      : item?.by
+      ? String(item.by).trim()
+      : undefined,
+    played_at: normalizeTimestamp(item?.played_at ?? item?.ts ?? item?.created_at),
+    played_time: item?.played_time ? String(item.played_time).trim() : undefined,
+  }));
+
   const comments: Record<string, MusikweComment[]> = {};
   if (data?.comments && typeof data.comments === 'object') {
     for (const [k, list] of Object.entries(data.comments)) {
@@ -325,6 +367,7 @@ function normalizeReadPayload(data: any): MusikweReadResponse {
     playlists,
     requests,
     request_history,
+    today_history,
     comments,
   };
 }

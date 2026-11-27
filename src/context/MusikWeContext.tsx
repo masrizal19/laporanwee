@@ -16,6 +16,7 @@ import {
   MusikweRadioState,
   MusikweRequest,
   MusikweRequestHistory,
+  MusikweTodayHistory,
   MusikweTrack,
   MusikweUser,
   extractYoutubeId,
@@ -50,6 +51,7 @@ interface PersistedMusikweSnapshot {
   playlists?: MusikwePlaylist[];
   requests?: MusikweRequest[];
   requestHistory?: MusikweRequestHistory[];
+  todayHistory?: MusikweTodayHistory[];
   logoUrl?: string;
   currentTrackId?: number;
   adHocTrack?: MusikweTrack | null;
@@ -76,9 +78,26 @@ function readPersistedSnapshot(): PersistedMusikweSnapshot {
     const raw = localStorage.getItem(MUSIKWE_PERSIST_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return {};
-    return parsed as PersistedMusikweSnapshot;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      localStorage.removeItem(MUSIKWE_PERSIST_KEY);
+      return {};
+    }
+    return {
+      ...parsed,
+      tracks: Array.isArray(parsed.tracks) ? parsed.tracks : [],
+      catalogTracks: Array.isArray(parsed.catalogTracks) ? parsed.catalogTracks : [],
+      albums: Array.isArray(parsed.albums) ? parsed.albums : [],
+      playlists: Array.isArray(parsed.playlists) ? parsed.playlists : [],
+      requests: Array.isArray(parsed.requests) ? parsed.requests : [],
+      requestHistory: Array.isArray(parsed.requestHistory) ? parsed.requestHistory : [],
+      todayHistory: Array.isArray(parsed.todayHistory) ? parsed.todayHistory : [],
+    };
   } catch {
+    try {
+      localStorage.removeItem(MUSIKWE_PERSIST_KEY);
+    } catch {
+      // ignore storage errors
+    }
     return {};
   }
 }
@@ -122,8 +141,12 @@ export interface MusikWeContextValue {
   setRequests: React.Dispatch<React.SetStateAction<MusikweRequest[]>>;
   requestHistory: MusikweRequestHistory[];
   setRequestHistory: React.Dispatch<React.SetStateAction<MusikweRequestHistory[]>>;
+  todayHistory: MusikweTodayHistory[];
+  setTodayHistory: React.Dispatch<React.SetStateAction<MusikweTodayHistory[]>>;
   sortedRequests: MusikweRequest[];
   queue: MusikweRequest[];
+  autoNextTrack: MusikweTrack | null;
+  autoNextRequest: MusikweRequest | null;
   commentsMap: Record<string, MusikweComment[]>;
   serverUser: MusikweUser;
   logoUrl: string;
@@ -159,6 +182,7 @@ export interface MusikWeContextValue {
   autoplayBlocked: boolean;
   autoPlayQueue: boolean;
   activeRequestId: number | null;
+  activeRequestedBy: string;
   toggleMute: () => void;
   toggleAutoPlayQueue: () => Promise<void>;
   joinLiveAudio: () => void;
@@ -189,11 +213,12 @@ export interface MusikWeContextValue {
   ) => Promise<void>;
   skipToRequest: (rq: MusikweRequest) => Promise<void>;
   togglePlayPause: () => void;
-  nextTrack: () => Promise<void>;
+  nextTrack: (skipRecordFinished?: boolean) => Promise<void>;
   prevTrack: () => void;
   seekTo: (sec: number) => void;
   stopPlayback: () => void;
   purgeTrackLocally: (trackId: number) => void;
+  clearTodayHistory: () => Promise<void>;
 }
 
 const MusikWeContext = createContext<MusikWeContextValue | null>(null);
@@ -256,6 +281,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
   const [requestHistory, setRequestHistory] = useState<MusikweRequestHistory[]>(() =>
     Array.isArray(initialSnapshot.requestHistory) ? initialSnapshot.requestHistory : []
+  );
+  const [todayHistory, setTodayHistory] = useState<MusikweTodayHistory[]>(() =>
+    Array.isArray(initialSnapshot.todayHistory) ? initialSnapshot.todayHistory : []
   );
   const [commentsMap, setCommentsMap] = useState<Record<string, MusikweComment[]>>({});
   const [serverUser, setServerUser] = useState<MusikweUser>({
@@ -329,6 +357,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       : true
   );
   const [activeRequestId, setActiveRequestId] = useState<number | null>(null);
+  const [activeRequestedBy, setActiveRequestedBy] = useState<string>('');
 
   const [loadingCount, setLoadingCount] = useState<number>(0);
   const [resolvingExtKey, setResolvingExtKey] = useState<string | null>(null);
@@ -487,8 +516,91 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   const sortedRequests = useMemo(() => {
-    return [...requests].sort((a, b) => b.v.length - a.v.length || a.ts - b.ts);
+    const safeList = Array.isArray(requests) ? requests : [];
+    return [...safeList].sort((a, b) => b.v.length - a.v.length || a.ts - b.ts);
   }, [requests]);
+
+  const isSameTrack = useCallback((a?: MusikweTrack | null, b?: MusikweTrack | null): boolean => {
+    if (!a || !b) return false;
+    if (a.id > 0 && b.id > 0 && a.id === b.id) return true;
+    const aYt = a.youtube_id || extractYoutubeId(a.url);
+    const bYt = b.youtube_id || extractYoutubeId(b.url);
+    if (aYt && bYt && aYt === bYt) return true;
+    const at = String(a.t || '').trim().toLowerCase();
+    const aa = String(a.a || '').trim().toLowerCase();
+    const bt = String(b.t || '').trim().toLowerCase();
+    const ba = String(b.a || '').trim().toLowerCase();
+    return Boolean(at && aa && at === bt && aa === ba);
+  }, []);
+
+  const isTrackInTodayHistory = useCallback(
+    (tr: MusikweTrack, historyList: MusikweTodayHistory[]): boolean => {
+      const safeHist = Array.isArray(historyList) ? historyList : [];
+      const tTitle = String(tr?.t || '').trim().toLowerCase();
+      const tArtist = String(tr?.a || '').trim().toLowerCase();
+      return safeHist.some((h) => {
+        if (tr.id > 0 && Number(h.track_id) > 0 && Number(h.track_id) === tr.id) return true;
+        const hTitle = String(h.title || '').trim().toLowerCase();
+        const hArtist = String(h.artist || '').trim().toLowerCase();
+        return Boolean(tTitle && tArtist && hTitle === tTitle && hArtist === tArtist);
+      });
+    },
+    []
+  );
+
+  // Strict Next-Track Priority:
+  // 1) First active request not yet played and not currently playing
+  // 2) Catalog track not yet in todayHistory and not currently playing
+  // 3) null if all tracks played today and queue empty
+  const autoNextCandidate = useMemo(() => {
+    const safeSorted = Array.isArray(sortedRequests) ? sortedRequests : [];
+    for (const rq of safeSorted) {
+      if (rq.id === activeRequestId) continue;
+      const reqTrack = resolveRequestTrack(rq);
+      if (!isSameTrack(reqTrack, currentTrack)) {
+        return { request: rq, track: reqTrack };
+      }
+    }
+
+    const safeCatalog = Array.isArray(catalogTracks) ? catalogTracks : [];
+    const safeTracks = Array.isArray(tracks) ? tracks : [];
+    const pool = safeCatalog.length > 0 ? safeCatalog : safeTracks;
+    const safeHist = Array.isArray(todayHistory) ? todayHistory : [];
+    const unplayed = pool.filter(
+      (t) => !isSameTrack(t, currentTrack) && !isTrackInTodayHistory(t, safeHist)
+    );
+    if (unplayed.length === 0) {
+      return { request: null as MusikweRequest | null, track: null as MusikweTrack | null };
+    }
+
+    if (!shuffle && pool.length > 0) {
+      const curIdx = pool.findIndex((t) => isSameTrack(t, currentTrack));
+      if (curIdx >= 0) {
+        for (let offset = 1; offset <= pool.length; offset += 1) {
+          const cand = pool[(curIdx + offset) % pool.length];
+          if (!isSameTrack(cand, currentTrack) && !isTrackInTodayHistory(cand, safeHist)) {
+            return { request: null as MusikweRequest | null, track: cand };
+          }
+        }
+      }
+    }
+
+    return { request: null as MusikweRequest | null, track: unplayed[0] };
+  }, [
+    sortedRequests,
+    activeRequestId,
+    resolveRequestTrack,
+    isSameTrack,
+    currentTrack,
+    catalogTracks,
+    tracks,
+    todayHistory,
+    isTrackInTodayHistory,
+    shuffle,
+  ]);
+
+  const autoNextTrack = autoNextCandidate.track;
+  const autoNextRequest = autoNextCandidate.request;
 
   // Persistent audio & YouTube engine refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -526,13 +638,17 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const miniPlayerDismissedRef = useRef<boolean>(miniPlayerDismissed);
   miniPlayerDismissedRef.current = miniPlayerDismissed;
   const catalogTracksRef = useRef<MusikweTrack[]>(catalogTracks);
-  catalogTracksRef.current = catalogTracks;
+  catalogTracksRef.current = Array.isArray(catalogTracks) ? catalogTracks : [];
   const tracksRef = useRef<MusikweTrack[]>(tracks);
-  tracksRef.current = tracks;
+  tracksRef.current = Array.isArray(tracks) ? tracks : [];
+  const todayHistoryRef = useRef<MusikweTodayHistory[]>(todayHistory);
+  todayHistoryRef.current = Array.isArray(todayHistory) ? todayHistory : [];
   const autoPlayQueueRef = useRef<boolean>(autoPlayQueue);
   autoPlayQueueRef.current = autoPlayQueue;
   const activeRequestIdRef = useRef<number | null>(activeRequestId);
   activeRequestIdRef.current = activeRequestId;
+  const activeRequestedByRef = useRef<string>(activeRequestedBy);
+  activeRequestedByRef.current = activeRequestedBy;
   const sortedRequestsRef = useRef<MusikweRequest[]>(sortedRequests);
   sortedRequestsRef.current = sortedRequests;
   const trackEndHandledRef = useRef<boolean>(false);
@@ -652,18 +768,26 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         if (Array.isArray(d.requests)) {
           setRequests(d.requests.filter((r) => !playedRequestIdsRef.current.has(r.id)));
+        } else {
+          setRequests([]);
         }
         if (Array.isArray(d.request_history)) {
           setRequestHistory((prev) => {
+            const safePrev = Array.isArray(prev) ? prev : [];
             const serverIds = new Set(d.request_history.map((h) => h.id));
-            const pendingLocalPlayed = prev.filter(
+            const pendingLocalPlayed = safePrev.filter(
               (h) => playedRequestIdsRef.current.has(h.id) && !serverIds.has(h.id)
             );
             return [...pendingLocalPlayed, ...d.request_history];
           });
         }
+        if (Array.isArray(d.today_history)) {
+          setTodayHistory(d.today_history);
+        }
         setCommentsMap((prev) =>
-          d.comments && Object.keys(d.comments).length > 0 ? d.comments : prev
+          d.comments && typeof d.comments === 'object' && Object.keys(d.comments).length > 0
+            ? d.comments
+            : prev
         );
 
         if (typeof d.logo_url === 'string') setLogoUrl(d.logo_url.trim());
@@ -728,15 +852,16 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => window.clearInterval(interval);
   }, [isAuthenticated, authEmailState, syncFromBackend]);
 
-  // Persist snapshot of tracks, currentTrack, and queue to localStorage ('musikwe_persist_v1')
+  // Persist snapshot of tracks, currentTrack, queue, and todayHistory to localStorage ('musikwe_persist_v1')
   useEffect(() => {
     writePersistedSnapshot({
-      tracks,
-      catalogTracks,
-      albums,
-      playlists,
-      requests,
-      requestHistory,
+      tracks: Array.isArray(tracks) ? tracks : [],
+      catalogTracks: Array.isArray(catalogTracks) ? catalogTracks : [],
+      albums: Array.isArray(albums) ? albums : [],
+      playlists: Array.isArray(playlists) ? playlists : [],
+      requests: Array.isArray(requests) ? requests : [],
+      requestHistory: Array.isArray(requestHistory) ? requestHistory : [],
+      todayHistory: Array.isArray(todayHistory) ? todayHistory : [],
       logoUrl,
       currentTrackId,
       adHocTrack,
@@ -756,6 +881,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     playlists,
     requests,
     requestHistory,
+    todayHistory,
     logoUrl,
     currentTrackId,
     adHocTrack,
@@ -784,7 +910,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const nextTrackRef = useRef<() => Promise<void>>(async () => {});
+  const nextTrackRef = useRef<(skipRecordFinished?: boolean) => Promise<void>>(async () => {});
   const handleTrackEndedRef = useRef<() => void>(() => {});
 
   const scheduleYtAutoplayCheck = useCallback(() => {
@@ -1072,15 +1198,21 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const loadAndPlayTrack = useCallback(
     (id: number, autoPlay: boolean = true) => {
+      activeRequestIdRef.current = null;
+      setActiveRequestId(null);
+      activeRequestedByRef.current = '';
+      setActiveRequestedBy('');
       if (adHocTrack && id === adHocTrack.id) {
         playResolvedTrack(adHocTrack, autoPlay);
         return;
       }
+      const safeTracks = Array.isArray(tracks) ? tracks : [];
+      const safeCatalog = Array.isArray(catalogTracks) ? catalogTracks : [];
       const target =
-        tracks.find((t) => t.id === id) ||
-        catalogTracks.find((t) => t.id === id) ||
-        tracks[0] ||
-        catalogTracks[0];
+        safeTracks.find((t) => t.id === id) ||
+        safeCatalog.find((t) => t.id === id) ||
+        safeTracks[0] ||
+        safeCatalog[0];
       if (!target) return;
       playResolvedTrack(target, autoPlay);
     },
@@ -1089,7 +1221,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const findMatchingLocalTrack = useCallback(
     (item: ExternalItunesItem | ExternalYoutubeItem): MusikweTrack | undefined => {
-      const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+      const safeCatalog = Array.isArray(catalogTracks) ? catalogTracks : [];
+      const safeTracks = Array.isArray(tracks) ? tracks : [];
+      const pool = safeCatalog.length > 0 ? safeCatalog : safeTracks;
       if (item.source === 'youtube') {
         const byYt = pool.find((t) => t.youtube_id === item.youtube_id);
         if (byYt) return byYt;
@@ -1107,6 +1241,11 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const playExternalItem = useCallback(
     async (item: ExternalItunesItem | ExternalYoutubeItem, key?: string) => {
+      activeRequestIdRef.current = null;
+      setActiveRequestId(null);
+      activeRequestedByRef.current = '';
+      setActiveRequestedBy('');
+
       if (item.source === 'itunes') {
         console.log('[iTUNES SELECT]', {
           action: 'play',
@@ -1262,11 +1401,72 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [seekInternal]
   );
 
-  const markRequestPlayed = useCallback(
+  const recordFinishedTrack = useCallback(
+    (finishedTrack: MusikweTrack, reqId: number, reqBy: string) => {
+      if (!finishedTrack || finishedTrack.id === 0) return;
+
+      if (reqId > 0) {
+        playedRequestIdsRef.current.add(reqId);
+        setRequests((prev) =>
+          (Array.isArray(prev) ? prev : []).filter((x) => x.id !== reqId)
+        );
+      }
+
+      const nowMs = Date.now();
+      const todayEntry: MusikweTodayHistory = {
+        id: reqId > 0 ? reqId : nowMs,
+        track_id: finishedTrack.id > 0 ? finishedTrack.id : 0,
+        title: finishedTrack.t || 'Tanpa Judul',
+        artist: finishedTrack.a || 'Artis Tidak Diketahui',
+        cover_url: finishedTrack.img || '',
+        youtube_id: finishedTrack.youtube_id || '',
+        audio_url: finishedTrack.url || '',
+        duration: finishedTrack.d || 200,
+        requested_by: reqBy || '',
+        played_at: nowMs,
+      };
+
+      setTodayHistory((prev) => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return [todayEntry, ...safePrev];
+      });
+
+      musikweApi
+        .postAction(
+          'update.php',
+          {
+            action: 'mark_played',
+            id: reqId > 0 ? reqId : 0,
+            track_id: finishedTrack.id > 0 ? finishedTrack.id : 0,
+            title: finishedTrack.t || '',
+            artist: finishedTrack.a || '',
+            cover_url: finishedTrack.img || '',
+            youtube_id: finishedTrack.youtube_id || '',
+            audio_url: finishedTrack.url || '',
+            duration: finishedTrack.d || 200,
+            requested_by: reqBy || '',
+          },
+          authOptsRef.current
+        )
+        .then((res) => {
+          if (res.success) {
+            window.setTimeout(() => {
+              syncFromBackend('', true);
+            }, 450);
+          }
+        })
+        .catch(() => {});
+    },
+    [syncFromBackend]
+  );
+
+  const dequeueRequestLocally = useCallback(
     (reqItem: MusikweRequest, resolvedOverride?: MusikweTrack) => {
       if (!reqItem || !reqItem.id) return;
       playedRequestIdsRef.current.add(reqItem.id);
-      setRequests((prev) => prev.filter((x) => x.id !== reqItem.id));
+      setRequests((prev) =>
+        (Array.isArray(prev) ? prev : []).filter((x) => x.id !== reqItem.id)
+      );
 
       const resolved = resolvedOverride || resolveRequestTrack(reqItem);
       const histItem: MusikweRequestHistory = {
@@ -1282,41 +1482,24 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         status: 'played',
         ts: Date.now(),
       };
-      setRequestHistory((prev) => [
-        histItem,
-        ...prev.filter((h) => h.id !== reqItem.id),
-      ]);
-
-      musikweApi
-        .postAction(
-          'update.php',
-          {
-            action: 'mark_played',
-            id: reqItem.id,
-            track_id: reqItem.tid || 0,
-          },
-          authOptsRef.current
-        )
-        .then((res) => {
-          if (res.success) {
-            window.setTimeout(() => {
-              syncFromBackend('', true);
-            }, 450);
-          }
-        })
-        .catch(() => {});
+      setRequestHistory((prev) => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+        return [histItem, ...safePrev.filter((h) => h.id !== reqItem.id)];
+      });
     },
-    [resolveRequestTrack, syncFromBackend]
+    [resolveRequestTrack]
   );
 
   const playQueueRequestItem = useCallback(
     async (rq: MusikweRequest): Promise<boolean> => {
       let resolved = resolveRequestTrack(rq);
 
-      // Immediately move this request out of active queue and into Riwayat Request, and notify backend
-      markRequestPlayed(rq, resolved);
+      // Remove from active request queue immediately while keeping activeRequestId & activeRequestedBy for completion mark_played
+      dequeueRequestLocally(rq, resolved);
       activeRequestIdRef.current = rq.id;
       setActiveRequestId(rq.id);
+      activeRequestedByRef.current = rq.by || '';
+      setActiveRequestedBy(rq.by || '');
 
       if (!resolved.url && !resolved.youtube_id) {
         try {
@@ -1346,11 +1529,13 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       playResolvedTrack(resolved, true);
       return true;
     },
-    [resolveRequestTrack, markRequestPlayed, playResolvedTrack, showToast]
+    [resolveRequestTrack, dequeueRequestLocally, playResolvedTrack, showToast]
   );
 
   const findCurrentlyPlayingRequest = useCallback((): MusikweRequest | undefined => {
-    const curList = sortedRequestsRef.current;
+    const curList = Array.isArray(sortedRequestsRef.current)
+      ? sortedRequestsRef.current
+      : [];
     if (curList.length === 0) return undefined;
     if (activeRequestIdRef.current) {
       const byActive = curList.find((r) => r.id === activeRequestIdRef.current);
@@ -1379,61 +1564,111 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [resolveRequestTrack, playQueueRequestItem, showToast]
   );
 
-  const nextTrack = useCallback(async () => {
-    const prevActiveId = activeRequestIdRef.current;
-    const finishedReq = findCurrentlyPlayingRequest();
-    let remainingRequests = sortedRequestsRef.current.filter(
-      (x) => !playedRequestIdsRef.current.has(x.id) && x.id !== prevActiveId
-    );
-    if (finishedReq) {
-      markRequestPlayed(finishedReq);
-      remainingRequests = remainingRequests.filter((x) => x.id !== finishedReq.id);
-    }
+  const nextTrack = useCallback(
+    async (skipRecordFinished: boolean = false) => {
+      const curTrack = currentTrackRef.current;
+      const finishedReq = findCurrentlyPlayingRequest();
+      const prevActiveId = finishedReq?.id || activeRequestIdRef.current || 0;
+      const prevRequestedBy = finishedReq?.by || activeRequestedByRef.current || '';
 
-    activeRequestIdRef.current = null;
-    setActiveRequestId(null);
+      if (!skipRecordFinished && curTrack && curTrack.id !== 0) {
+        recordFinishedTrack(curTrack, prevActiveId, prevRequestedBy);
+      } else if (finishedReq) {
+        dequeueRequestLocally(finishedReq);
+      }
 
-    if (remainingRequests.length > 0) {
-      const topReq = remainingRequests[0];
-      const topTrack = resolveRequestTrack(topReq);
-      showToast(`Memutar request ${topReq.by}: ${topTrack.t}`);
-      const ok = await playQueueRequestItem(topReq);
-      if (ok) return;
-    }
+      activeRequestIdRef.current = null;
+      setActiveRequestId(null);
+      activeRequestedByRef.current = '';
+      setActiveRequestedBy('');
 
-    const pool = catalogTracksRef.current.length > 0 ? catalogTracksRef.current : tracksRef.current;
-    const curId = currentTrackRef.current.id;
-    const otherTracks = pool.filter((t) => t.id !== curId);
-    if (otherTracks.length > 0) {
-      let nextItem: MusikweTrack;
-      if (shuffle) {
-        nextItem = otherTracks[Math.floor(Math.random() * otherTracks.length)];
-      } else {
-        const idx = pool.findIndex((t) => t.id === curId);
-        nextItem = pool[(idx + 1) % pool.length];
-        if (nextItem.id === curId) {
-          nextItem = otherTracks[0];
+      // Priority 1: Next active unplayed request (not matching current track)
+      const safeRequests = Array.isArray(sortedRequestsRef.current)
+        ? sortedRequestsRef.current
+        : [];
+      const remainingRequests = safeRequests.filter((x) => {
+        if (playedRequestIdsRef.current.has(x.id) || x.id === prevActiveId) return false;
+        const reqTr = resolveRequestTrack(x);
+        return !isSameTrack(reqTr, curTrack);
+      });
+
+      if (remainingRequests.length > 0) {
+        const topReq = remainingRequests[0];
+        const topTrack = resolveRequestTrack(topReq);
+        showToast(`Memutar request ${topReq.by}: ${topTrack.t}`);
+        const ok = await playQueueRequestItem(topReq);
+        if (ok) return;
+      }
+
+      // Priority 2: Unplayed catalog track not in todayHistory and not currently playing
+      const safeCatalog = Array.isArray(catalogTracksRef.current)
+        ? catalogTracksRef.current
+        : [];
+      const safeTracks = Array.isArray(tracksRef.current) ? tracksRef.current : [];
+      const pool = safeCatalog.length > 0 ? safeCatalog : safeTracks;
+      const safeHist = Array.isArray(todayHistoryRef.current) ? todayHistoryRef.current : [];
+      const curId = curTrack?.id || 0;
+
+      const unplayedTracks = pool.filter(
+        (t) =>
+          !isSameTrack(t, curTrack) &&
+          !isTrackInTodayHistory(t, safeHist)
+      );
+
+      if (unplayedTracks.length > 0) {
+        let nextItem: MusikweTrack;
+        if (shuffle) {
+          nextItem = unplayedTracks[Math.floor(Math.random() * unplayedTracks.length)];
+        } else {
+          const curIdx = pool.findIndex((t) => t.id === curId || isSameTrack(t, curTrack));
+          let candidate: MusikweTrack | null = null;
+          if (curIdx >= 0) {
+            for (let offset = 1; offset <= pool.length; offset += 1) {
+              const cand = pool[(curIdx + offset) % pool.length];
+              if (!isSameTrack(cand, curTrack) && !isTrackInTodayHistory(cand, safeHist)) {
+                candidate = cand;
+                break;
+              }
+            }
+          }
+          nextItem = candidate || unplayedTracks[0];
+        }
+        playResolvedTrack(nextItem, true);
+        return;
+      }
+
+      // No request & all tracks today have been played -> stop without repeating
+      setIsPlaying(false);
+      setProgress(0);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      if (ytPlayerRef.current && ytReadyRef.current) {
+        try {
+          ytPlayerRef.current.pauseVideo();
+        } catch {
+          // ignore
         }
       }
-      loadAndPlayTrack(nextItem.id, true);
-      return;
-    }
-
-    setIsPlaying(false);
-    setProgress(0);
-    if (isSuperAdminRef.current) {
-      broadcastRadioState(currentTrackRef.current, false, 0);
-    }
-  }, [
-    findCurrentlyPlayingRequest,
-    markRequestPlayed,
-    resolveRequestTrack,
-    playQueueRequestItem,
-    shuffle,
-    loadAndPlayTrack,
-    showToast,
-    broadcastRadioState,
-  ]);
+      if (isSuperAdminRef.current) {
+        broadcastRadioState(curTrack, false, 0);
+      }
+      showToast('Semua lagu hari ini sudah diputar · Menunggu request baru');
+    },
+    [
+      findCurrentlyPlayingRequest,
+      recordFinishedTrack,
+      dequeueRequestLocally,
+      resolveRequestTrack,
+      isSameTrack,
+      playQueueRequestItem,
+      isTrackInTodayHistory,
+      shuffle,
+      playResolvedTrack,
+      showToast,
+      broadcastRadioState,
+    ]
+  );
 
   nextTrackRef.current = nextTrack;
 
@@ -1444,37 +1679,18 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const finishedReq = findCurrentlyPlayingRequest();
     const finishedReqId = finishedReq?.id || activeRequestIdRef.current || 0;
+    const finishedReqBy = finishedReq?.by || activeRequestedByRef.current || '';
     const finishedTrack = currentTrackRef.current;
 
     if (finishedReq) {
-      markRequestPlayed(finishedReq);
-    } else if (finishedReqId > 0 || finishedTrack.id > 0) {
-      if (finishedReqId > 0) {
-        playedRequestIdsRef.current.add(finishedReqId);
-        setRequests((prev) => prev.filter((x) => x.id !== finishedReqId));
-      }
-      musikweApi
-        .postAction(
-          'update.php',
-          {
-            action: 'mark_played',
-            id: finishedReqId,
-            track_id: finishedTrack.id > 0 ? finishedTrack.id : 0,
-          },
-          authOptsRef.current
-        )
-        .then((res) => {
-          if (res.success) {
-            window.setTimeout(() => {
-              syncFromBackend('', true);
-            }, 450);
-          }
-        })
-        .catch(() => {});
+      dequeueRequestLocally(finishedReq, finishedTrack);
     }
+    recordFinishedTrack(finishedTrack, finishedReqId, finishedReqBy);
 
     activeRequestIdRef.current = null;
     setActiveRequestId(null);
+    activeRequestedByRef.current = '';
+    setActiveRequestedBy('');
 
     if (!autoPlayQueueRef.current) {
       setIsPlaying(false);
@@ -1496,11 +1712,11 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
-    nextTrackRef.current();
+    nextTrackRef.current(true);
   }, [
     findCurrentlyPlayingRequest,
-    markRequestPlayed,
-    syncFromBackend,
+    dequeueRequestLocally,
+    recordFinishedTrack,
     broadcastRadioState,
     showToast,
   ]);
@@ -1595,15 +1811,23 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const purgeTrackLocally = useCallback(
     (trackId: number) => {
       if (!trackId) return;
-      const nextTracks = tracksRef.current.filter((t) => t.id !== trackId);
-      const nextCatalog = catalogTracksRef.current.filter((t) => t.id !== trackId);
-      const nextRequests = requests.filter((r) => r.tid !== trackId);
-      const nextHistory = requestHistory.filter((h) => h.tid !== trackId);
+      const safeTracks = Array.isArray(tracksRef.current) ? tracksRef.current : [];
+      const safeCatalog = Array.isArray(catalogTracksRef.current) ? catalogTracksRef.current : [];
+      const safeRequests = Array.isArray(requests) ? requests : [];
+      const safeReqHist = Array.isArray(requestHistory) ? requestHistory : [];
+      const safeTodayHist = Array.isArray(todayHistoryRef.current) ? todayHistoryRef.current : [];
+
+      const nextTracks = safeTracks.filter((t) => t.id !== trackId);
+      const nextCatalog = safeCatalog.filter((t) => t.id !== trackId);
+      const nextRequests = safeRequests.filter((r) => r.tid !== trackId);
+      const nextHistory = safeReqHist.filter((h) => h.tid !== trackId);
+      const nextTodayHistory = safeTodayHist.filter((h) => h.track_id !== trackId);
 
       setTracks(nextTracks);
       setCatalogTracks(nextCatalog);
       setRequests(nextRequests);
       setRequestHistory(nextHistory);
+      setTodayHistory(nextTodayHistory);
 
       const wasCurrent = currentTrackRef.current.id === trackId;
       if (wasCurrent) {
@@ -1637,6 +1861,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         catalogTracks: nextCatalog,
         requests: nextRequests,
         requestHistory: nextHistory,
+        todayHistory: nextTodayHistory,
         currentTrackId: wasCurrent
           ? nextCatalog[0]?.id || nextTracks[0]?.id || 0
           : existingSnap.currentTrackId,
@@ -1649,6 +1874,28 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     },
     [requests, requestHistory, stopPlayback, broadcastRadioState]
   );
+
+  const clearTodayHistory = useCallback(async () => {
+    if (!isSuperAdminRef.current) return;
+    setTodayHistory([]);
+    const existingSnap = readPersistedSnapshot();
+    writePersistedSnapshot({
+      ...existingSnap,
+      todayHistory: [],
+      savedAt: Date.now(),
+    });
+    try {
+      const res = await musikweApi.postAction(
+        'update.php',
+        { action: 'clear_today_history' },
+        authOptsRef.current
+      );
+      showToast(res.message || 'History pendengaran hari ini dibersihkan.');
+      await syncFromBackend('', true);
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal membersihkan history hari ini.');
+    }
+  }, [showToast, syncFromBackend]);
 
   const dismissMiniPlayer = useCallback(() => {
     setMiniPlayerDismissed(true);
@@ -2080,21 +2327,25 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     who,
     authOpts,
 
-    tracks,
+    tracks: Array.isArray(tracks) ? tracks : [],
     setTracks,
-    catalogTracks,
+    catalogTracks: Array.isArray(catalogTracks) ? catalogTracks : [],
     setCatalogTracks,
-    albums,
+    albums: Array.isArray(albums) ? albums : [],
     setAlbums,
-    playlists,
+    playlists: Array.isArray(playlists) ? playlists : [],
     setPlaylists,
-    requests,
+    requests: Array.isArray(requests) ? requests : [],
     setRequests,
-    requestHistory,
+    requestHistory: Array.isArray(requestHistory) ? requestHistory : [],
     setRequestHistory,
+    todayHistory: Array.isArray(todayHistory) ? todayHistory : [],
+    setTodayHistory,
     sortedRequests,
     queue: sortedRequests,
-    commentsMap,
+    autoNextTrack,
+    autoNextRequest,
+    commentsMap: commentsMap && typeof commentsMap === 'object' ? commentsMap : {},
     serverUser,
     logoUrl,
     setLogoUrl,
@@ -2127,6 +2378,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     autoplayBlocked,
     autoPlayQueue,
     activeRequestId,
+    activeRequestedBy,
     toggleMute,
     toggleAutoPlayQueue,
     joinLiveAudio,
@@ -2155,6 +2407,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     seekTo,
     stopPlayback,
     purgeTrackLocally,
+    clearTodayHistory,
   };
 
   return (

@@ -36,6 +36,15 @@ const DEFAULT_COUNTERS: FastCounters = {
   sedang_berjalan: 6,
 };
 
+const safeParseJson = (raw: string | null): unknown => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 // Data awal persisten dari localStorage agar saat refresh (F5) langsung muncul tanpa jeda (0ms)
 const getInitialStore = (): StoreState => {
   try {
@@ -47,7 +56,7 @@ const getInitialStore = (): StoreState => {
     const rawCounters =
       localStorage.getItem('lw_store_counters') ||
       localStorage.getItem('lw_reports_counters_cache') ||
-      JSON.stringify(DEFAULT_COUNTERS);
+      '';
     const rawActivities =
       localStorage.getItem('lw_store_activities') ||
       localStorage.getItem('cache_activities_120') ||
@@ -58,24 +67,34 @@ const getInitialStore = (): StoreState => {
       localStorage.getItem('cache_project_documents') ||
       '[]';
 
-    const parsedReports = JSON.parse(rawReports);
+    const parsedReports = safeParseJson(rawReports);
     const reportsList = Array.isArray(parsedReports)
-      ? parsedReports.map((item: any) => (item.task && item.status ? item : mapRawDailyReportToReport(item)))
+      ? parsedReports
+          .filter((item: any) => item && typeof item === 'object')
+          .map((item: any) => (item.task && item.status ? item : mapRawDailyReportToReport(item)))
       : [];
 
-    const parsedCounters = JSON.parse(rawCounters);
+    const parsedCounters = safeParseJson(rawCounters) as Record<string, unknown> | null;
+    const countersObj =
+      parsedCounters && typeof parsedCounters === 'object' && !Array.isArray(parsedCounters)
+        ? parsedCounters
+        : null;
     const counters: FastCounters = {
-      total: Number(parsedCounters?.total) || DEFAULT_COUNTERS.total,
-      selesai: Number(parsedCounters?.selesai) || DEFAULT_COUNTERS.selesai,
-      review: Number(parsedCounters?.review) || DEFAULT_COUNTERS.review,
-      sedang_berjalan: Number(parsedCounters?.sedang_berjalan) || DEFAULT_COUNTERS.sedang_berjalan,
+      total: Number(countersObj?.total) || DEFAULT_COUNTERS.total,
+      selesai: Number(countersObj?.selesai) || DEFAULT_COUNTERS.selesai,
+      review: Number(countersObj?.review) || DEFAULT_COUNTERS.review,
+      sedang_berjalan: Number(countersObj?.sedang_berjalan) || DEFAULT_COUNTERS.sedang_berjalan,
     };
 
-    const parsedActivities = JSON.parse(rawActivities);
-    const activitiesList = Array.isArray(parsedActivities) ? parsedActivities : [];
+    const parsedActivities = safeParseJson(rawActivities);
+    const activitiesList = Array.isArray(parsedActivities)
+      ? parsedActivities.filter((item: any) => item && typeof item === 'object')
+      : [];
 
-    const parsedFiles = JSON.parse(rawFiles);
-    const filesList = Array.isArray(parsedFiles) ? parsedFiles : [];
+    const parsedFiles = safeParseJson(rawFiles);
+    const filesList = Array.isArray(parsedFiles)
+      ? parsedFiles.filter((item: any) => item && typeof item === 'object')
+      : [];
 
     return {
       reports: reportsList,
@@ -85,6 +104,12 @@ const getInitialStore = (): StoreState => {
       lastFetch: {},
     };
   } catch (_) {
+    try {
+      localStorage.removeItem('lw_store_reports');
+      localStorage.removeItem('lw_store_counters');
+      localStorage.removeItem('lw_store_activities');
+      localStorage.removeItem('lw_store_files');
+    } catch {}
     return {
       reports: [],
       counters: DEFAULT_COUNTERS,

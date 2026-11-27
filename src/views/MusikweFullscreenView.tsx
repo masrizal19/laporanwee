@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Disc3,
   Heart,
+  History,
   Home,
   ListMusic,
   ListPlus,
@@ -129,6 +130,12 @@ const fmtAgo = (tsMs: number): string => {
   return `${Math.floor(diffMin / 1440)} hari lalu`;
 };
 
+const fmtClockTime = (tsMs: number): string => {
+  const d = new Date(Number(tsMs) > 0 ? tsMs : Date.now());
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 const CoverThumb: React.FC<{
   track: Partial<MusikweTrack>;
   sizeClass?: '' | 'big' | 'xl';
@@ -184,7 +191,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     setRequests,
     requestHistory,
     setRequestHistory,
+    todayHistory,
     sortedRequests,
+    autoNextTrack,
+    autoNextRequest,
     commentsMap,
     serverUser,
     logoUrl,
@@ -223,6 +233,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     findTrack,
     resolveRequestTrack,
     findMatchingLocalTrack,
+    playResolvedTrack,
     loadAndPlayTrack,
     playExternalItem: handlePlayExternalItem,
     skipToRequest,
@@ -231,7 +242,36 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     prevTrack,
     seekTo,
     purgeTrackLocally,
+    clearTodayHistory,
   } = useMusikWe();
+
+  const safeTracks = useMemo(() => (Array.isArray(tracks) ? tracks : []), [tracks]);
+  const safeCatalogTracks = useMemo(
+    () => (Array.isArray(catalogTracks) ? catalogTracks : []),
+    [catalogTracks]
+  );
+  const safeAlbums = useMemo(() => (Array.isArray(albums) ? albums : []), [albums]);
+  const safePlaylists = useMemo(
+    () => (Array.isArray(playlists) ? playlists : []),
+    [playlists]
+  );
+  const safeRequests = useMemo(() => (Array.isArray(requests) ? requests : []), [requests]);
+  const safeSortedRequests = useMemo(
+    () => (Array.isArray(sortedRequests) ? sortedRequests : []),
+    [sortedRequests]
+  );
+  const safeRequestHistory = useMemo(
+    () => (Array.isArray(requestHistory) ? requestHistory : []),
+    [requestHistory]
+  );
+  const safeTodayHistory = useMemo(
+    () => (Array.isArray(todayHistory) ? todayHistory : []),
+    [todayHistory]
+  );
+  const safeCommentsMap = useMemo(
+    () => (commentsMap && typeof commentsMap === 'object' ? commentsMap : {}),
+    [commentsMap]
+  );
 
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
     try {
@@ -350,14 +390,14 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   // Keep selectedPlaylistId synchronized with playlists from context
   useEffect(() => {
-    if (playlists.length > 0) {
+    if (safePlaylists.length > 0) {
       setSelectedPlaylistId((prev) =>
-        playlists.some((p) => p.id === prev) ? prev : playlists[0].id
+        safePlaylists.some((p) => p.id === prev) ? prev : safePlaylists[0].id
       );
     } else {
       setSelectedPlaylistId(0);
     }
-  }, [playlists]);
+  }, [safePlaylists]);
 
   const authOpts = useMemo(
     () => ({
@@ -378,7 +418,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   // Refresh latest data silently when entering /Aplikasi/Musikwe without interrupting background audio
   useEffect(() => {
     setMiniPlayerDismissed(false);
-    syncFromBackend('', catalogTracks.length > 0);
+    syncFromBackend('', safeCatalogTracks.length > 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -742,7 +782,8 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
   };
 
   const handleAddToPlaylist = async (trackId: number) => {
-    const targetPl = playlists.find((p) => p.id === selectedPlaylistId) || playlists[0];
+    const targetPl =
+      safePlaylists.find((p) => p.id === selectedPlaylistId) || safePlaylists[0];
     if (!targetPl) {
       showToast('Buat playlist dulu di menu Playlist.');
       setView('lib');
@@ -1181,7 +1222,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     setBulkUploading(true);
     beginLoading();
     try {
-      const alObj = albums.find((al) => String(al.id) === String(bulkAlbumId));
+      const alObj = safeAlbums.find((al) => String(al.id) === String(bulkAlbumId));
       let sharedCoverUrl = bulkCoverUrl.trim() || alObj?.cover_url || '';
 
       if (bulkCoverFile) {
@@ -1340,7 +1381,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         finalCoverUrl = `https://i.ytimg.com/vi/${ytId}/hqdefault.jpg`;
       }
 
-      const alObj = albums.find((al) => String(al.id) === String(trackAlbumId));
+      const alObj = safeAlbums.find((al) => String(al.id) === String(trackAlbumId));
       const payload: Record<string, any> = {
         action: editingTrackId ? 'update_track' : 'create_track',
         title: trackTitle.trim(),
@@ -1413,7 +1454,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
   const localSearchTracks = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const source = catalogTracks.length > 0 ? catalogTracks : tracks;
+    const source = safeCatalogTracks.length > 0 ? safeCatalogTracks : safeTracks;
     if (!q) return source;
     return source.filter(
       (t) =>
@@ -1422,26 +1463,19 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
         (t.album_name || '').toLowerCase().includes(q) ||
         (t.ly || '').toLowerCase().includes(q)
     );
-  }, [searchQuery, catalogTracks, tracks]);
+  }, [searchQuery, safeCatalogTracks, safeTracks]);
 
   const hotTracks = useMemo(() => {
-    return [...tracks].sort(
+    return [...safeTracks].sort(
       (a, b) =>
-        requests.filter((r) => r.tid === b.id).length -
-        requests.filter((r) => r.tid === a.id).length
+        safeRequests.filter((r) => r.tid === b.id).length -
+        safeRequests.filter((r) => r.tid === a.id).length
     );
-  }, [tracks, requests]);
-
-  const autoNextTracks = useMemo(() => {
-    const source = catalogTracks.length > 0 ? catalogTracks : tracks;
-    return source
-      .filter((t) => t.id !== currentTrack.id && !requests.some((r) => r.tid === t.id))
-      .slice(0, 4);
-  }, [catalogTracks, tracks, currentTrack.id, requests]);
+  }, [safeTracks, safeRequests]);
 
   const activePlaylist = useMemo(
-    () => playlists.find((p) => p.id === selectedPlaylistId) || playlists[0],
-    [playlists, selectedPlaylistId]
+    () => safePlaylists.find((p) => p.id === selectedPlaylistId) || safePlaylists[0],
+    [safePlaylists, selectedPlaylistId]
   );
 
   const renderTrackRow = (t: MusikweTrack, extraAction?: React.ReactNode) => {
@@ -1731,9 +1765,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               </section>
 
               <h2 className="mw-h2">Playlist untuk kamu</h2>
-              {playlists.length > 0 ? (
+              {safePlaylists.length > 0 ? (
                 <div className="mw-grid">
-                  {playlists.map((p) => (
+                  {safePlaylists.map((p) => (
                     <button
                       key={p.id}
                       type="button"
@@ -1744,7 +1778,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       }}
                     >
                       <b>{p.n}</b>
-                      <small className="mw-num">{p.ids.length} lagu</small>
+                      <small className="mw-num">
+                        {(Array.isArray(p.ids) ? p.ids : []).length} lagu
+                      </small>
                     </button>
                   ))}
                 </div>
@@ -1754,12 +1790,12 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 </div>
               )}
 
-              {albums.length > 0 && (
+              {safeAlbums.length > 0 && (
                 <>
                   <h2 className="mw-h2">Album &amp; Rilisan</h2>
                   <div className="mw-album-grid">
-                    {albums.map((al) => {
-                      const albumTracks = tracks.filter((t) => t.album_id === al.id);
+                    {safeAlbums.map((al) => {
+                      const albumTracks = safeTracks.filter((t) => t.album_id === al.id);
                       return (
                         <button
                           key={al.id}
@@ -1993,9 +2029,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           {effectiveView === 'lib' && (
             <div className="mw-v">
               <h2 className="mw-h2">Playlist</h2>
-              {playlists.length > 0 && (
+              {safePlaylists.length > 0 && (
                 <div className="mw-grid">
-                  {playlists.map((p) => (
+                  {safePlaylists.map((p) => (
                     <button
                       key={p.id}
                       type="button"
@@ -2343,7 +2379,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                   <span>Auto-Play: {autoPlayQueue ? 'ON' : 'OFF'}</span>
                 </button>
               </div>
-              {sortedRequests.length > 0 ? (
+              {safeSortedRequests.length > 0 ? (
                 <table className="mw-table">
                   <thead>
                     <tr>
@@ -2355,9 +2391,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedRequests.map((rq, idx) => {
+                    {safeSortedRequests.map((rq, idx) => {
                       const t = resolveRequestTrack(rq);
-                      const hasVoted = rq.v.includes(who());
+                      const reqVotes = Array.isArray(rq.v) ? rq.v : [];
+                      const hasVoted = reqVotes.includes(who());
                       const canModerate = isOwnRequest(rq.by, rq.user_email);
                       const isActiveReq = activeRequestId === rq.id;
                       return (
@@ -2389,7 +2426,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                               onClick={() => handleToggleVote(rq.id)}
                             >
                               <ThumbsUp size={13} />
-                              <span>{rq.v.length}</span>
+                              <span>{reqVotes.length}</span>
                             </button>
                           </td>
                           <td>
@@ -2449,7 +2486,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 <h2 className="mw-h2" style={{ margin: 0 }}>
                   Riwayat Request
                 </h2>
-                {requestHistory.length > 0 && (
+                {safeRequestHistory.length > 0 && (
                   <button
                     type="button"
                     className="mw-btn sm g"
@@ -2461,9 +2498,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 )}
               </div>
 
-              {requestHistory.length > 0 ? (
+              {safeRequestHistory.length > 0 ? (
                 <div className="mw-adm-card" style={{ marginBottom: 22 }}>
-                  {requestHistory.map((item) => {
+                  {safeRequestHistory.map((item) => {
                     const canDelete = isOwnRequest(item.by, item.user_email);
                     return (
                       <div
@@ -2513,9 +2550,72 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 </p>
               )}
 
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12,
+                  flexWrap: 'wrap',
+                  marginTop: 26,
+                  marginBottom: 12,
+                }}
+              >
+                <h2 className="mw-h2" style={{ margin: 0 }}>
+                  <History size={16} style={{ display: 'inline', marginRight: 8, verticalAlign: '-2px' }} />
+                  History Pendengaran Hari Ini
+                </h2>
+                {isSuperAdmin && safeTodayHistory.length > 0 && (
+                  <button
+                    type="button"
+                    className="mw-btn sm g"
+                    onClick={() => clearTodayHistory()}
+                  >
+                    <Trash2 size={13} />
+                    <span>Bersihkan History</span>
+                  </button>
+                )}
+              </div>
+
+              {safeTodayHistory.length > 0 ? (
+                <div className="mw-adm-card" style={{ marginBottom: 22 }}>
+                  {safeTodayHistory.map((item, idx) => (
+                    <div
+                      key={`today_req_${item.id || idx}`}
+                      className="mw-row"
+                      style={{ cursor: 'default' }}
+                    >
+                      <CoverThumb
+                        track={{
+                          t: item.title,
+                          img:
+                            item.cover_url ||
+                            (item.youtube_id
+                              ? `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`
+                              : ''),
+                          h: 210,
+                        }}
+                      />
+                      <div className="mw-i">
+                        <div className="mw-tt">{item.title}</div>
+                        <div className="mw-mu mw-small mw-num">
+                          {item.artist}
+                          {item.requested_by ? ` · req ${item.requested_by}` : ''} · pukul{' '}
+                          {fmtClockTime(item.played_at)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mw-mu mw-small" style={{ marginBottom: 22 }}>
+                  Belum ada lagu yang selesai diputar hari ini.
+                </p>
+              )}
+
               <h2 className="mw-h2">Pilih lagu untuk direquest</h2>
-              {tracks.length > 0 ? (
-                <div>{tracks.map((t) => renderTrackRow(t))}</div>
+              {safeTracks.length > 0 ? (
+                <div>{safeTracks.map((t) => renderTrackRow(t))}</div>
               ) : (
                 <div className="mw-empty-box">Belum ada lagu tersedia di database.</div>
               )}
@@ -2580,7 +2680,12 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
 
               <div className="mw-cm">
                 <h2 className="mw-h2">
-                  Komentar ({(commentsMap[String(detailTrack.id)] || []).length})
+                  Komentar (
+                  {(Array.isArray(safeCommentsMap[String(detailTrack.id)])
+                    ? safeCommentsMap[String(detailTrack.id)]
+                    : []
+                  ).length}
+                  )
                 </h2>
                 <form className="mw-fm" onSubmit={handleAddComment}>
                   <input
@@ -2595,7 +2700,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                   </button>
                 </form>
                 <div style={{ marginTop: 10 }}>
-                  {(commentsMap[String(detailTrack.id)] || []).map((cm, idx) => (
+                  {(Array.isArray(safeCommentsMap[String(detailTrack.id)])
+                    ? safeCommentsMap[String(detailTrack.id)]
+                    : []
+                  ).map((cm, idx) => (
                     <div key={`${cm.id || idx}`} className="mw-cc">
                       <div className="mw-av">{(cm.by || 'P').charAt(0).toUpperCase()}</div>
                       <div>
@@ -2885,17 +2993,17 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       }}
                     >
                       <h3 style={{ margin: 0 }}>
-                        Daftar Album di Database ({albums.length})
+                        Daftar Album di Database ({safeAlbums.length})
                       </h3>
                       <span className="mw-mu mw-small">
                         Edit judul, artis, tahun, cover, atau hapus album
                       </span>
                     </div>
 
-                    {albums.length > 0 ? (
+                    {safeAlbums.length > 0 ? (
                       <div className="mw-album-grid">
-                        {albums.map((al) => {
-                          const trackCount = tracks.filter((t) => t.album_id === al.id).length;
+                        {safeAlbums.map((al) => {
+                          const trackCount = safeTracks.filter((t) => t.album_id === al.id).length;
                           const isEditingThis = editingAlbumId === al.id;
                           const isConfirmDel = confirmDeleteId === `alb_${al.id}`;
                           return (
@@ -3037,7 +3145,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                         onChange={(e) => setTrackAlbumId(e.target.value)}
                       >
                         <option value="0">Single (Tanpa Album)</option>
-                        {albums.map((al) => (
+                        {safeAlbums.map((al) => (
                           <option key={al.id} value={al.id}>
                             Album: {al.title} ({al.artist})
                           </option>
@@ -3129,7 +3237,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                         disabled={bulkUploading}
                       >
                         <option value="0">Single (Tanpa Album)</option>
-                        {albums.map((al) => (
+                        {safeAlbums.map((al) => (
                           <option key={`bulk_al_${al.id}`} value={al.id}>
                             Album: {al.title} ({al.artist})
                           </option>
@@ -3350,12 +3458,13 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                   </div>
 
                   <h2 className="mw-h2">
-                    Antrean Request Masuk ({sortedRequests.length})
+                    Antrean Request Masuk ({safeSortedRequests.length})
                   </h2>
-                  {sortedRequests.length > 0 ? (
+                  {safeSortedRequests.length > 0 ? (
                     <div className="mw-adm-card" style={{ marginBottom: 22 }}>
-                      {sortedRequests.map((rq, idx) => {
+                      {safeSortedRequests.map((rq, idx) => {
                         const tr = resolveRequestTrack(rq);
+                        const reqVotes = Array.isArray(rq.v) ? rq.v : [];
                         return (
                           <div
                             key={`adm_req_${rq.id}`}
@@ -3368,7 +3477,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                                 {idx + 1}. {tr.t}
                               </div>
                               <div className="mw-mu mw-small mw-num">
-                                {tr.a} · oleh {rq.by} · {fmtAgo(rq.ts)} · {rq.v.length} suara
+                                {tr.a} · oleh {rq.by} · {fmtAgo(rq.ts)} · {reqVotes.length} suara
                               </div>
                             </div>
                             <div
@@ -3406,10 +3515,10 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                     </div>
                   )}
 
-                  <h2 className="mw-h2">Kelola Lagu di Database ({tracks.length})</h2>
-                  {tracks.length > 0 ? (
+                  <h2 className="mw-h2">Kelola Lagu di Database ({safeTracks.length})</h2>
+                  {safeTracks.length > 0 ? (
                     <div>
-                      {tracks.map((t) =>
+                      {safeTracks.map((t) =>
                         renderTrackRow(
                           t,
                           <button
@@ -3457,7 +3566,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
               <span>Antrean request</span>
             </h3>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className="mw-mu mw-small mw-num">{sortedRequests.length} lagu</span>
+              <span className="mw-mu mw-small mw-num">{safeSortedRequests.length} lagu</span>
               <button
                 type="button"
                 className={`mw-btn sm ${autoPlayQueue ? '' : 'g'}`}
@@ -3471,10 +3580,11 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
             </div>
           </div>
 
-          {sortedRequests.length > 0 ? (
-            sortedRequests.map((rq) => {
+          {safeSortedRequests.length > 0 ? (
+            safeSortedRequests.map((rq) => {
               const tr = resolveRequestTrack(rq);
-              const voted = rq.v.includes(who());
+              const reqVotes = Array.isArray(rq.v) ? rq.v : [];
+              const voted = reqVotes.includes(who());
               const canModerate = isOwnRequest(rq.by, rq.user_email);
               const isActiveReq = activeRequestId === rq.id;
               return (
@@ -3501,7 +3611,7 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                       aria-label="Beri suara"
                     >
                       <ThumbsUp size={12} />
-                      <span>{rq.v.length}</span>
+                      <span>{reqVotes.length}</span>
                     </button>
                     {canModerate && (
                       <>
@@ -3536,22 +3646,86 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           )}
 
           <h3>Berikutnya otomatis</h3>
-          {autoNextTracks.length > 0 ? (
-            autoNextTracks.map((t) => (
-              <div
-                key={t.id}
-                className="mw-row"
-                onClick={() => loadAndPlayTrack(t.id, true)}
+          {autoNextTrack ? (
+            <div
+              className="mw-row"
+              onClick={() => {
+                if (autoNextRequest) {
+                  skipToRequest(autoNextRequest);
+                } else {
+                  playResolvedTrack(autoNextTrack, true);
+                }
+              }}
+            >
+              <CoverThumb track={autoNextTrack} />
+              <div className="mw-i">
+                <div className="mw-tt">{autoNextTrack.t}</div>
+                <div className="mw-mu mw-small">
+                  {autoNextTrack.a}
+                  {autoNextRequest ? ` · Request ${autoNextRequest.by}` : ''}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="mw-mu mw-small">
+              Semua lagu hari ini sudah diputar · Menunggu request baru
+            </p>
+          )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              margin: '18px 0 10px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <h3 style={{ margin: 0 }}>
+              <History size={13} style={{ display: 'inline', marginRight: 6, verticalAlign: '-2px' }} />
+              <span>History Pendengaran Hari Ini</span>
+            </h3>
+            {isSuperAdmin && safeTodayHistory.length > 0 && (
+              <button
+                type="button"
+                className="mw-btn sm g"
+                style={{ padding: '4px 9px', fontSize: 11 }}
+                onClick={() => clearTodayHistory()}
               >
-                <CoverThumb track={t} />
+                <Trash2 size={11} />
+                <span>Bersihkan History</span>
+              </button>
+            )}
+          </div>
+          {safeTodayHistory.length > 0 ? (
+            safeTodayHistory.map((item, idx) => (
+              <div
+                key={`today_panel_${item.id || idx}`}
+                className="mw-row"
+                style={{ cursor: 'default' }}
+              >
+                <CoverThumb
+                  track={{
+                    t: item.title,
+                    img:
+                      item.cover_url ||
+                      (item.youtube_id
+                        ? `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`
+                        : ''),
+                    h: 210,
+                  }}
+                />
                 <div className="mw-i">
-                  <div className="mw-tt">{t.t}</div>
-                  <div className="mw-mu mw-small">{t.a}</div>
+                  <div className="mw-tt">{item.title}</div>
+                  <div className="mw-mu mw-small mw-num">
+                    {item.artist} · {fmtClockTime(item.played_at)}
+                  </div>
                 </div>
               </div>
             ))
           ) : (
-            <p className="mw-mu mw-small">Katalog berikutnya kosong.</p>
+            <p className="mw-mu mw-small">Belum ada lagu yang selesai diputar hari ini.</p>
           )}
         </aside>
 
