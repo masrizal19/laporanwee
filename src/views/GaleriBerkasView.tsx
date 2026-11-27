@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { Trash2, RotateCcw, CheckSquare, Square } from 'lucide-react';
 import { fetchWithTimeout, DEFAULT_REQUEST_TIMEOUT_MS } from '../utils/apiCache';
 import { getStoredToken } from '../utils/api';
 
 export interface FileItem {
+  id: number;
   n: string;                  // resolved display name
   original_name?: string;     // original uploaded filename
   title?: string;             // optional title from API
@@ -11,6 +13,7 @@ export interface FileItem {
   t: 'Gambar' | 'Video' | 'Dokumen'; // category
   src: string;                // full file URL
   c: [string, string];        // gradient colors fallback
+  deleted_at?: string;        // optional soft-delete timestamp
 }
 
 interface UploadProgressState {
@@ -24,6 +27,8 @@ interface UploadProgressState {
 
 const GALERI_UPLOAD_ENDPOINT =
   'https://api-laporanwe.mkverse.my.id/api/galeri-berkas.php?action=upload';
+const DELETED_GALERI_ENDPOINT =
+  'https://api-laporanwe.mkverse.my.id/api/deleted-galeri-berkas.php';
 const CHUNK_SIZE = 2 * 1024 * 1024; // 2 MB
 
 const PALETTE: [string, string][] = [
@@ -50,6 +55,48 @@ function formatFileSizeMb(bytes: number): string {
 
 function getDisplayFileName(item: Partial<FileItem>): string {
   return String(item.original_name || item.title || item.name || item.n || 'Berkas').trim() || 'Berkas';
+}
+
+function normalizeFileItems(rawList: any[]): FileItem[] {
+  return rawList.map((f: any, idx: number) => {
+    const originalName = f.original_name ? String(f.original_name).trim() : undefined;
+    const titleVal = f.title ? String(f.title).trim() : undefined;
+    const nameVal = f.name ? String(f.name).trim() : undefined;
+    const rawN = f.n ? String(f.n).trim() : undefined;
+    const displayName = originalName || titleVal || nameVal || rawN || 'Berkas';
+
+    const extSource = String(originalName || nameVal || rawN || f.src || f.url || displayName)
+      .split('?')[0];
+    const ext = (extSource.split('.').pop() || '').toLowerCase();
+    let type: 'Gambar' | 'Video' | 'Dokumen' = 'Dokumen';
+    if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(ext)) {
+      type = 'Gambar';
+    } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) {
+      type = 'Video';
+    } else if (f.t === 'Gambar' || f.t === 'Video' || f.t === 'Dokumen') {
+      type = f.t;
+    }
+
+    return {
+      id: Number(f.id ?? f.file_id ?? f.berkas_id ?? 0),
+      n: displayName,
+      original_name: originalName,
+      title: titleVal,
+      name: nameVal,
+      s:
+        f.s ||
+        f.size_formatted ||
+        (f.size
+          ? f.size > 1048576
+            ? `${(f.size / 1048576).toFixed(1)} MB`
+            : `${Math.round(f.size / 1024)} KB`
+          : '1.0 MB'),
+      t: type,
+      src: f.src || f.url || '',
+      c: f.c && Array.isArray(f.c) ? f.c : PALETTE[idx % PALETTE.length],
+      deleted_at: f.deleted_at ? String(f.deleted_at) : undefined,
+    };
+  });
 }
 
 function sendUploadXhr(
@@ -121,12 +168,22 @@ function sendUploadXhr(
 
 export const GaleriBerkasView: React.FC = () => {
   const [files, setFiles] = useState<FileItem[]>([]);
+  const [deletedFiles, setDeletedFiles] = useState<FileItem[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<string>('Semua');
   const [visibleGridCount, setVisibleGridCount] = useState<number>(INITIAL_GRID_PAGE_SIZE);
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [isMutating, setIsMutating] = useState<boolean>(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    mode: 'soft_delete' | 'permanent_delete';
+    ids: number[];
+    title: string;
+    message: string;
+    confirmLabel: string;
+  } | null>(null);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -159,44 +216,7 @@ export const GaleriBerkasView: React.FC = () => {
       }
       const json = await res.json();
       if (json && Array.isArray(json.data)) {
-        const formatted: FileItem[] = json.data.map((f: any, idx: number) => {
-          const originalName = f.original_name ? String(f.original_name).trim() : undefined;
-          const titleVal = f.title ? String(f.title).trim() : undefined;
-          const nameVal = f.name ? String(f.name).trim() : undefined;
-          const rawN = f.n ? String(f.n).trim() : undefined;
-          const displayName = originalName || titleVal || nameVal || rawN || 'Berkas';
-
-          const extSource = String(originalName || nameVal || rawN || f.src || f.url || displayName)
-            .split('?')[0];
-          const ext = (extSource.split('.').pop() || '').toLowerCase();
-          let type: 'Gambar' | 'Video' | 'Dokumen' = 'Dokumen';
-          if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(ext)) {
-            type = 'Gambar';
-          } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) {
-            type = 'Video';
-          } else if (f.t === 'Gambar' || f.t === 'Video' || f.t === 'Dokumen') {
-            type = f.t;
-          }
-
-          return {
-            n: displayName,
-            original_name: originalName,
-            title: titleVal,
-            name: nameVal,
-            s:
-              f.s ||
-              f.size_formatted ||
-              (f.size
-                ? f.size > 1048576
-                  ? `${(f.size / 1048576).toFixed(1)} MB`
-                  : `${Math.round(f.size / 1024)} KB`
-                : '1.0 MB'),
-            t: type,
-            src: f.src || f.url || '',
-            c: f.c && Array.isArray(f.c) ? f.c : PALETTE[idx % PALETTE.length]
-          };
-        });
-        setFiles(formatted);
+        setFiles(normalizeFileItems(json.data));
       } else {
         setFiles([]);
       }
@@ -208,34 +228,247 @@ export const GaleriBerkasView: React.FC = () => {
     }
   }, []);
 
+  const loadDeletedFiles = useCallback(async () => {
+    try {
+      const token = getStoredToken();
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetchWithTimeout(
+        `${DELETED_GALERI_ENDPOINT}?action=list_deleted`,
+        { headers },
+        DEFAULT_REQUEST_TIMEOUT_MS
+      );
+      if (!res.ok) return;
+      const json = await res.json();
+      const raw = Array.isArray(json?.data)
+        ? json.data
+        : Array.isArray(json?.items)
+        ? json.items
+        : Array.isArray(json)
+        ? json
+        : [];
+      setDeletedFiles(normalizeFileItems(raw));
+    } catch {
+      // silent fallback
+    }
+  }, []);
+
   useEffect(() => {
     loadFiles();
+    loadDeletedFiles();
     return () => {
       abortControllerRef.current?.abort();
       uploadCancelledRef.current = true;
       activeUploadXhrRef.current?.abort();
     };
-  }, [loadFiles]);
+  }, [loadFiles, loadDeletedFiles]);
 
-  // Reset pagination when filter tab changes
+  // Reset pagination & bulk selection when filter tab changes
   useEffect(() => {
     setVisibleGridCount(INITIAL_GRID_PAGE_SIZE);
-  }, [activeTab]);
+    setSelectedIds([]);
+    if (activeTab === 'Sampah') {
+      loadDeletedFiles();
+    }
+  }, [activeTab, loadDeletedFiles]);
 
   // 2. Tab Filter & Hitung Counter Dinamis
-  const tabs = ['Semua', 'Gambar', 'Video', 'Dokumen'];
+  const tabs = ['Semua', 'Gambar', 'Video', 'Dokumen', 'Sampah'];
   const counts = useMemo(() => {
-    const c: Record<string, number> = { Semua: files.length, Gambar: 0, Video: 0, Dokumen: 0 };
+    const c: Record<string, number> = {
+      Semua: files.length,
+      Gambar: 0,
+      Video: 0,
+      Dokumen: 0,
+      Sampah: deletedFiles.length,
+    };
     for (const f of files) {
       if (c[f.t] !== undefined) c[f.t]++;
     }
     return c;
-  }, [files]);
+  }, [files, deletedFiles.length]);
 
   const filteredList = useMemo(() => {
+    if (activeTab === 'Sampah') return deletedFiles;
     if (activeTab === 'Semua') return files;
     return files.filter(f => f.t === activeTab);
-  }, [files, activeTab]);
+  }, [files, deletedFiles, activeTab]);
+
+  const selectableIds = useMemo(
+    () => filteredList.map((f) => f.id).filter((id) => id > 0),
+    [filteredList]
+  );
+
+  const allSelected =
+    selectableIds.length > 0 && selectableIds.every((id) => selectedIds.includes(id));
+
+  const toggleSelectId = (id: number, e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
+    if (!id) return;
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(selectableIds);
+    }
+  };
+
+  const postDeletedAction = async (
+    action: 'soft_delete' | 'restore' | 'permanent_delete',
+    ids: number[]
+  ) => {
+    const validIds = ids.filter((id) => Number.isFinite(id) && id > 0);
+    if (!validIds.length) {
+      throw new Error('ID berkas tidak valid untuk aksi ini.');
+    }
+    const token = getStoredToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetchWithTimeout(
+      DELETED_GALERI_ENDPOINT,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ action, ids: validIds }),
+      },
+      DEFAULT_REQUEST_TIMEOUT_MS
+    );
+
+    const rawText = await res.text();
+    let json: any = null;
+    try {
+      json = rawText ? JSON.parse(rawText) : null;
+    } catch {
+      json = null;
+    }
+    if (!res.ok || (json && json.success === false)) {
+      throw new Error(
+        json?.message || json?.error || `Error HTTP ${res.status}: Gagal memproses berkas.`
+      );
+    }
+    return json;
+  };
+
+  const executeSoftDelete = async (ids: number[]) => {
+    const validIds = ids.filter((id) => id > 0);
+    if (!validIds.length || isMutating) return;
+    setIsMutating(true);
+    setActionNotice(null);
+    try {
+      await postDeletedAction('soft_delete', validIds);
+      const idSet = new Set(validIds);
+      const movedItems = files.filter((f) => idSet.has(f.id));
+      setFiles((prev) => prev.filter((f) => !idSet.has(f.id)));
+      if (movedItems.length > 0) {
+        setDeletedFiles((prev) => {
+          const existing = new Set(prev.map((d) => d.id));
+          return [...movedItems.filter((m) => !existing.has(m.id)), ...prev];
+        });
+      }
+      setSelectedIds((prev) => prev.filter((id) => !idSet.has(id)));
+      if (selectedFile && idSet.has(selectedFile.id)) {
+        setSelectedFile(null);
+      }
+      await Promise.all([loadFiles(), loadDeletedFiles()]);
+    } catch (err: any) {
+      setActionNotice(err?.message || 'Gagal memindahkan berkas ke Sampah.');
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const handleRestore = async (ids: number[]) => {
+    const validIds = ids.filter((id) => id > 0);
+    if (!validIds.length || isMutating) return;
+    setIsMutating(true);
+    setActionNotice(null);
+    try {
+      await postDeletedAction('restore', validIds);
+      const idSet = new Set(validIds);
+      setDeletedFiles((prev) => prev.filter((f) => !idSet.has(f.id)));
+      setSelectedIds((prev) => prev.filter((id) => !idSet.has(id)));
+      await Promise.all([loadFiles(), loadDeletedFiles()]);
+    } catch (err: any) {
+      setActionNotice(err?.message || 'Gagal mengembalikan berkas.');
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const executePermanentDelete = async (ids: number[]) => {
+    const validIds = ids.filter((id) => id > 0);
+    if (!validIds.length || isMutating) return;
+    setIsMutating(true);
+    setActionNotice(null);
+    try {
+      await postDeletedAction('permanent_delete', validIds);
+      const idSet = new Set(validIds);
+      setDeletedFiles((prev) => prev.filter((f) => !idSet.has(f.id)));
+      setSelectedIds((prev) => prev.filter((id) => !idSet.has(id)));
+      if (selectedFile && idSet.has(selectedFile.id)) {
+        setSelectedFile(null);
+      }
+      await loadDeletedFiles();
+    } catch (err: any) {
+      setActionNotice(err?.message || 'Gagal menghapus berkas secara permanen.');
+    } finally {
+      setIsMutating(false);
+    }
+  };
+
+  const promptSingleSoftDelete = (item: FileItem, e: React.SyntheticEvent) => {
+    e.stopPropagation();
+    if (!item.id) {
+      setActionNotice('ID berkas tidak ditemukan.');
+      return;
+    }
+    setConfirmDialog({
+      mode: 'soft_delete',
+      ids: [item.id],
+      title: 'Pindahkan ke Sampah?',
+      message: `Pindahkan "${getDisplayFileName(item)}" ke tab Sampah?`,
+      confirmLabel: 'Hapus',
+    });
+  };
+
+  const promptPermanentDelete = (ids: number[], label?: string, e?: React.SyntheticEvent) => {
+    e?.stopPropagation();
+    const validIds = ids.filter((id) => id > 0);
+    if (!validIds.length) {
+      setActionNotice('ID berkas tidak valid.');
+      return;
+    }
+    setConfirmDialog({
+      mode: 'permanent_delete',
+      ids: validIds,
+      title: 'Hapus Permanen?',
+      message: label
+        ? `Hapus permanen "${label}" dari server & database?`
+        : `Hapus permanen ${validIds.length} berkas terpilih dari server & database?`,
+      confirmLabel: 'Hapus Permanen',
+    });
+  };
+
+  const handleConfirmDialogProceed = async () => {
+    if (!confirmDialog) return;
+    const { mode, ids } = confirmDialog;
+    setConfirmDialog(null);
+    if (mode === 'soft_delete') {
+      await executeSoftDelete(ids);
+    } else {
+      await executePermanentDelete(ids);
+    }
+  };
 
   const handleCancelUpload = () => {
     uploadCancelledRef.current = true;
@@ -706,8 +939,19 @@ export const GaleriBerkasView: React.FC = () => {
                   onClick={() => setActiveTab(tab)}
                   className={`gb-tab ${active ? 'on' : ''}`}
                 >
-                  {tab}
-                  <span>{counts[tab] ?? 0}</span>
+                  {tab === 'Sampah' ? (
+                    <span className="inline-flex items-center gap-1.5 !m-0 !opacity-100 !text-[inherit]">
+                      <Trash2 size={14} />
+                      <span>
+                        Sampah ({counts[tab] ?? 0})
+                      </span>
+                    </span>
+                  ) : (
+                    <>
+                      {tab}
+                      <span>{counts[tab] ?? 0}</span>
+                    </>
+                  )}
                 </button>
               );
             })}
@@ -720,16 +964,67 @@ export const GaleriBerkasView: React.FC = () => {
             hidden
           />
 
-          <button
-            type="button"
-            className="gb-add"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isUploading}
-          >
-            {isUploading
-              ? `Mengunggah... ${uploadProgress?.percent ?? 0}%`
-              : '+ Tambah File'}
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {selectableIds.length > 0 && (
+              <button
+                type="button"
+                className="gb-add inline-flex items-center gap-1.5"
+                onClick={handleToggleSelectAll}
+                disabled={isMutating}
+              >
+                {allSelected ? <CheckSquare size={15} /> : <Square size={15} />}
+                <span>{allSelected ? 'Batal Pilih' : 'Pilih Semua'}</span>
+              </button>
+            )}
+
+            {activeTab !== 'Sampah' && selectedIds.length >= 1 && (
+              <button
+                type="button"
+                onClick={() => executeSoftDelete(selectedIds)}
+                disabled={isMutating}
+                className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-md transition-all cursor-pointer disabled:opacity-60"
+              >
+                <Trash2 size={15} />
+                <span>Hapus Terpilih ({selectedIds.length})</span>
+              </button>
+            )}
+
+            {activeTab === 'Sampah' && selectedIds.length >= 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleRestore(selectedIds)}
+                  disabled={isMutating}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-md transition-all cursor-pointer disabled:opacity-60"
+                >
+                  <RotateCcw size={15} />
+                  <span>Kembalikan ({selectedIds.length})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => promptPermanentDelete(selectedIds)}
+                  disabled={isMutating}
+                  className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-full bg-red-600 hover:bg-red-700 text-white text-sm font-semibold shadow-md transition-all cursor-pointer disabled:opacity-60"
+                >
+                  <Trash2 size={15} />
+                  <span>Hapus Permanen ({selectedIds.length})</span>
+                </button>
+              </>
+            )}
+
+            {activeTab !== 'Sampah' && (
+              <button
+                type="button"
+                className="gb-add"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+              >
+                {isUploading
+                  ? `Mengunggah... ${uploadProgress?.percent ?? 0}%`
+                  : '+ Tambah File'}
+              </button>
+            )}
+          </div>
         </div>
 
         {/* REAL-TIME UPLOAD PROGRESS PANEL */}
@@ -834,14 +1129,20 @@ export const GaleriBerkasView: React.FC = () => {
             </div>
           ) : filteredList.length === 0 ? (
             <div className="gb-empty">
-              Belum ada berkas {activeTab.toLowerCase()}. Klik &ldquo;+ Tambah File&rdquo; untuk mengunggah.
+              {activeTab === 'Sampah'
+                ? 'Sampah kosong. Tidak ada berkas yang dihapus sementara.'
+                : `Belum ada berkas ${activeTab.toLowerCase()}. Klik "+ Tambah File" untuk mengunggah.`}
             </div>
           ) : (
             <>
-              {/* FEATURED CARD (BERKAS TERBARU) */}
-              {featItem && (
+              {/* FEATURED CARD (BERKAS TERBARU - TAMPIL DI TAB AKTIF) */}
+              {featItem && activeTab !== 'Sampah' && (
                 <article
-                  className="gb-tile gb-feat"
+                  className={`gb-tile gb-feat ${
+                    featItem.id > 0 && selectedIds.includes(featItem.id)
+                      ? 'ring-2 ring-[#0d0d0d] dark:ring-white'
+                      : ''
+                  }`}
                   onClick={() => setSelectedFile(featItem)}
                 >
                   <div
@@ -852,8 +1153,28 @@ export const GaleriBerkasView: React.FC = () => {
                         : '#0f3d26',
                     }}
                   >
+                    {featItem.id > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => toggleSelectId(featItem.id, e)}
+                        aria-label="Pilih berkas"
+                        title="Pilih berkas"
+                        className={`absolute top-3 left-3 z-[3] w-8 h-8 rounded-xl flex items-center justify-center shadow-md backdrop-blur-md transition-all cursor-pointer ${
+                          selectedIds.includes(featItem.id)
+                            ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black'
+                            : 'bg-white/85 text-black/80 hover:bg-white dark:bg-black/60 dark:text-white/90'
+                        }`}
+                      >
+                        {selectedIds.includes(featItem.id) ? (
+                          <CheckSquare size={16} />
+                        ) : (
+                          <Square size={16} />
+                        )}
+                      </button>
+                    )}
+
                     {featItem.src && featItem.t === 'Gambar' && (
-                      <img src={featItem.src} alt={featItem.n} loading="eager" decoding="async" />
+                      <img src={featItem.src} alt={getDisplayFileName(featItem)} loading="eager" decoding="async" />
                     )}
                     {featItem.t === 'Video' && (
                       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-white">
@@ -877,7 +1198,21 @@ export const GaleriBerkasView: React.FC = () => {
 
                   <div className="gb-body">
                     <div>
-                      <span className="gb-tag">{featItem.t}</span>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="gb-tag">{featItem.t}</span>
+                        {featItem.id > 0 && (
+                          <button
+                            type="button"
+                            onClick={(e) => promptSingleSoftDelete(featItem, e)}
+                            disabled={isMutating}
+                            title="Hapus berkas"
+                            aria-label="Hapus berkas"
+                            className="w-8 h-8 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center transition-colors cursor-pointer"
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        )}
+                      </div>
                       <h2>{getDisplayFileName(featItem)}</h2>
                       <p>File terbaru di galeri proyek. Klik untuk melihat, mengunduh, atau menambahkannya ke laporan.</p>
                     </div>
@@ -890,15 +1225,19 @@ export const GaleriBerkasView: React.FC = () => {
                 </article>
               )}
 
-              {/* GRID CARDS (RESPONSIF 1-4 KOLOM DENGAN PAGINATION PROGRESIF) */}
-              {visibleGridItems.length > 0 && (
+              {/* GRID CARDS (SEMUA ITEM DI TAB SAMPAH ATAU SISA ITEM DI TAB AKTIF) */}
+              {(activeTab === 'Sampah' ? filteredList : visibleGridItems).length > 0 && (
                 <section className="gb-grid">
-                  {visibleGridItems.map((item, idx) => {
+                  {(activeTab === 'Sampah' ? filteredList : visibleGridItems).map((item, idx) => {
                     const cardTitle = getDisplayFileName(item);
+                    const isChecked = item.id > 0 && selectedIds.includes(item.id);
+                    const isTrashTab = activeTab === 'Sampah';
                     return (
                       <article
-                        key={`${cardTitle}-${idx}`}
-                        className="gb-tile gb-card"
+                        key={`${item.id || cardTitle}-${idx}`}
+                        className={`gb-tile gb-card ${
+                          isChecked ? 'ring-2 ring-[#0d0d0d] dark:ring-white' : ''
+                        }`}
                         onClick={() => setSelectedFile(item)}
                       >
                         <div
@@ -909,6 +1248,22 @@ export const GaleriBerkasView: React.FC = () => {
                               : '#14502e',
                           }}
                         >
+                          {item.id > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => toggleSelectId(item.id, e)}
+                              aria-label="Pilih berkas"
+                              title="Pilih berkas"
+                              className={`absolute top-2.5 left-2.5 z-[3] w-7 h-7 rounded-lg flex items-center justify-center shadow-md backdrop-blur-md transition-all cursor-pointer ${
+                                isChecked
+                                  ? 'bg-[#0d0d0d] text-white dark:bg-white dark:text-black'
+                                  : 'bg-white/85 text-black/80 hover:bg-white dark:bg-black/60 dark:text-white/90'
+                              }`}
+                            >
+                              {isChecked ? <CheckSquare size={14} /> : <Square size={14} />}
+                            </button>
+                          )}
+
                           {item.src && item.t === 'Gambar' && (
                             <img src={item.src} alt={cardTitle} loading="lazy" decoding="async" />
                           )}
@@ -935,7 +1290,51 @@ export const GaleriBerkasView: React.FC = () => {
 
                         <div className="gb-body">
                           <h3>{cardTitle}</h3>
-                          <p>{item.s} • {item.t}</p>
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <p className="!m-0 truncate">
+                              {item.s} • {item.t}
+                            </p>
+
+                            {!isTrashTab && item.id > 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => promptSingleSoftDelete(item, e)}
+                                disabled={isMutating}
+                                title="Hapus berkas"
+                                aria-label="Hapus berkas"
+                                className="shrink-0 w-7 h-7 rounded-full bg-red-500/10 hover:bg-red-500/20 text-red-500 flex items-center justify-center transition-colors cursor-pointer"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
+                          </div>
+
+                          {isTrashTab && item.id > 0 && (
+                            <div
+                              className="mt-3 pt-2.5 border-t border-black/5 dark:border-white/10 flex items-center gap-1.5"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleRestore([item.id])}
+                                disabled={isMutating}
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-500/12 hover:bg-emerald-500/22 text-emerald-700 dark:text-emerald-300 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <RotateCcw size={13} />
+                                <span>Kembalikan</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => promptPermanentDelete([item.id], cardTitle, e)}
+                                disabled={isMutating}
+                                title="Hapus Permanen"
+                                className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-xl bg-red-500/12 hover:bg-red-500/22 text-red-600 dark:text-red-400 text-xs font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <Trash2 size={13} />
+                                <span>Hapus Permanen</span>
+                              </button>
+                            </div>
+                          )}
                         </div>
                       </article>
                     );
@@ -943,7 +1342,7 @@ export const GaleriBerkasView: React.FC = () => {
                 </section>
               )}
 
-              {remainingCount > 0 && (
+              {activeTab !== 'Sampah' && remainingCount > 0 && (
                 <div className="flex justify-center mt-7">
                   <button
                     type="button"
@@ -958,6 +1357,45 @@ export const GaleriBerkasView: React.FC = () => {
           )}
         </main>
       </div>
+
+      {/* IN-APP CONFIRMATION MODAL */}
+      {confirmDialog && (
+        <div
+          onClick={() => setConfirmDialog(null)}
+          className="fixed inset-0 z-[10000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-sm rounded-3xl bg-white dark:bg-[#1f1d2b] text-gray-900 dark:text-white p-6 shadow-2xl border border-black/10 dark:border-white/10"
+          >
+            <div className="flex items-center gap-3 mb-2">
+              <span className="w-10 h-10 rounded-2xl bg-red-500/12 text-red-500 flex items-center justify-center shrink-0">
+                <Trash2 size={18} />
+              </span>
+              <h3 className="text-base font-bold m-0">{confirmDialog.title}</h3>
+            </div>
+            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed mb-5">
+              {confirmDialog.message}
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDialog(null)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15 cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDialogProceed}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-red-600 hover:bg-red-700 text-white shadow-sm cursor-pointer"
+              >
+                {confirmDialog.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* LIGHTBOX / PREVIEW MODAL */}
       {selectedFile && (
