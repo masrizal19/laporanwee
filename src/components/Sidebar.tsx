@@ -253,49 +253,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
             (item.id === 'chat' && (currentPath === '/chat' || currentPath === '/chat/preview-file' || currentView === 'chat'));
 
           return (
-            <React.Fragment key={item.id}>
-              <button
-                type="button"
-                onMouseEnter={() => handleHoverPrefetch(item.id, item.view)}
-                onClick={() => {
-                  if (onNavigate) {
-                    onNavigate(item.view || item.path);
-                  }
-                }}
-                className={`relative flex items-center gap-3.5 px-3.5 py-3 rounded-2xl transition-all duration-200 text-left w-full cursor-pointer ${
-                  isActive
-                    ? 'bg-[#1e1d2b] text-white shadow-md'
-                    : 'text-gray-500 hover:text-gray-900 hover:bg-black/5'
-                }`}
-              >
-                <span className="flex-shrink-0">{item.icon}</span>
-                <span className="text-sm font-medium">{item.label}</span>
-              </button>
-              {item.id === 'aplikasi' && (
-                <div className="pl-5 flex flex-col gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (onNavigate) {
-                        onNavigate('/Aplikasi/Musikwe');
-                      }
-                    }}
-                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all duration-200 text-left w-full cursor-pointer text-xs font-semibold ${
-                      currentPath.toLowerCase() === '/aplikasi/musikwe'
-                        ? 'bg-[#0a84ff] text-white shadow-sm'
-                        : 'text-gray-500 hover:text-gray-900 hover:bg-black/5'
-                    }`}
-                  >
-                    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M9 18V5l12-2v13" />
-                      <circle cx="6" cy="18" r="3" />
-                      <circle cx="18" cy="16" r="3" />
-                    </svg>
-                    <span>MusikWe (.MUSIKWE)</span>
-                  </button>
-                </div>
-              )}
-            </React.Fragment>
+            <button
+              key={item.id}
+              type="button"
+              onMouseEnter={() => handleHoverPrefetch(item.id, item.view)}
+              onClick={() => {
+                if (onNavigate) {
+                  onNavigate(item.view || item.path);
+                }
+              }}
+              className={`relative flex items-center gap-3.5 px-3.5 py-3 rounded-2xl transition-all duration-200 text-left w-full cursor-pointer ${
+                isActive
+                  ? 'bg-[#1e1d2b] text-white shadow-md'
+                  : 'text-gray-500 hover:text-gray-900 hover:bg-black/5'
+              }`}
+            >
+              <span className="flex-shrink-0">{item.icon}</span>
+              <span className="text-sm font-medium">{item.label}</span>
+            </button>
           );
         })}
       </nav>
