@@ -129,6 +129,19 @@ const fmtAgo = (tsMs: number): string => {
   return `${Math.floor(diffMin / 1440)} hari lalu`;
 };
 
+const fmtClockTime = (tsMs: number): string => {
+  const safeMs = Number(tsMs || 0);
+  if (!Number.isFinite(safeMs) || safeMs <= 0) return '--:--';
+  try {
+    return new Date(safeMs).toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '--:--';
+  }
+};
+
 const CoverThumb: React.FC<{
   track: Partial<MusikweTrack>;
   sizeClass?: '' | 'big' | 'xl';
@@ -184,7 +197,9 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     setRequests,
     requestHistory,
     setRequestHistory,
+    todayHistory,
     sortedRequests,
+    autoNextCandidate,
     commentsMap,
     serverUser,
     logoUrl,
@@ -225,6 +240,8 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     findMatchingLocalTrack,
     loadAndPlayTrack,
     playExternalItem: handlePlayExternalItem,
+    playHistoryTrack,
+    clearTodayHistory,
     skipToRequest,
     togglePlayPause,
     nextTrack,
@@ -1432,13 +1449,6 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
     );
   }, [tracks, requests]);
 
-  const autoNextTracks = useMemo(() => {
-    const source = catalogTracks.length > 0 ? catalogTracks : tracks;
-    return source
-      .filter((t) => t.id !== currentTrack.id && !requests.some((r) => r.tid === t.id))
-      .slice(0, 4);
-  }, [catalogTracks, tracks, currentTrack.id, requests]);
-
   const activePlaylist = useMemo(
     () => playlists.find((p) => p.id === selectedPlaylistId) || playlists[0],
     [playlists, selectedPlaylistId]
@@ -2513,6 +2523,70 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
                 </p>
               )}
 
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  marginBottom: 10,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <h2 className="mw-h2" style={{ margin: 0 }}>
+                  History Pendengaran Hari Ini ({todayHistory.length})
+                </h2>
+                {isSuperAdmin && todayHistory.length > 0 && (
+                  <button
+                    type="button"
+                    className="mw-btn sm g"
+                    onClick={() => clearTodayHistory()}
+                  >
+                    <Trash2 size={13} />
+                    <span>Bersihkan History</span>
+                  </button>
+                )}
+              </div>
+
+              {todayHistory.length > 0 ? (
+                <div className="mw-adm-card" style={{ marginBottom: 22 }}>
+                  {todayHistory.map((item) => (
+                    <div
+                      key={`today_req_${item.id}_${item.played_at}`}
+                      className="mw-row"
+                      onClick={() => playHistoryTrack(item)}
+                    >
+                      <CoverThumb
+                        track={{
+                          t: item.title,
+                          img:
+                            item.cover_url ||
+                            (item.youtube_id
+                              ? `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`
+                              : ''),
+                          h: 210,
+                        }}
+                      />
+                      <div className="mw-i">
+                        <div className="mw-tt">{item.title}</div>
+                        <div className="mw-mu mw-small mw-num">
+                          {item.artist}
+                          {item.requested_by ? ` · Request: ${item.requested_by}` : ''}
+                          {` · Diputar ${fmtClockTime(item.played_at)}`}
+                        </div>
+                      </div>
+                      <span className="mw-mu mw-small mw-num" style={{ flexShrink: 0 }}>
+                        {fmtClockTime(item.played_at)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mw-mu mw-small" style={{ marginBottom: 22 }}>
+                  Belum ada lagu yang selesai diputar hari ini.
+                </p>
+              )}
+
               <h2 className="mw-h2">Pilih lagu untuk direquest</h2>
               {tracks.length > 0 ? (
                 <div>{tracks.map((t) => renderTrackRow(t))}</div>
@@ -3536,22 +3610,89 @@ export const MusikweFullscreenView: React.FC<MusikweFullscreenViewProps> = ({
           )}
 
           <h3>Berikutnya otomatis</h3>
-          {autoNextTracks.length > 0 ? (
-            autoNextTracks.map((t) => (
-              <div
-                key={t.id}
-                className="mw-row"
-                onClick={() => loadAndPlayTrack(t.id, true)}
+          {autoNextCandidate ? (
+            <div
+              key={`autonext_${autoNextCandidate.source}_${autoNextCandidate.track.id}`}
+              className="mw-row"
+              onClick={() => {
+                if (autoNextCandidate.request) {
+                  skipToRequest(autoNextCandidate.request);
+                } else {
+                  loadAndPlayTrack(autoNextCandidate.track.id, true);
+                }
+              }}
+            >
+              <CoverThumb track={autoNextCandidate.track} />
+              <div className="mw-i">
+                <div className="mw-tt">{autoNextCandidate.track.t}</div>
+                <div className="mw-mu mw-small">
+                  {autoNextCandidate.track.a} ·{' '}
+                  {autoNextCandidate.source === 'request'
+                    ? `Antrean Request${autoNextCandidate.request?.by ? ` (${autoNextCandidate.request.by})` : ''}`
+                    : 'Katalog Berikutnya'}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="mw-mu mw-small">
+              Semua lagu hari ini sudah diputar · Menunggu request baru
+            </p>
+          )}
+
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              margin: '16px 0 8px',
+              flexWrap: 'wrap',
+            }}
+          >
+            <h3 style={{ margin: 0 }}>
+              History Pendengaran Hari Ini ({todayHistory.length})
+            </h3>
+            {isSuperAdmin && todayHistory.length > 0 && (
+              <button
+                type="button"
+                className="mw-btn sm g"
+                style={{ padding: '4px 10px', fontSize: 11 }}
+                onClick={() => clearTodayHistory()}
+                title="Bersihkan History Hari Ini"
               >
-                <CoverThumb track={t} />
+                <Trash2 size={12} />
+                <span>Bersihkan History</span>
+              </button>
+            )}
+          </div>
+          {todayHistory.length > 0 ? (
+            todayHistory.map((item) => (
+              <div
+                key={`today_side_${item.id}_${item.played_at}`}
+                className="mw-row"
+                onClick={() => playHistoryTrack(item)}
+              >
+                <CoverThumb
+                  track={{
+                    t: item.title,
+                    img:
+                      item.cover_url ||
+                      (item.youtube_id
+                        ? `https://i.ytimg.com/vi/${item.youtube_id}/hqdefault.jpg`
+                        : ''),
+                    h: 210,
+                  }}
+                />
                 <div className="mw-i">
-                  <div className="mw-tt">{t.t}</div>
-                  <div className="mw-mu mw-small">{t.a}</div>
+                  <div className="mw-tt">{item.title}</div>
+                  <div className="mw-mu mw-small mw-num">
+                    {item.artist} · {fmtClockTime(item.played_at)}
+                  </div>
                 </div>
               </div>
             ))
           ) : (
-            <p className="mw-mu mw-small">Katalog berikutnya kosong.</p>
+            <p className="mw-mu mw-small">Belum ada lagu yang selesai diputar hari ini.</p>
           )}
         </aside>
 
