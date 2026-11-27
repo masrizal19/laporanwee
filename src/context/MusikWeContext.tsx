@@ -66,33 +66,36 @@ interface PersistedMusikweSnapshot {
 }
 
 function isSameTrackIdentity(
-  a: { id?: number; t?: string; a?: string; youtube_id?: string },
-  b: { id?: number; t?: string; a?: string; youtube_id?: string }
+  a?: { id?: number; t?: string; a?: string; youtube_id?: string } | null,
+  b?: { id?: number; t?: string; a?: string; youtube_id?: string } | null
 ): boolean {
+  if (!a || !b) return false;
   if (a.id && b.id && a.id === b.id) return true;
   if (a.youtube_id && b.youtube_id && a.youtube_id === b.youtube_id) return true;
-  const aTitle = (a.t || '').trim().toLowerCase();
-  const aArtist = (a.a || '').trim().toLowerCase();
-  const bTitle = (b.t || '').trim().toLowerCase();
-  const bArtist = (b.a || '').trim().toLowerCase();
+  const aTitle = String(a.t || '').trim().toLowerCase();
+  const aArtist = String(a.a || '').trim().toLowerCase();
+  const bTitle = String(b.t || '').trim().toLowerCase();
+  const bArtist = String(b.a || '').trim().toLowerCase();
   return Boolean(
     aTitle && aArtist && bTitle && bArtist && aTitle === bTitle && aArtist === bArtist
   );
 }
 
 function isTrackPlayedInTodayHistory(
-  track: { id?: number; tid?: number; t?: string; title?: string; a?: string; artist?: string },
+  track: { id?: number; tid?: number; t?: string; title?: string; a?: string; artist?: string } | null | undefined,
   history: MusikweTodayHistory[]
 ): boolean {
+  if (!track || !Array.isArray(history) || history.length === 0) return false;
   const trackId = Number(track.id ?? track.tid ?? 0);
   const titleNorm = String(track.t ?? track.title ?? '').trim().toLowerCase();
   const artistNorm = String(track.a ?? track.artist ?? '').trim().toLowerCase();
   return history.some((h) => {
-    if (trackId > 0 && h.track_id > 0 && h.track_id === trackId) return true;
+    if (!h || typeof h !== 'object') return false;
+    if (trackId > 0 && Number(h.track_id) > 0 && Number(h.track_id) === trackId) return true;
     if (titleNorm && artistNorm) {
       return (
-        h.title.trim().toLowerCase() === titleNorm &&
-        h.artist.trim().toLowerCase() === artistNorm
+        String(h.title || '').trim().toLowerCase() === titleNorm &&
+        String(h.artist || '').trim().toLowerCase() === artistNorm
       );
     }
     return false;
@@ -101,10 +104,119 @@ function isTrackPlayedInTodayHistory(
 
 function hashSeedId(seed: string): number {
   let h = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    h = (h * 31 + seed.charCodeAt(i)) | 0;
+  const safeSeed = String(seed || '');
+  for (let i = 0; i < safeSeed.length; i += 1) {
+    h = (h * 31 + safeSeed.charCodeAt(i)) | 0;
   }
   return -Math.max(1000, Math.abs(h));
+}
+
+function sanitizeTrackItem(raw: any): MusikweTrack | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = Number(raw.id || 0);
+  return {
+    id: Number.isFinite(id) ? id : 0,
+    t: String(raw.t ?? raw.title ?? 'Tanpa Judul'),
+    a: String(raw.a ?? raw.artist ?? 'Artis Tidak Diketahui'),
+    album_id: raw.album_id !== undefined ? Number(raw.album_id || 0) : undefined,
+    album_name: raw.album_name !== undefined ? String(raw.album_name || '') : undefined,
+    d: Math.max(15, Number(raw.d ?? raw.duration) || 200),
+    h: Number(raw.h) || 210,
+    url: String(raw.url ?? raw.audio_url ?? ''),
+    youtube_id: raw.youtube_id ? String(raw.youtube_id) : undefined,
+    ly: String(raw.ly ?? raw.lyrics ?? ''),
+    img: String(raw.img ?? raw.cover_url ?? ''),
+  };
+}
+
+function sanitizeAlbumItem(raw: any): MusikweAlbum | null {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    id: Number(raw.id || 0),
+    title: String(raw.title || 'Album'),
+    artist: String(raw.artist || 'Artis'),
+    cover_url: String(raw.cover_url || ''),
+    release_year: raw.release_year ? String(raw.release_year) : undefined,
+  };
+}
+
+function sanitizePlaylistItem(raw: any): MusikwePlaylist | null {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    id: Number(raw.id || 0),
+    n: String(raw.n ?? raw.name ?? 'Playlist'),
+    ids: Array.isArray(raw.ids)
+      ? raw.ids.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x) && x > 0)
+      : [],
+  };
+}
+
+function sanitizeRequestItem(raw: any): MusikweRequest | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = Number(raw.id || 0);
+  if (!id) return null;
+  return {
+    id,
+    tid: Number(raw.tid ?? raw.track_id ?? 0),
+    title: raw.title ? String(raw.title) : undefined,
+    artist: raw.artist ? String(raw.artist) : undefined,
+    cover_url: raw.cover_url ? String(raw.cover_url) : undefined,
+    youtube_id: raw.youtube_id ? String(raw.youtube_id) : undefined,
+    duration: raw.duration ? Number(raw.duration) : undefined,
+    by: String(raw.by ?? raw.requested_by ?? 'Pendengar'),
+    user_email: raw.user_email ? String(raw.user_email) : undefined,
+    v: Array.isArray(raw.v)
+      ? raw.v.map((name: any) => String(name || '')).filter(Boolean)
+      : [],
+    ts: Number(raw.ts || Date.now()),
+  };
+}
+
+function sanitizeRequestHistoryItem(raw: any): MusikweRequestHistory | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = Number(raw.id || 0);
+  if (!id) return null;
+  return {
+    id,
+    tid: Number(raw.tid ?? raw.track_id ?? 0),
+    title: String(raw.title || 'Tanpa Judul'),
+    artist: String(raw.artist || 'Artis'),
+    cover_url: raw.cover_url ? String(raw.cover_url) : undefined,
+    youtube_id: raw.youtube_id ? String(raw.youtube_id) : undefined,
+    duration: raw.duration ? Number(raw.duration) : undefined,
+    by: String(raw.by ?? raw.requested_by ?? 'Pendengar'),
+    user_email: raw.user_email ? String(raw.user_email) : undefined,
+    status: String(raw.status || 'played'),
+    ts: Number(raw.ts || Date.now()),
+  };
+}
+
+function sanitizeTodayHistoryItem(raw: any): MusikweTodayHistory | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = String(raw.title || '').trim();
+  if (!title) return null;
+  return {
+    id: Number(raw.id || Date.now()),
+    track_id: Number(raw.track_id ?? raw.tid ?? 0),
+    title,
+    artist: String(raw.artist || 'Artis Tidak Diketahui'),
+    cover_url: raw.cover_url ? String(raw.cover_url) : undefined,
+    youtube_id: raw.youtube_id ? String(raw.youtube_id) : undefined,
+    audio_url: raw.audio_url ? String(raw.audio_url) : undefined,
+    duration: Number(raw.duration || 200),
+    requested_by: raw.requested_by ? String(raw.requested_by) : undefined,
+    played_at: Number(raw.played_at || Date.now()),
+  };
+}
+
+function sanitizeArray<T>(raw: unknown, mapper: (item: any) => T | null): T[] {
+  if (!Array.isArray(raw)) return [];
+  const out: T[] = [];
+  for (const item of raw) {
+    const clean = mapper(item);
+    if (clean) out.push(clean);
+  }
+  return out;
 }
 
 function readPersistedSnapshot(): PersistedMusikweSnapshot {
@@ -112,9 +224,39 @@ function readPersistedSnapshot(): PersistedMusikweSnapshot {
     const raw = localStorage.getItem(MUSIKWE_PERSIST_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== 'object') return {};
-    return parsed as PersistedMusikweSnapshot;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      localStorage.removeItem(MUSIKWE_PERSIST_KEY);
+      return {};
+    }
+    const obj = parsed as Record<string, any>;
+    const cleanAdHoc = sanitizeTrackItem(obj.adHocTrack);
+    const cleanCurrent = sanitizeTrackItem(obj.currentTrack);
+    return {
+      tracks: sanitizeArray(obj.tracks, sanitizeTrackItem),
+      catalogTracks: sanitizeArray(obj.catalogTracks, sanitizeTrackItem),
+      albums: sanitizeArray(obj.albums, sanitizeAlbumItem),
+      playlists: sanitizeArray(obj.playlists, sanitizePlaylistItem),
+      requests: sanitizeArray(obj.requests, sanitizeRequestItem),
+      requestHistory: sanitizeArray(obj.requestHistory, sanitizeRequestHistoryItem),
+      todayHistory: sanitizeArray(obj.todayHistory, sanitizeTodayHistoryItem),
+      logoUrl: typeof obj.logoUrl === 'string' ? obj.logoUrl : '',
+      currentTrackId: Number.isFinite(Number(obj.currentTrackId)) ? Number(obj.currentTrackId) : 0,
+      adHocTrack: cleanAdHoc && cleanAdHoc.id !== 0 ? cleanAdHoc : null,
+      currentTrack: cleanCurrent && cleanCurrent.id !== 0 ? cleanCurrent : null,
+      progress: Number.isFinite(Number(obj.progress)) ? Number(obj.progress) : 0,
+      volume: Number.isFinite(Number(obj.volume)) ? Number(obj.volume) : 80,
+      shuffle: Boolean(obj.shuffle),
+      playerActivated: Boolean(obj.playerActivated),
+      miniPlayerDismissed: Boolean(obj.miniPlayerDismissed),
+      autoPlayQueue: typeof obj.autoPlayQueue === 'boolean' ? obj.autoPlayQueue : true,
+      savedAt: Number.isFinite(Number(obj.savedAt)) ? Number(obj.savedAt) : undefined,
+    };
   } catch {
+    try {
+      localStorage.removeItem(MUSIKWE_PERSIST_KEY);
+    } catch {
+      // ignore storage errors
+    }
     return {};
   }
 }
@@ -433,26 +575,51 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [isSuperAdmin]
   );
 
+  const safeTracks = useMemo(() => (Array.isArray(tracks) ? tracks.filter(Boolean) : []), [tracks]);
+  const safeCatalogTracks = useMemo(
+    () => (Array.isArray(catalogTracks) ? catalogTracks.filter(Boolean) : []),
+    [catalogTracks]
+  );
+  const safeAlbums = useMemo(() => (Array.isArray(albums) ? albums.filter(Boolean) : []), [albums]);
+  const safePlaylists = useMemo(
+    () => (Array.isArray(playlists) ? playlists.filter(Boolean) : []),
+    [playlists]
+  );
+  const safeRequests = useMemo(
+    () => (Array.isArray(requests) ? requests.filter(Boolean) : []),
+    [requests]
+  );
+  const safeRequestHistory = useMemo(
+    () => (Array.isArray(requestHistory) ? requestHistory.filter(Boolean) : []),
+    [requestHistory]
+  );
+  const safeTodayHistory = useMemo(
+    () => (Array.isArray(todayHistory) ? todayHistory.filter(Boolean) : []),
+    [todayHistory]
+  );
+
   const liveRadioTrack: MusikweTrack | null = useMemo(() => {
-    if (isSuperAdmin || !radioState || !radioState.title.trim()) return null;
+    const rTitle = String(radioState?.title || '').trim();
+    const rArtist = String(radioState?.artist || '').trim();
+    if (isSuperAdmin || !radioState || !rTitle) return null;
     const incomingYt = radioState.youtube_id || extractYoutubeId(radioState.audio_url);
-    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+    const pool = safeCatalogTracks.length > 0 ? safeCatalogTracks : safeTracks;
     const matchedLocal = pool.find(
       (t) =>
         (radioState.track_id > 0 && t.id === radioState.track_id) ||
         (Boolean(incomingYt) && t.youtube_id === incomingYt) ||
-        (t.t.trim().toLowerCase() === radioState.title.trim().toLowerCase() &&
-          t.a.trim().toLowerCase() === radioState.artist.trim().toLowerCase())
+        (String(t.t || '').trim().toLowerCase() === rTitle.toLowerCase() &&
+          String(t.a || '').trim().toLowerCase() === rArtist.toLowerCase())
     );
     const stableId =
       matchedLocal?.id ||
       hashSeedId(
-        `${radioState.track_id || 0}|${incomingYt || radioState.audio_url || radioState.title}|${radioState.artist}`
+        `${radioState.track_id || 0}|${incomingYt || radioState.audio_url || rTitle}|${rArtist}`
       );
     return {
       id: stableId,
-      t: radioState.title,
-      a: radioState.artist || 'Admin .MUSIKWE',
+      t: rTitle,
+      a: rArtist || 'Admin .MUSIKWE',
       album_name: matchedLocal?.album_name || '',
       d: radioState.duration || matchedLocal?.d || 200,
       h: matchedLocal?.h || 210,
@@ -464,7 +631,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         matchedLocal?.img ||
         (incomingYt ? `https://i.ytimg.com/vi/${incomingYt}/hqdefault.jpg` : ''),
     };
-  }, [isSuperAdmin, radioState, catalogTracks, tracks]);
+  }, [isSuperAdmin, radioState, safeCatalogTracks, safeTracks]);
 
   const findTrack = useCallback(
     (id?: number | null): MusikweTrack => {
@@ -481,32 +648,41 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       if (adHocTrack && id === adHocTrack.id) return adHocTrack;
       const hit =
-        tracks.find((t) => t.id === id) || catalogTracks.find((t) => t.id === id);
+        safeTracks.find((t) => t.id === id) || safeCatalogTracks.find((t) => t.id === id);
       if (hit) return hit;
-      if (tracks.length > 0) return tracks[0];
-      if (catalogTracks.length > 0) return catalogTracks[0];
+      if (safeTracks.length > 0) return safeTracks[0];
+      if (safeCatalogTracks.length > 0) return safeCatalogTracks[0];
       return liveRadioTrack || adHocTrack || fallbackTrack;
     },
-    [liveRadioTrack, radioState?.track_id, currentTrackId, adHocTrack, tracks, catalogTracks, fallbackTrack]
+    [
+      liveRadioTrack,
+      radioState?.track_id,
+      currentTrackId,
+      adHocTrack,
+      safeTracks,
+      safeCatalogTracks,
+      fallbackTrack,
+    ]
   );
 
   const resolveRequestTrack = useCallback(
     (rq: MusikweRequest): MusikweTrack => {
+      if (!rq || typeof rq !== 'object') return fallbackTrack;
       const hit =
         (rq.tid > 0 &&
-          (tracks.find((t) => t.id === rq.tid) ||
-            catalogTracks.find((t) => t.id === rq.tid))) ||
+          (safeTracks.find((t) => t.id === rq.tid) ||
+            safeCatalogTracks.find((t) => t.id === rq.tid))) ||
         (rq.youtube_id
-          ? tracks.find((t) => t.youtube_id === rq.youtube_id) ||
-            catalogTracks.find((t) => t.youtube_id === rq.youtube_id)
+          ? safeTracks.find((t) => t.youtube_id === rq.youtube_id) ||
+            safeCatalogTracks.find((t) => t.youtube_id === rq.youtube_id)
           : undefined);
       if (hit) return hit;
       if (rq.title) {
         return {
           id: rq.tid > 0 ? rq.tid : hashSeedId(`req_${rq.id}_${rq.title}`),
-          t: rq.title,
-          a: rq.artist || 'Artis Tidak Diketahui',
-          d: rq.duration || 200,
+          t: String(rq.title || 'Tanpa Judul'),
+          a: String(rq.artist || 'Artis Tidak Diketahui'),
+          d: Number(rq.duration) || 200,
           h: 210,
           url: '',
           youtube_id: rq.youtube_id || undefined,
@@ -518,7 +694,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return findTrack(rq.tid);
     },
-    [tracks, catalogTracks, findTrack]
+    [safeTracks, safeCatalogTracks, findTrack, fallbackTrack]
   );
 
   const currentTrack = useMemo(() => {
@@ -531,15 +707,20 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const hasActiveTrack = Boolean(currentTrack && currentTrack.id !== 0);
   const duration = currentTrack.d || 200;
   const isLiveBroadcastActive = Boolean(
-    !isSuperAdmin && radioState && radioState.title.trim()
+    !isSuperAdmin && radioState && String(radioState.title || '').trim()
   );
 
   const sortedRequests = useMemo(() => {
-    return [...requests].sort((a, b) => b.v.length - a.v.length || a.ts - b.ts);
-  }, [requests]);
+    return [...safeRequests].sort(
+      (a, b) =>
+        (Array.isArray(b?.v) ? b.v.length : 0) - (Array.isArray(a?.v) ? a.v.length : 0) ||
+        (Number(a?.ts) || 0) - (Number(b?.ts) || 0)
+    );
+  }, [safeRequests]);
 
   const autoNextCandidate = useMemo(() => {
     const eligibleReqs = sortedRequests.filter((rq) => {
+      if (!rq || !rq.id) return false;
       if (playedRequestIdsRef.current.has(rq.id)) return false;
       if (activeRequestId && rq.id === activeRequestId) return false;
       const resolved = resolveRequestTrack(rq);
@@ -554,14 +735,14 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
     }
 
-    const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+    const pool = safeCatalogTracks.length > 0 ? safeCatalogTracks : safeTracks;
     const curIdx = pool.findIndex((t) => isSameTrackIdentity(t, currentTrack));
     const orderedPool =
       curIdx >= 0 ? [...pool.slice(curIdx + 1), ...pool.slice(0, curIdx)] : pool;
     const nextCatalog = orderedPool.find(
       (t) =>
         !isSameTrackIdentity(t, currentTrack) &&
-        !isTrackPlayedInTodayHistory(t, todayHistory)
+        !isTrackPlayedInTodayHistory(t, safeTodayHistory)
     );
     if (!nextCatalog) return null;
     return {
@@ -573,9 +754,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     activeRequestId,
     resolveRequestTrack,
     currentTrack,
-    catalogTracks,
-    tracks,
-    todayHistory,
+    safeCatalogTracks,
+    safeTracks,
+    safeTodayHistory,
   ]);
 
   // Persistent audio & YouTube engine refs
@@ -722,84 +903,99 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!silent) showToast(res.message || 'Gagal memuat data .MUSIKWE.');
           return;
         }
-        const d = res.data;
-        setServerUser(d.user);
+        const d = res.data || ({} as any);
+        if (d.user && typeof d.user === 'object') {
+          setServerUser(d.user);
+        }
 
+        const nextTracksList = sanitizeArray(d.tracks, sanitizeTrackItem);
         if (Array.isArray(d.tracks)) {
-          setTracks(d.tracks);
+          setTracks(nextTracksList);
           if (!q.trim()) {
-            setCatalogTracks(d.tracks);
-          } else if (d.tracks.length > 0) {
+            setCatalogTracks(nextTracksList);
+          } else if (nextTracksList.length > 0) {
             setCatalogTracks((prev) => {
-              const byId = new Map(prev.map((t) => [t.id, t]));
-              d.tracks.forEach((t) => byId.set(t.id, t));
+              const safePrev = Array.isArray(prev) ? prev : [];
+              const byId = new Map(safePrev.map((t) => [t.id, t]));
+              nextTracksList.forEach((t) => byId.set(t.id, t));
               return Array.from(byId.values());
             });
           }
         }
 
         if (Array.isArray(d.albums)) {
-          setAlbums(d.albums);
+          setAlbums(sanitizeArray(d.albums, sanitizeAlbumItem));
         }
         if (Array.isArray(d.playlists)) {
-          setPlaylists(d.playlists);
+          setPlaylists(sanitizeArray(d.playlists, sanitizePlaylistItem));
         }
 
         if (Array.isArray(d.requests)) {
-          setRequests(d.requests.filter((r) => !playedRequestIdsRef.current.has(r.id)));
+          const cleanReqs = sanitizeArray(d.requests, sanitizeRequestItem);
+          setRequests(cleanReqs.filter((r) => !playedRequestIdsRef.current.has(r.id)));
         }
         if (Array.isArray(d.request_history)) {
+          const cleanHist = sanitizeArray(d.request_history, sanitizeRequestHistoryItem);
           setRequestHistory((prev) => {
-            const serverIds = new Set(d.request_history.map((h) => h.id));
-            const pendingLocalPlayed = prev.filter(
+            const safePrev = Array.isArray(prev) ? prev : [];
+            const serverIds = new Set(cleanHist.map((h) => h.id));
+            const pendingLocalPlayed = safePrev.filter(
               (h) => playedRequestIdsRef.current.has(h.id) && !serverIds.has(h.id)
             );
-            return [...pendingLocalPlayed, ...d.request_history];
+            return [...pendingLocalPlayed, ...cleanHist];
           });
         }
         if (Array.isArray(d.today_history)) {
+          const cleanToday = sanitizeArray(d.today_history, sanitizeTodayHistoryItem);
           const now = Date.now();
-          const recentLocal = recentLocalHistoryRef.current.filter(
+          const recentLocal = (Array.isArray(recentLocalHistoryRef.current)
+            ? recentLocalHistoryRef.current
+            : []
+          ).filter(
             (loc) =>
               loc.played_at > clearedTodayAtRef.current &&
               now - loc.played_at < 8000 &&
-              !d.today_history.some(
+              !cleanToday.some(
                 (srv) =>
                   (loc.track_id > 0 && srv.track_id === loc.track_id) ||
-                  (srv.title.trim().toLowerCase() === loc.title.trim().toLowerCase() &&
-                    srv.artist.trim().toLowerCase() === loc.artist.trim().toLowerCase())
+                  (String(srv.title || '').trim().toLowerCase() ===
+                    String(loc.title || '').trim().toLowerCase() &&
+                    String(srv.artist || '').trim().toLowerCase() ===
+                      String(loc.artist || '').trim().toLowerCase())
               )
           );
           recentLocalHistoryRef.current = recentLocal;
-          const mergedToday = [...recentLocal, ...d.today_history].sort(
+          const mergedToday = [...recentLocal, ...cleanToday].sort(
             (a, b) => b.played_at - a.played_at
           );
           todayHistoryRef.current = mergedToday;
           setTodayHistory(mergedToday);
         }
         setCommentsMap((prev) =>
-          d.comments && Object.keys(d.comments).length > 0 ? d.comments : prev
+          d.comments && typeof d.comments === 'object' && Object.keys(d.comments).length > 0
+            ? d.comments
+            : prev || {}
         );
 
         if (typeof d.logo_url === 'string') setLogoUrl(d.logo_url.trim());
         if (typeof d.has_youtube_key === 'boolean') {
           setHasYoutubeKey((prev) => prev || Boolean(d.has_youtube_key));
         }
-        if (!displayName.trim() && d.user.name && d.user.name !== 'Tamu') {
+        if (!displayName.trim() && d.user?.name && d.user.name !== 'Tamu') {
           setDisplayName(d.user.name);
         }
         if (!q.trim() && (isSuperAdminRef.current || !radioStateRef.current?.title)) {
           setCurrentTrackId((prev) => {
             if (prev < 0) return prev;
-            if (d.tracks.length === 0) return 0;
-            if (prev > 0 && d.tracks.some((x) => x.id === prev)) return prev;
-            return d.tracks[0].id;
+            if (nextTracksList.length === 0) return 0;
+            if (prev > 0 && nextTracksList.some((x) => x.id === prev)) return prev;
+            return nextTracksList[0].id;
           });
           setViewTrackId((prev) => {
             if (prev < 0) return prev;
-            if (d.tracks.length === 0) return 0;
-            if (prev > 0 && d.tracks.some((x) => x.id === prev)) return prev;
-            return d.tracks[0].id;
+            if (nextTracksList.length === 0) return 0;
+            if (prev > 0 && nextTracksList.some((x) => x.id === prev)) return prev;
+            return nextTracksList[0].id;
           });
         }
       } catch (err: any) {
@@ -1209,20 +1405,21 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const findMatchingLocalTrack = useCallback(
     (item: ExternalItunesItem | ExternalYoutubeItem): MusikweTrack | undefined => {
-      const pool = catalogTracks.length > 0 ? catalogTracks : tracks;
+      if (!item) return undefined;
+      const pool = safeCatalogTracks.length > 0 ? safeCatalogTracks : safeTracks;
       if (item.source === 'youtube') {
         const byYt = pool.find((t) => t.youtube_id === item.youtube_id);
         if (byYt) return byYt;
       }
-      const normTitle = item.title.trim().toLowerCase();
-      const normArtist = item.artist.trim().toLowerCase();
+      const normTitle = String(item.title || '').trim().toLowerCase();
+      const normArtist = String(item.artist || '').trim().toLowerCase();
       return pool.find(
         (t) =>
-          t.t.trim().toLowerCase() === normTitle &&
-          t.a.trim().toLowerCase() === normArtist
+          String(t.t || '').trim().toLowerCase() === normTitle &&
+          String(t.a || '').trim().toLowerCase() === normArtist
       );
     },
-    [catalogTracks, tracks]
+    [safeCatalogTracks, safeTracks]
   );
 
   const playExternalItem = useCallback(
@@ -1484,7 +1681,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   const findCurrentlyPlayingRequest = useCallback((): MusikweRequest | undefined => {
-    const curList = sortedRequestsRef.current;
+    const curList = Array.isArray(sortedRequestsRef.current) ? sortedRequestsRef.current : [];
     if (curList.length === 0) return undefined;
     if (activeRequestIdRef.current) {
       const byActive = curList.find((r) => r.id === activeRequestIdRef.current);
@@ -1498,8 +1695,8 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (cur.id > 0 && resolved.id === cur.id) return true;
       if (curYt && resolved.youtube_id && resolved.youtube_id === curYt) return true;
       return (
-        resolved.t.trim().toLowerCase() === cur.t.trim().toLowerCase() &&
-        resolved.a.trim().toLowerCase() === cur.a.trim().toLowerCase()
+        String(resolved.t || '').trim().toLowerCase() === String(cur.t || '').trim().toLowerCase() &&
+        String(resolved.a || '').trim().toLowerCase() === String(cur.a || '').trim().toLowerCase()
       );
     });
   }, [resolveRequestTrack]);
@@ -1910,10 +2107,12 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const purgeTrackLocally = useCallback(
     (trackId: number) => {
       if (!trackId) return;
-      const nextTracks = tracksRef.current.filter((t) => t.id !== trackId);
-      const nextCatalog = catalogTracksRef.current.filter((t) => t.id !== trackId);
-      const nextRequests = requests.filter((r) => r.tid !== trackId);
-      const nextHistory = requestHistory.filter((h) => h.tid !== trackId);
+      const curTracks = Array.isArray(tracksRef.current) ? tracksRef.current : [];
+      const curCatalog = Array.isArray(catalogTracksRef.current) ? catalogTracksRef.current : [];
+      const nextTracks = curTracks.filter((t) => t && t.id !== trackId);
+      const nextCatalog = curCatalog.filter((t) => t && t.id !== trackId);
+      const nextRequests = safeRequests.filter((r) => r && r.tid !== trackId);
+      const nextHistory = safeRequestHistory.filter((h) => h && h.tid !== trackId);
 
       setTracks(nextTracks);
       setCatalogTracks(nextCatalog);
@@ -1962,7 +2161,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
         savedAt: Date.now(),
       });
     },
-    [requests, requestHistory, stopPlayback, broadcastRadioState]
+    [safeRequests, safeRequestHistory, stopPlayback, broadcastRadioState]
   );
 
   const dismissMiniPlayer = useCallback(() => {
@@ -2134,7 +2333,9 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           autoPlayQueueRef.current = remote.auto_play_queue;
         }
 
-        if (!remote || !remote.title.trim()) {
+        const remoteTitle = String(remote?.title || '').trim();
+        const remoteArtist = String(remote?.artist || '').trim();
+        if (!remote || !remoteTitle) {
           setRadioState(null);
           radioStateRef.current = null;
           return;
@@ -2148,7 +2349,7 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           Boolean(prevRemote) &&
           (remote.youtube_id !== prevRemote?.youtube_id ||
             remote.audio_url !== prevRemote?.audio_url ||
-            remote.title.trim().toLowerCase() !== (prevRemote?.title || '').trim().toLowerCase());
+            remoteTitle.toLowerCase() !== String(prevRemote?.title || '').trim().toLowerCase());
 
         if (remoteChangedSong && remote.is_playing && miniPlayerDismissedRef.current) {
           setMiniPlayerDismissed(false);
@@ -2164,18 +2365,20 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
           (Boolean(incomingYt) && incomingYt !== currentYt) ||
           (!incomingYt &&
             (remote.audio_url !== (cur.url || '') ||
-              remote.title.trim().toLowerCase() !== cur.t.trim().toLowerCase()));
+              remoteTitle.toLowerCase() !== String(cur.t || '').trim().toLowerCase()));
 
         const shouldPlay = remote.is_playing && !miniPlayerDismissedRef.current;
 
         if (trackChanged) {
-          const pool = catalogTracksRef.current.length > 0 ? catalogTracksRef.current : tracksRef.current;
+          const curCatalog = Array.isArray(catalogTracksRef.current) ? catalogTracksRef.current : [];
+          const curTracks = Array.isArray(tracksRef.current) ? tracksRef.current : [];
+          const pool = curCatalog.length > 0 ? curCatalog : curTracks;
           const matchedLocal = pool.find(
             (t) =>
               (remote.track_id > 0 && t.id === remote.track_id) ||
               (Boolean(incomingYt) && t.youtube_id === incomingYt) ||
-              (t.t.trim().toLowerCase() === remote.title.trim().toLowerCase() &&
-                t.a.trim().toLowerCase() === remote.artist.trim().toLowerCase())
+              (String(t.t || '').trim().toLowerCase() === remoteTitle.toLowerCase() &&
+                String(t.a || '').trim().toLowerCase() === remoteArtist.toLowerCase())
           );
 
           const stableId =
@@ -2395,24 +2598,24 @@ export const MusikWeProvider: React.FC<{ children: React.ReactNode }> = ({ child
     who,
     authOpts,
 
-    tracks,
+    tracks: safeTracks,
     setTracks,
-    catalogTracks,
+    catalogTracks: safeCatalogTracks,
     setCatalogTracks,
-    albums,
+    albums: safeAlbums,
     setAlbums,
-    playlists,
+    playlists: safePlaylists,
     setPlaylists,
-    requests,
+    requests: safeRequests,
     setRequests,
-    requestHistory,
+    requestHistory: safeRequestHistory,
     setRequestHistory,
-    todayHistory,
+    todayHistory: safeTodayHistory,
     setTodayHistory,
     sortedRequests,
     queue: sortedRequests,
     autoNextCandidate,
-    commentsMap,
+    commentsMap: commentsMap && typeof commentsMap === 'object' ? commentsMap : {},
     serverUser,
     logoUrl,
     setLogoUrl,

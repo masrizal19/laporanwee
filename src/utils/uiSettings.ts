@@ -96,19 +96,23 @@ export const loadGoogleFont = (fonts: string[]) => {
 /**
  * Applies UI settings to CSS variables on :root
  */
-export const applyUISettingsToDocument = (settings: Partial<UISettings>) => {
+export const applyUISettingsToDocument = (settings: Partial<UISettings> | null | undefined) => {
   if (typeof document === 'undefined') return;
+  const safeSettings =
+    settings && typeof settings === 'object' && !Array.isArray(settings)
+      ? settings
+      : DEFAULT_UI_SETTINGS;
 
   const root = document.documentElement;
-  const primary = settings.primary_color || DEFAULT_UI_SETTINGS.primary_color;
-  const secondary = settings.secondary_color || DEFAULT_UI_SETTINGS.secondary_color;
-  const text = settings.text_color || DEFAULT_UI_SETTINGS.text_color;
-  const bg = settings.background_color || DEFAULT_UI_SETTINGS.background_color;
-  const fontFamily = settings.font_family || DEFAULT_UI_SETTINGS.font_family;
-  const headingFont = settings.heading_font || DEFAULT_UI_SETTINGS.heading_font;
-  const menuIconSize = settings.menu_icon_size ?? DEFAULT_UI_SETTINGS.menu_icon_size;
-  const menuIconStroke = settings.menu_icon_stroke ?? DEFAULT_UI_SETTINGS.menu_icon_stroke;
-  const signoutIconSize = settings.signout_icon_size ?? DEFAULT_UI_SETTINGS.signout_icon_size;
+  const primary = safeSettings.primary_color || DEFAULT_UI_SETTINGS.primary_color;
+  const secondary = safeSettings.secondary_color || DEFAULT_UI_SETTINGS.secondary_color;
+  const text = safeSettings.text_color || DEFAULT_UI_SETTINGS.text_color;
+  const bg = safeSettings.background_color || DEFAULT_UI_SETTINGS.background_color;
+  const fontFamily = safeSettings.font_family || DEFAULT_UI_SETTINGS.font_family;
+  const headingFont = safeSettings.heading_font || DEFAULT_UI_SETTINGS.heading_font;
+  const menuIconSize = safeSettings.menu_icon_size ?? DEFAULT_UI_SETTINGS.menu_icon_size;
+  const menuIconStroke = safeSettings.menu_icon_stroke ?? DEFAULT_UI_SETTINGS.menu_icon_stroke;
+  const signoutIconSize = safeSettings.signout_icon_size ?? DEFAULT_UI_SETTINGS.signout_icon_size;
 
   root.style.setProperty('--primary-color', primary);
   root.style.setProperty('--secondary-color', secondary);
@@ -330,12 +334,20 @@ export const fetchUISettings = async (
       const cached = localStorage.getItem('laporanwee_ui_settings');
       if (cached) {
         const parsed = JSON.parse(cached);
-        lastUISettingsResult = parsed;
-        lastUISettingsFetchAt = Date.now();
-        applyUISettingsToDocument(parsed);
-        return parsed;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const normalized = { ...DEFAULT_UI_SETTINGS, ...parsed };
+          lastUISettingsResult = normalized;
+          lastUISettingsFetchAt = Date.now();
+          applyUISettingsToDocument(normalized);
+          return normalized;
+        }
+        localStorage.removeItem('laporanwee_ui_settings');
       }
-    } catch (_) {}
+    } catch (_) {
+      try {
+        localStorage.removeItem('laporanwee_ui_settings');
+      } catch {}
+    }
 
     applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
     return DEFAULT_UI_SETTINGS;
@@ -481,15 +493,26 @@ export const UISettingsEngine = {
   applyCachedSettings() {
     try {
       const cached = localStorage.getItem('app_ui_settings');
-      const settings = cached ? JSON.parse(cached) : this.defaults;
+      const parsed = cached ? JSON.parse(cached) : null;
+      const settings =
+        parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+          ? parsed
+          : this.defaults;
+      if (cached && settings === this.defaults) {
+        localStorage.removeItem('app_ui_settings');
+      }
       this.applyToDOM(settings);
     } catch (_) {
+      try {
+        localStorage.removeItem('app_ui_settings');
+      } catch {}
       this.applyToDOM(this.defaults);
     }
   },
 
-  applyToDOM(s: any) {
+  applyToDOM(raw: any) {
     if (typeof document === 'undefined') return;
+    const s = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : this.defaults;
     const root = document.documentElement;
 
     const currentTheme =
@@ -565,9 +588,12 @@ export const UISettingsEngine = {
       knob.style.transform = theme === 'dark' ? 'translateX(36px)' : 'translateX(0)';
     }
 
-    let currentSettings = this.defaults;
+    let currentSettings = { ...this.defaults };
     try {
-      currentSettings = JSON.parse(localStorage.getItem('app_ui_settings') || '') || this.defaults;
+      const parsed = JSON.parse(localStorage.getItem('app_ui_settings') || '');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        currentSettings = { ...this.defaults, ...parsed };
+      }
     } catch (_) {}
     currentSettings.theme_mode = theme;
     localStorage.setItem('app_ui_settings', JSON.stringify(currentSettings));

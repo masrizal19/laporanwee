@@ -1060,7 +1060,10 @@ export const saveReportOverride = (id: string | number, payload: Record<string, 
 export const saveReportToCache = (report: Report) => {
   try {
     const raw = localStorage.getItem(REPORTS_CACHE_KEY);
-    const existing: Report[] = raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    const existing: Report[] = Array.isArray(parsed)
+      ? parsed.filter((r: any) => r && typeof r === 'object')
+      : [];
     const targetId = String(report.id).trim();
     const filtered = existing.filter((r) => String(r.id).trim() !== targetId);
     const updated = [report, ...filtered];
@@ -1076,12 +1079,19 @@ export const getCachedReports = (): Report[] => {
       localStorage.getItem('cache_daily_reports');
     if (!raw) return [];
     const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return [];
     const list = Array.isArray(parsed) ? parsed : (parsed.data || parsed.reports || []);
     if (Array.isArray(list) && list.length > 0) {
-      return list.map((item: any) => (item.task && item.status ? item : mapRawDailyReportToReport(item)));
+      return list
+        .filter((item: any) => item && typeof item === 'object')
+        .map((item: any) => (item.task && item.status ? item : mapRawDailyReportToReport(item)));
     }
     return [];
   } catch (_) {
+    try {
+      localStorage.removeItem('lw_reports_data_cache');
+      localStorage.removeItem(REPORTS_CACHE_KEY);
+    } catch {}
     return [];
   }
 };
