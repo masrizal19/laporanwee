@@ -347,9 +347,6 @@ function AppContent() {
       }
     }
     const cleanPath = path.replace(/\/+$/, '') || '/';
-    if (/^\/galeri-?berkas$/i.test(cleanPath) || /^\/galeri-?lampiran$/i.test(cleanPath)) {
-      return '/galeri-berkas';
-    }
     for (const validPath of validPaths) {
       if (cleanPath === validPath || cleanPath.endsWith(validPath)) {
         return validPath;
@@ -385,19 +382,12 @@ function AppContent() {
       const cached = localStorage.getItem('laporanwee_ui_settings');
       if (cached) {
         const parsed = JSON.parse(cached);
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          const normalized = { ...DEFAULT_UI_SETTINGS, ...parsed };
-          console.log('[APP INIT STAGE 3: Cached UI Settings Loaded]', (parsed as any)?.app_title || 'LaporanWee');
-          applyUISettingsToDocument(normalized);
-          return normalized;
-        }
-        localStorage.removeItem('laporanwee_ui_settings');
+        console.log('[APP INIT STAGE 3: Cached UI Settings Loaded]', parsed?.app_title || 'LaporanWee');
+        applyUISettingsToDocument(parsed);
+        return parsed;
       }
     } catch (err) {
       console.error('[APP INIT ERROR: Cached UI Settings]', err);
-      try {
-        localStorage.removeItem('laporanwee_ui_settings');
-      } catch {}
     }
     console.log('[APP INIT STAGE 3: Using Default UI Settings]');
     applyUISettingsToDocument(DEFAULT_UI_SETTINGS);
@@ -408,7 +398,7 @@ function AppContent() {
   useEffect(() => {
     fetchUISettings(user?.email)
       .then((data) => {
-        if (data && typeof data === 'object' && !Array.isArray(data)) {
+        if (data) {
           setUiSettings(data);
           applyUISettingsToDocument(data);
         }
@@ -419,7 +409,7 @@ function AppContent() {
   // Real-time SPA sync: Listen for custom events, storage updates, and tab visibility changes
   useEffect(() => {
     const handleSettingsUpdated = (e: any) => {
-      if (e.detail && typeof e.detail === 'object' && !Array.isArray(e.detail)) {
+      if (e.detail) {
         setUiSettings(e.detail);
         applyUISettingsToDocument(e.detail);
       }
@@ -428,11 +418,8 @@ function AppContent() {
       if (e.key === 'laporanwee_ui_settings' && e.newValue) {
         try {
           const parsed = JSON.parse(e.newValue);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            const normalized = { ...DEFAULT_UI_SETTINGS, ...parsed };
-            setUiSettings(normalized);
-            applyUISettingsToDocument(normalized);
-          }
+          setUiSettings(parsed);
+          applyUISettingsToDocument(parsed);
         } catch (_) {}
       }
     };
@@ -620,17 +607,11 @@ function AppContent() {
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [reports, setReports] = useState<Report[]>(() => {
-    const cached = dailyReportService.getCachedReports();
-    return Array.isArray(cached) ? cached : [];
-  });
+  const [reports, setReports] = useState<Report[]>(() => dailyReportService.getCachedReports());
   const reportsRef = useRef<Report[]>(reports);
-  reportsRef.current = Array.isArray(reports) ? reports : [];
+  reportsRef.current = reports;
   const loadedModulesAtRef = useRef<Record<string, number>>({});
-  const [activities, setActivities] = useState<Activity[]>(() => {
-    const cached = activityService.getCachedActivities();
-    return Array.isArray(cached) ? cached : [];
-  });
+  const [activities, setActivities] = useState<Activity[]>(() => activityService.getCachedActivities());
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | undefined>(undefined);
@@ -643,15 +624,10 @@ function AppContent() {
       const urlId = params.get('id') || params.get('reportId') || params.get('report_id');
       if (urlId) return urlId;
     }
-    try {
-      return localStorage.getItem('laporanwee_selected_report_id') || '';
-    } catch {
-      return '';
-    }
+    return localStorage.getItem('laporanwee_selected_report_id') || '';
   });
   const [isReportsLoading, setIsReportsLoading] = useState<boolean>(() => {
-    const cached = dailyReportService.getCachedReports();
-    return !Array.isArray(cached) || cached.length === 0;
+    return dailyReportService.getCachedReports().length === 0;
   });
   const [reportsError, setReportsError] = useState<{
     status?: number;
@@ -2008,19 +1984,10 @@ function AppContent() {
     navigateToPath(`/laporan/detail?id=${cleanId}`);
   };
 
-  const safeProjects = Array.isArray(projects) ? projects : [];
-  const safeTasks = Array.isArray(tasks) ? tasks : [];
-  const safeReports = Array.isArray(reports) ? reports : [];
-  const safeActivities = Array.isArray(activities) ? activities : [];
-  const safeEvents = Array.isArray(events) ? events : [];
-  const safeMembers = Array.isArray(members) ? members : [];
-  const safeToasts = Array.isArray(toasts) ? toasts : [];
-
   const currentProject =
-    safeProjects.find((p) => p && p.id === selectedProjectId) || safeProjects[0];
+    projects.find((p) => p.id === selectedProjectId) || projects[0];
   const currentReport =
-    safeReports.find((r) => r && String(r.id).trim() === String(selectedReportId).trim()) ||
-    safeReports[0];
+    reports.find((r) => String(r.id).trim() === String(selectedReportId).trim()) || reports[0];
 
   if (
     currentView === 'crop-setting' ||
@@ -2218,11 +2185,11 @@ function AppContent() {
         <Suspense fallback={<ViewLoadingFallback />}>
         {currentView === 'dashboard' && (
           <DashboardView
-            projects={safeProjects}
-            reports={safeReports}
-            members={safeMembers}
+            projects={projects}
+            reports={reports}
+            members={members}
             analytics={analytics}
-            tasksCount={safeTasks.length}
+            tasksCount={tasks.length}
             userName={user?.name || user?.full_name || 'Pengguna'}
             userEmail={user?.email || ''}
             onNavigate={handleNavigate}
@@ -2235,7 +2202,7 @@ function AppContent() {
 
         {currentView === 'projects' && (
           <ProjectsView
-            projects={safeProjects}
+            projects={projects}
             onNavigate={handleNavigate}
             onSelectProject={(id) => setSelectedProjectId(id)}
             onAddProject={handleAddProject}
@@ -2247,8 +2214,8 @@ function AppContent() {
         {currentView === 'project-detail' && currentProject && (
           <ProjectDetailView
             project={currentProject}
-            tasks={safeTasks}
-            reports={safeReports}
+            tasks={tasks}
+            reports={reports}
             onNavigate={handleNavigate}
             onSelectReport={handleSelectReport}
             onSelectUserProfile={handleSelectUserProfile}
@@ -2258,7 +2225,7 @@ function AppContent() {
 
         {currentView === 'reports' && (
           <ReportsView
-            reports={safeReports}
+            reports={reports}
             isLoading={isReportsLoading}
             isAdmin={isAdmin}
             currentUserEmail={user?.email || ''}
@@ -2275,8 +2242,8 @@ function AppContent() {
         {currentView === 'report-detail' && (
           <ReportDetailView
             reportId={selectedReportId}
-            initialReport={safeReports.find((r) => r && String(r.id).trim() === String(selectedReportId).trim())}
-            projects={safeProjects}
+            initialReport={reports.find((r) => String(r.id).trim() === String(selectedReportId).trim())}
+            projects={projects}
             userName={user?.name || user?.full_name || 'Pengguna'}
             userEmail={user?.email || ''}
             avatarUrl={(user as any)?.avatar_url}
@@ -2290,7 +2257,7 @@ function AppContent() {
 
         {currentView === 'create-report' && (
           <CreateReportView
-            projects={safeProjects}
+            projects={projects}
             userName={user?.name || user?.full_name || 'Pengguna'}
             userEmail={user?.email || ''}
             onNavigate={handleNavigate}
@@ -2302,10 +2269,10 @@ function AppContent() {
 
         {currentView === 'tasks' && (
           <TasksView
-            tasks={safeTasks}
-            projects={safeProjects}
-            members={safeMembers}
-            reports={safeReports}
+            tasks={tasks}
+            projects={projects}
+            members={members}
+            reports={reports}
             isAdmin={isAdmin}
             onAddTask={handleAddTask}
             onUpdateTask={handleUpdateTask}
@@ -2326,8 +2293,8 @@ function AppContent() {
 
         {currentView === 'team' && (
           <TeamView
-            activities={safeActivities}
-            members={safeMembers}
+            activities={activities}
+            members={members}
             isAdmin={isAdmin}
             onNavigate={handleNavigate}
             onAddToast={addToast}
@@ -2349,8 +2316,8 @@ function AppContent() {
 
         {currentView === 'calendar' && (
           <CalendarView
-            events={safeEvents}
-            members={safeMembers}
+            events={events}
+            members={members}
             isAdmin={isAdmin}
             userEmail={user?.email || ''}
             onAddEvent={handleAddEvent}
@@ -2462,7 +2429,7 @@ function AppContent() {
       />
 
       {/* Global Toast Stack */}
-      <ToastContainer toasts={safeToasts} />
+      <ToastContainer toasts={toasts} />
     </div>
   );
 }

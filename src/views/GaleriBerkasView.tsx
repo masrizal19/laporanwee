@@ -58,50 +58,45 @@ function getDisplayFileName(item: Partial<FileItem>): string {
 }
 
 function normalizeFileItems(rawList: any[]): FileItem[] {
-  if (!Array.isArray(rawList)) return [];
-  return rawList
-    .filter((f: any) => f && typeof f === 'object')
-    .map((f: any, idx: number) => {
-      const originalName = f.original_name ? String(f.original_name).trim() : undefined;
-      const titleVal = f.title ? String(f.title).trim() : undefined;
-      const nameVal = f.name ? String(f.name).trim() : undefined;
-      const rawN = f.n ? String(f.n).trim() : undefined;
-      const displayName = originalName || titleVal || nameVal || rawN || 'Berkas';
+  return rawList.map((f: any, idx: number) => {
+    const originalName = f.original_name ? String(f.original_name).trim() : undefined;
+    const titleVal = f.title ? String(f.title).trim() : undefined;
+    const nameVal = f.name ? String(f.name).trim() : undefined;
+    const rawN = f.n ? String(f.n).trim() : undefined;
+    const displayName = originalName || titleVal || nameVal || rawN || 'Berkas';
 
-      const extSource = String(originalName || nameVal || rawN || f.src || f.url || displayName)
-        .split('?')[0];
-      const ext = (extSource.split('.').pop() || '').toLowerCase();
-      let type: 'Gambar' | 'Video' | 'Dokumen' = 'Dokumen';
-      if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(ext)) {
-        type = 'Gambar';
-      } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) {
-        type = 'Video';
-      } else if (f.t === 'Gambar' || f.t === 'Video' || f.t === 'Dokumen') {
-        type = f.t;
-      }
+    const extSource = String(originalName || nameVal || rawN || f.src || f.url || displayName)
+      .split('?')[0];
+    const ext = (extSource.split('.').pop() || '').toLowerCase();
+    let type: 'Gambar' | 'Video' | 'Dokumen' = 'Dokumen';
+    if (['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif', 'svg'].includes(ext)) {
+      type = 'Gambar';
+    } else if (['mp4', 'mov', 'webm', 'mkv', 'avi'].includes(ext)) {
+      type = 'Video';
+    } else if (f.t === 'Gambar' || f.t === 'Video' || f.t === 'Dokumen') {
+      type = f.t;
+    }
 
-      const rawPalette = Array.isArray(f.c) && f.c.length >= 2 ? f.c : null;
-
-      return {
-        id: Number(f.id ?? f.file_id ?? f.berkas_id ?? 0),
-        n: displayName,
-        original_name: originalName,
-        title: titleVal,
-        name: nameVal,
-        s:
-          f.s ||
-          f.size_formatted ||
-          (f.size
-            ? f.size > 1048576
-              ? `${(f.size / 1048576).toFixed(1)} MB`
-              : `${Math.round(f.size / 1024)} KB`
-            : '1.0 MB'),
-        t: type,
-        src: f.src || f.url || '',
-        c: rawPalette ? [String(rawPalette[0]), String(rawPalette[1])] : PALETTE[idx % PALETTE.length],
-        deleted_at: f.deleted_at ? String(f.deleted_at) : undefined,
-      };
-    });
+    return {
+      id: Number(f.id ?? f.file_id ?? f.berkas_id ?? 0),
+      n: displayName,
+      original_name: originalName,
+      title: titleVal,
+      name: nameVal,
+      s:
+        f.s ||
+        f.size_formatted ||
+        (f.size
+          ? f.size > 1048576
+            ? `${(f.size / 1048576).toFixed(1)} MB`
+            : `${Math.round(f.size / 1024)} KB`
+          : '1.0 MB'),
+      t: type,
+      src: f.src || f.url || '',
+      c: f.c && Array.isArray(f.c) ? f.c : PALETTE[idx % PALETTE.length],
+      deleted_at: f.deleted_at ? String(f.deleted_at) : undefined,
+    };
+  });
 }
 
 function sendUploadXhr(
@@ -278,36 +273,30 @@ export const GaleriBerkasView: React.FC = () => {
     }
   }, [activeTab, loadDeletedFiles]);
 
-  const safeFiles = useMemo(() => (Array.isArray(files) ? files : []), [files]);
-  const safeDeletedFiles = useMemo(
-    () => (Array.isArray(deletedFiles) ? deletedFiles : []),
-    [deletedFiles]
-  );
-
   // 2. Tab Filter & Hitung Counter Dinamis
   const tabs = ['Semua', 'Gambar', 'Video', 'Dokumen', 'Sampah'];
   const counts = useMemo(() => {
     const c: Record<string, number> = {
-      Semua: safeFiles.length,
+      Semua: files.length,
       Gambar: 0,
       Video: 0,
       Dokumen: 0,
-      Sampah: safeDeletedFiles.length,
+      Sampah: deletedFiles.length,
     };
-    for (const f of safeFiles) {
-      if (f && c[f.t] !== undefined) c[f.t]++;
+    for (const f of files) {
+      if (c[f.t] !== undefined) c[f.t]++;
     }
     return c;
-  }, [safeFiles, safeDeletedFiles.length]);
+  }, [files, deletedFiles.length]);
 
   const filteredList = useMemo(() => {
-    if (activeTab === 'Sampah') return safeDeletedFiles;
-    if (activeTab === 'Semua') return safeFiles;
-    return safeFiles.filter((f) => f && f.t === activeTab);
-  }, [safeFiles, safeDeletedFiles, activeTab]);
+    if (activeTab === 'Sampah') return deletedFiles;
+    if (activeTab === 'Semua') return files;
+    return files.filter(f => f.t === activeTab);
+  }, [files, deletedFiles, activeTab]);
 
   const selectableIds = useMemo(
-    () => (Array.isArray(filteredList) ? filteredList : []).map((f) => f?.id || 0).filter((id) => id > 0),
+    () => filteredList.map((f) => f.id).filter((id) => id > 0),
     [filteredList]
   );
 
@@ -586,11 +575,10 @@ export const GaleriBerkasView: React.FC = () => {
     }
   };
 
-  const safeFilteredList = Array.isArray(filteredList) ? filteredList : [];
-  const featItem = safeFilteredList[0];
-  const gridItems = useMemo(() => safeFilteredList.slice(1), [safeFilteredList]);
+  const featItem = filteredList[0];
+  const gridItems = filteredList.slice(1);
   const visibleGridItems = useMemo(
-    () => (Array.isArray(gridItems) ? gridItems.slice(0, visibleGridCount) : []),
+    () => gridItems.slice(0, visibleGridCount),
     [gridItems, visibleGridCount]
   );
   const remainingCount = Math.max(0, gridItems.length - visibleGridItems.length);
@@ -1440,12 +1428,7 @@ export const GaleriBerkasView: React.FC = () => {
             {!selectedFile.src && selectedFile.t === 'Gambar' && (
               <div
                 className="w-[380px] h-[280px] rounded-2xl flex items-center justify-center text-white"
-                style={{
-                  background:
-                    Array.isArray(selectedFile.c) && selectedFile.c.length >= 2
-                      ? `linear-gradient(145deg, ${selectedFile.c[0]}, ${selectedFile.c[1]})`
-                      : '#14502e',
-                }}
+                style={{ background: `linear-gradient(145deg, ${selectedFile.c[0]}, ${selectedFile.c[1]})` }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" className="w-16 h-16 opacity-90">
                   <rect x="3" y="4" width="18" height="16" rx="3" />
@@ -1467,12 +1450,7 @@ export const GaleriBerkasView: React.FC = () => {
             {!selectedFile.src && selectedFile.t === 'Video' && (
               <div
                 className="w-[380px] h-[280px] rounded-2xl flex items-center justify-center text-white"
-                style={{
-                  background:
-                    Array.isArray(selectedFile.c) && selectedFile.c.length >= 2
-                      ? `linear-gradient(145deg, ${selectedFile.c[0]}, ${selectedFile.c[1]})`
-                      : '#14502e',
-                }}
+                style={{ background: `linear-gradient(145deg, ${selectedFile.c[0]}, ${selectedFile.c[1]})` }}
               >
                 <svg viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.6" className="w-16 h-16 opacity-90">
                   <rect x="3" y="5" width="18" height="14" rx="3" />
